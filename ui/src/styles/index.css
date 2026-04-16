@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand-purple: #8b5cf6;
+    --text-primary: #111827;
+    --text-secondary: #475569;
+    --text-tertiary: #64748b;
+    --surface-primary: #ffffff;
+    --surface-secondary: #f8fafc;
+    --surface-tertiary: #e2e8f0;
+    --surface-active: #e0f2fe;
+    --surface-hover: rgba(15, 23, 42, 0.04);
+    --surface-submit: #0f766e;
+    --surface-submit-hover: #115e59;
+    --surface-destructive: #dc2626;
+    --surface-destructive-hover: #b91c1c;
+    --border-light: #cbd5e1;
+    --border-medium: #94a3b8;
+    --border-heavy: #64748b;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'DM Sans', 'Inter', sans-serif;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--surface-secondary);
+    color: var(--text-primary);
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  code,
+  pre {
+    font-family: 'Roboto Mono', monospace;
+  }
+}
+
+@layer components {
+  .cm-editor {
+    font-size: 14px;
+  }
+
+  .cm-editor .cm-scroller {
+    overflow: auto;
+  }
+}
