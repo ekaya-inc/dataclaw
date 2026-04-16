@@ -1,0 +1,48 @@
+name: Build Main
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.25"
+  NODE_VERSION: "24"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          cd ui && npm ci
+
+      - name: Run repository checks
+        run: make check
+
+      - name: Upload main binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataclaw-${{ github.sha }}-linux-amd64
+          path: bin/dataclaw
+          if-no-files-found: error
+

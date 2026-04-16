@@ -1,7 +1,12 @@
 .DEFAULT_GOAL := none
 SHELL := /bin/sh
 
-.PHONY: none check run dev dev-ui
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BINARY_NAME := dataclaw
+BINARY_PATH := bin/$(BINARY_NAME)
+EMBEDDED_UI_DIR := internal/uifs/dist
+
+.PHONY: none build-ui build-binary build check run dev dev-ui
 
 none: ## Show available targets
 	@echo "DataClaw"
@@ -10,6 +15,29 @@ none: ## Show available targets
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
+
+build-ui: ## Build ui/dist and refresh the embedded UI bundle
+	@set -eu; \
+	if [ ! -d ui/node_modules ]; then \
+		echo "Installing UI dependencies..."; \
+		npm --prefix ui install; \
+	fi; \
+	echo "Building embedded UI..."; \
+	npm --prefix ui run build; \
+	rm -rf "$(EMBEDDED_UI_DIR)"; \
+	mkdir -p "$(EMBEDDED_UI_DIR)"; \
+	cp -R ui/dist/. "$(EMBEDDED_UI_DIR)/"; \
+	printf '%s\n%s\n' \
+		'Placeholder so `//go:embed all:dist` resolves when no UI bundle has been built yet.' \
+		'Run `make run` (or `make dev` + `make dev-ui`) to populate this directory.' \
+		> "$(EMBEDDED_UI_DIR)/.gitkeep"
+
+build-binary: ## Build the dataclaw binary to bin/dataclaw
+	@set -eu; \
+	mkdir -p "$(dir $(BINARY_PATH))"; \
+	go build -trimpath -ldflags="-X main.Version=$(VERSION)" -o "$(BINARY_PATH)" .
+
+build: build-ui build-binary ## Build the embedded UI and local binary
 
 check: ## Run quiet backend and UI verification
 	@set -eu; \
@@ -58,13 +86,13 @@ check: ## Run quiet backend and UI verification
 			echo "$$unformatted"; \
 			exit 1; \
 		fi'; \
-	run_step "go test" go test ./...; \
-	run_step "go build" go build ./...; \
 	run_step "ui deps" sh -c 'test -d ui/node_modules || npm --prefix ui install'; \
 	run_step "ui lint" npm --prefix ui run lint; \
 	run_step "ui typecheck" npm --prefix ui run typecheck; \
 	run_step "ui test" npm --prefix ui test -- --run; \
-	run_step "ui build" npm --prefix ui run build; \
+	run_step "ui build" $(MAKE) build-ui; \
+	run_step "go test" go test ./...; \
+	run_step "go build" $(MAKE) build-binary; \
 	echo ""; \
 	echo "All checks passed."
 
@@ -86,14 +114,7 @@ run: ## Rebuild embedded assets if needed, then start the server
 		done; \
 	fi; \
 	if [ "$$needs_ui_build" -eq 1 ]; then \
-		if [ ! -d ui/node_modules ]; then \
-			echo "Installing UI dependencies..."; \
-			npm --prefix ui install; \
-		fi; \
-		echo "Building embedded UI..."; \
-		npm --prefix ui run build; \
-		rm -rf internal/uifs/dist; \
-		cp -R ui/dist internal/uifs/; \
+		$(MAKE) build-ui; \
 	fi; \
 	echo "Starting DataClaw..."; \
 	exec go run .

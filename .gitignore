@@ -28,6 +28,10 @@ go.work.sum
 # env file
 .env
 
+# Build artifacts
+bin/
+dist/
+
 # Built UI bundles — rebuild locally with `make run`, never committed
 internal/uifs/dist/*
 !internal/uifs/dist/.gitkeep
@@ -37,5 +41,4 @@ ui/dist/
 # .idea/
 # .vscode/
 .omx/
-
 
