@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -10,7 +10,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof ReactRouterDom>('react-router-dom');
   return {
     ...actual,
-    useOutletContext: () => ({ refresh: vi.fn(async () => undefined), markAgentRevealed: vi.fn() }),
+    useOutletContext: () => ({ refresh: vi.fn(async () => undefined), markAgentRevealed: vi.fn(), resetAgentRevealed: vi.fn() }),
   };
 });
 
@@ -125,5 +125,58 @@ describe('DatasourcePage', () => {
     await userEvent.tab();
 
     await waitFor(() => expect(screen.getByText(/display name updated/i)).toBeInTheDocument());
+  });
+
+  it('requires typed confirmation before disconnecting the datasource', async () => {
+    let deleteCalled = false;
+    const fetchMock = vi.spyOn(global, 'fetch');
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource' && !init?.method) {
+        return response({
+          datasource: {
+            id: 'ds_1',
+            type: 'postgres',
+            provider: 'postgres',
+            display_name: 'dataclaw',
+            host: 'db.example.com',
+            port: 5432,
+            name: 'warehouse',
+            user: 'analyst',
+            password: 'secret',
+            ssl_mode: 'require',
+          },
+        });
+      }
+      if (url === '/api/datasource' && init?.method === 'DELETE') {
+        deleteCalled = true;
+        return response({ deleted: true });
+      }
+      throw new Error(`Unhandled request: ${String(url)}`);
+    });
+
+    render(<DatasourcePage />);
+
+    const openDialog = await screen.findByRole('button', { name: /disconnect datasource/i });
+    await userEvent.click(openDialog);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/clears all saved approved queries/i);
+
+    const confirmInput = within(dialog).getByLabelText(/type disconnect datasource to confirm/i);
+    const dialogConfirmButton = within(dialog).getByRole('button', { name: /disconnect datasource/i });
+    expect(dialogConfirmButton).toBeDisabled();
+
+    await userEvent.type(confirmInput, 'wrong text');
+    expect(dialogConfirmButton).toBeDisabled();
+    expect(deleteCalled).toBe(false);
+
+    await userEvent.clear(confirmInput);
+    await userEvent.type(confirmInput, 'disconnect datasource');
+    expect(dialogConfirmButton).toBeEnabled();
+
+    await userEvent.click(dialogConfirmButton);
+    await waitFor(() => expect(deleteCalled).toBe(true));
+    await waitFor(() => expect(screen.getByText(/datasource disconnected/i)).toBeInTheDocument());
   });
 });

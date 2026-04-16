@@ -1,4 +1,4 @@
-import { Pencil, Save, TestTube2, Trash2 } from 'lucide-react';
+import { Pencil, Save, TestTube2, Unplug } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
@@ -40,15 +40,6 @@ const CONNECTION_FIELDS: ReadonlySet<keyof DatasourceFormValues> = new Set([
   'trustServerCertificate',
 ]);
 
-function FieldLabel({ htmlFor, children, locked = false }: { htmlFor: string; children: string; locked?: boolean }): JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      <Label htmlFor={htmlFor}>{children}</Label>
-      {locked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
-    </div>
-  );
-}
-
 function toFormValues(datasource: DatasourceRecord): DatasourceFormValues {
   return {
     type: datasource.type,
@@ -65,16 +56,23 @@ function toFormValues(datasource: DatasourceRecord): DatasourceFormValues {
   };
 }
 
+const DISCONNECT_CONFIRMATION = 'disconnect datasource';
+
 export default function DatasourcePage(): JSX.Element {
-  const { refresh } = useOutletContext<AppOutletContext>();
+  const { refresh, resetAgentRevealed } = useOutletContext<AppOutletContext>();
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [formValues, setFormValues] = useState<DatasourceFormValues>(DEFAULT_VALUES);
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | 'deleting' | null>('loading');
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'danger'; message: string } | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [testPassed, setTestPassed] = useState(false);
+  const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const [disconnectConfirmText, setDisconnectConfirmText] = useState('');
   const connectionLocked = datasource !== null;
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const disconnectInputRef = useRef<HTMLInputElement>(null);
+
+  const disconnectConfirmed = disconnectConfirmText.trim().toLowerCase() === DISCONNECT_CONFIRMATION;
 
   const providerOptions = useMemo(
     () => PROVIDERS.filter((provider) => provider.adapter === formValues.type),
@@ -114,6 +112,12 @@ export default function DatasourcePage(): JSX.Element {
     nameInputRef.current?.focus();
     nameInputRef.current?.select();
   }, [isEditingName]);
+
+  useEffect(() => {
+    if (!showDisconnectDialog) return;
+    setDisconnectConfirmText('');
+    disconnectInputRef.current?.focus();
+  }, [showDisconnectDialog]);
 
   const updateField = <K extends keyof DatasourceFormValues>(field: K, value: DatasourceFormValues[K]): void => {
     if (CONNECTION_FIELDS.has(field)) {
@@ -189,7 +193,8 @@ export default function DatasourcePage(): JSX.Element {
     }
   };
 
-  const handleDelete = async (): Promise<void> => {
+  const handleDisconnect = async (): Promise<void> => {
+    if (!disconnectConfirmed) return;
     setBusy('deleting');
     setFeedback(null);
     try {
@@ -198,10 +203,13 @@ export default function DatasourcePage(): JSX.Element {
       setFormValues(DEFAULT_VALUES);
       setIsEditingName(false);
       setTestPassed(false);
-      setFeedback({ tone: 'success', message: 'Datasource removed.' });
+      setShowDisconnectDialog(false);
+      setDisconnectConfirmText('');
+      resetAgentRevealed();
+      setFeedback({ tone: 'success', message: 'Datasource disconnected. Saved queries and the agent key have been cleared.' });
       void refresh();
     } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to delete datasource.' });
+      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to disconnect datasource.' });
     } finally {
       setBusy(null);
     }
@@ -265,7 +273,7 @@ export default function DatasourcePage(): JSX.Element {
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div>
-              <FieldLabel htmlFor="provider" locked={connectionLocked}>Datasource Type</FieldLabel>
+              <Label htmlFor="provider">Datasource Type</Label>
               <select
                 id="provider"
                 className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary disabled:cursor-default disabled:bg-surface-secondary disabled:text-text-secondary disabled:opacity-100"
@@ -282,27 +290,27 @@ export default function DatasourcePage(): JSX.Element {
               {providerHelper ? <p className="mt-2 text-xs text-text-tertiary">{providerHelper}</p> : null}
             </div>
             <div>
-              <FieldLabel htmlFor="database" locked={connectionLocked}>Database Name</FieldLabel>
+              <Label htmlFor="database">Database Name</Label>
               <Input id="database" className="mt-2" value={formValues.database} readOnly={connectionLocked} onChange={(event) => updateField('database', event.target.value)} />
             </div>
             <div>
-              <FieldLabel htmlFor="host" locked={connectionLocked}>Host</FieldLabel>
+              <Label htmlFor="host">Host</Label>
               <Input id="host" className="mt-2" value={formValues.host} readOnly={connectionLocked} onChange={(event) => updateField('host', event.target.value)} placeholder="db.example.com" />
             </div>
             <div>
-              <FieldLabel htmlFor="port" locked={connectionLocked}>Port</FieldLabel>
+              <Label htmlFor="port">Port</Label>
               <Input id="port" className="mt-2" value={formValues.port} readOnly={connectionLocked} onChange={(event) => updateField('port', event.target.value)} />
             </div>
             <div>
-              <FieldLabel htmlFor="username" locked={connectionLocked}>Username</FieldLabel>
+              <Label htmlFor="username">Username</Label>
               <Input id="username" className="mt-2" value={formValues.username} readOnly={connectionLocked} onChange={(event) => updateField('username', event.target.value)} />
             </div>
             <div>
-              <FieldLabel htmlFor="password" locked={connectionLocked}>Password</FieldLabel>
+              <Label htmlFor="password">Password</Label>
               <Input id="password" className="mt-2" type="password" value={formValues.password} readOnly={connectionLocked} onChange={(event) => updateField('password', event.target.value)} />
             </div>
             <div>
-              <FieldLabel htmlFor="ssl-mode" locked={connectionLocked}>SSL mode</FieldLabel>
+              <Label htmlFor="ssl-mode">SSL mode</Label>
               <select
                 id="ssl-mode"
                 className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary disabled:cursor-default disabled:bg-surface-secondary disabled:text-text-secondary disabled:opacity-100"
@@ -322,7 +330,6 @@ export default function DatasourcePage(): JSX.Element {
                 <label className="mt-8 flex items-center gap-2 text-sm text-text-secondary">
                   <input type="checkbox" checked={formValues.encrypt} disabled={connectionLocked} onChange={(event) => updateField('encrypt', event.target.checked)} />
                   Encrypt connection
-                  {connectionLocked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
                 </label>
                 <label className="mt-8 flex items-center gap-2 text-sm text-text-secondary">
                   <input
@@ -332,7 +339,6 @@ export default function DatasourcePage(): JSX.Element {
                     onChange={(event) => updateField('trustServerCertificate', event.target.checked)}
                   />
                   Trust server certificate
-                  {connectionLocked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
                 </label>
               </>
             ) : null}
@@ -350,9 +356,9 @@ export default function DatasourcePage(): JSX.Element {
                 </Button>
               ) : null}
               {datasource ? (
-                <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={busy !== null}>
-                  <Trash2 className="h-4 w-4" />
-                  Remove datasource
+                <Button type="button" variant="destructive" onClick={() => setShowDisconnectDialog(true)} disabled={busy !== null}>
+                  <Unplug className="h-4 w-4" />
+                  Disconnect datasource
                 </Button>
               ) : null}
             </div>
@@ -363,6 +369,70 @@ export default function DatasourcePage(): JSX.Element {
           {feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
         </CardContent>
       </Card>
+      {showDisconnectDialog ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="disconnect-title"
+          className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/60 p-4"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setShowDisconnectDialog(false);
+              setDisconnectConfirmText('');
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-surface-primary p-6 shadow-xl">
+            <h2 id="disconnect-title" className="text-lg font-semibold text-text-primary">
+              Disconnect datasource?
+            </h2>
+            <p className="mt-3 text-sm text-text-secondary">
+              This removes the datasource and clears all saved approved queries. The agent API key is also rotated, so anything currently connected with the old key will lose access.
+            </p>
+            <p className="mt-4 text-sm text-text-secondary">
+              Type <code className="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[12px] text-text-primary">{DISCONNECT_CONFIRMATION}</code> to confirm.
+            </p>
+            <Input
+              ref={disconnectInputRef}
+              id="disconnect-confirm"
+              aria-label="Type disconnect datasource to confirm"
+              className="mt-3"
+              value={disconnectConfirmText}
+              onChange={(event) => setDisconnectConfirmText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && disconnectConfirmed && busy === null) {
+                  event.preventDefault();
+                  void handleDisconnect();
+                }
+              }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowDisconnectDialog(false);
+                  setDisconnectConfirmText('');
+                }}
+                disabled={busy !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void handleDisconnect()}
+                disabled={!disconnectConfirmed || busy !== null}
+              >
+                <Unplug className="h-4 w-4" />
+                Disconnect datasource
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

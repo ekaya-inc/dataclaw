@@ -21,6 +21,7 @@ function readAgentRevealed(): boolean {
 export interface AppOutletContext {
   refresh: () => Promise<void>;
   markAgentRevealed: () => void;
+  resetAgentRevealed: () => void;
 }
 
 export default function App(): JSX.Element {
@@ -57,13 +58,22 @@ export default function App(): JSX.Element {
     setAgentRevealed(true);
   }, []);
 
+  const resetAgentRevealed = useCallback((): void => {
+    try {
+      localStorage.removeItem(AGENT_REVEALED_STORAGE_KEY);
+    } catch {
+      // ignore storage failures — completion marker is best-effort
+    }
+    setAgentRevealed(false);
+  }, []);
+
   const completion = {
     datasource: Boolean(status?.datasourceConfigured),
     queries: queryCount > 0,
     agent: agentRevealed,
   };
 
-  const outletContext: AppOutletContext = { refresh, markAgentRevealed };
+  const outletContext: AppOutletContext = { refresh, markAgentRevealed, resetAgentRevealed };
 
   return (
     <BrowserRouter>

@@ -112,6 +112,11 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 }
 
 func (s *Service) DeleteDatasource(ctx context.Context) error {
+	// Rotate the agent API key so previously-configured agents lose access.
+	if _, err := s.RotateOpenClawKey(ctx); err != nil {
+		return err
+	}
+	// Approved queries cascade-delete via the FK on approved_queries.datasource_id.
 	if err := s.store.DeleteDatasource(ctx); err != nil {
 		return err
 	}

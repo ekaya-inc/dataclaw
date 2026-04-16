@@ -10,7 +10,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof ReactRouterDom>('react-router-dom');
   return {
     ...actual,
-    useOutletContext: () => ({ refresh: vi.fn(async () => undefined), markAgentRevealed: vi.fn() }),
+    useOutletContext: () => ({ refresh: vi.fn(async () => undefined), markAgentRevealed: vi.fn(), resetAgentRevealed: vi.fn() }),
   };
 });
 
