@@ -1,0 +1,404 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/ekaya-inc/dataclaw/internal/core"
+	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
+)
+
+type API struct {
+	service *core.Service
+}
+
+func New(service *core.Service) *API { return &API{service: service} }
+
+func (a *API) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/status", a.handleStatus)
+	mux.HandleFunc("GET /api/datasource", a.handleGetDatasource)
+	mux.HandleFunc("PUT /api/datasource", a.handlePutDatasource)
+	mux.HandleFunc("DELETE /api/datasource", a.handleDeleteDatasource)
+	mux.HandleFunc("POST /api/datasource/test", a.handleTestDatasource)
+	mux.HandleFunc("GET /api/queries", a.handleListQueries)
+	mux.HandleFunc("POST /api/queries", a.handleCreateQuery)
+	mux.HandleFunc("POST /api/queries/test", a.handleTestQuery)
+	mux.HandleFunc("POST /api/queries/validate", a.handleValidateQuery)
+	mux.HandleFunc("GET /api/queries/", a.handleQueryByID)
+	mux.HandleFunc("PUT /api/queries/", a.handleQueryByID)
+	mux.HandleFunc("DELETE /api/queries/", a.handleQueryByID)
+	mux.HandleFunc("POST /api/queries/", a.handleQueryByID)
+	mux.HandleFunc("GET /api/openclaw", a.handleOpenClaw)
+	mux.HandleFunc("POST /api/openclaw/rotate-key", a.handleRotateOpenClawKey)
+}
+
+type response struct {
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type datasourceRequest struct {
+	Name        string         `json:"name"`
+	DisplayName string         `json:"display_name"`
+	Type        string         `json:"type"`
+	Provider    string         `json:"provider,omitempty"`
+	Config      map[string]any `json:"config"`
+	Host        string         `json:"host"`
+	Port        any            `json:"port"`
+	User        string         `json:"user"`
+	Username    string         `json:"username"`
+	Password    string         `json:"password"`
+	SSLMode     string         `json:"ssl_mode"`
+	Options     map[string]any `json:"options"`
+}
+
+type queryRequest struct {
+	Name        string                  `json:"name"`
+	Description string                  `json:"description"`
+	SQLQuery    string                  `json:"sql_query"`
+	SQL         string                  `json:"sql"`
+	Parameters  []models.QueryParameter `json:"parameters,omitempty"`
+	IsEnabled   *bool                   `json:"is_enabled,omitempty"`
+}
+
+type executeRequest struct {
+	Parameters map[string]any `json:"parameters,omitempty"`
+	Limit      int            `json:"limit,omitempty"`
+}
+
+type validateRequest struct {
+	SQLQuery   string                  `json:"sql_query"`
+	SQL        string                  `json:"sql"`
+	Parameters []models.QueryParameter `json:"parameters,omitempty"`
+	ReadOnly   bool                    `json:"read_only,omitempty"`
+}
+
+type queryTestRequest struct {
+	SQLQuery string `json:"sql_query"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+func (a *API) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, response{Success: true, Data: a.service.Status()})
+}
+
+func (a *API) handleGetDatasource(w http.ResponseWriter, r *http.Request) {
+	ds, err := a.service.GetDatasource(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+}
+
+func (a *API) handlePutDatasource(w http.ResponseWriter, r *http.Request) {
+	var req datasourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	ds, err := a.service.UpsertDatasource(r.Context(), parseDatasourceRequest(req))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+}
+
+func (a *API) handleDeleteDatasource(w http.ResponseWriter, r *http.Request) {
+	if err := a.service.DeleteDatasource(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"deleted": true}})
+}
+
+func (a *API) handleTestDatasource(w http.ResponseWriter, r *http.Request) {
+	var req datasourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if err := a.service.TestDatasource(ctx, parseDatasourceRequest(req)); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"message": "connection successful"}})
+}
+
+func (a *API) handleListQueries(w http.ResponseWriter, r *http.Request) {
+	queries, err := a.service.ListQueries(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"queries": queries}})
+}
+
+func (a *API) handleCreateQuery(w http.ResponseWriter, r *http.Request) {
+	var req queryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	enabled := true
+	if req.IsEnabled != nil {
+		enabled = *req.IsEnabled
+	}
+	query, err := a.service.CreateQuery(r.Context(), &storepkg.ApprovedQuery{Name: req.Name, Description: req.Description, SQLQuery: querySQLFromRequest(req.SQLQuery, req.SQL), Parameters: req.Parameters, IsEnabled: enabled})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, response{Success: true, Data: map[string]any{"query": query}})
+}
+
+func (a *API) handleTestQuery(w http.ResponseWriter, r *http.Request) {
+	var req queryTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	sqlQuery := req.SQLQuery
+	result, err := a.service.TestRawQuery(r.Context(), sqlQuery, req.Limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: result})
+}
+
+func (a *API) handleValidateQuery(w http.ResponseWriter, r *http.Request) {
+	var req validateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	normalized, err := a.service.ValidateQuerySQL(querySQLFromRequest(req.SQLQuery, req.SQL), req.Parameters, req.ReadOnly)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, response{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"normalized_sql": normalized, "valid": true}})
+}
+
+func (a *API) handleQueryByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/queries/")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		writeJSON(w, http.StatusNotFound, response{Error: "query id required"})
+		return
+	}
+	if strings.HasSuffix(path, "/execute") {
+		id := strings.TrimSuffix(path, "/execute")
+		a.handleExecuteQuery(w, r, id)
+		return
+	}
+	id := path
+	switch r.Method {
+	case http.MethodGet:
+		q, err := a.service.GetQuery(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if q == nil {
+			writeJSON(w, http.StatusNotFound, response{Error: "query not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"query": q}})
+	case http.MethodPut:
+		var req queryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+			return
+		}
+		enabled := true
+		if req.IsEnabled != nil {
+			enabled = *req.IsEnabled
+		}
+		q, err := a.service.UpdateQuery(r.Context(), id, &storepkg.ApprovedQuery{Name: req.Name, Description: req.Description, SQLQuery: querySQLFromRequest(req.SQLQuery, req.SQL), Parameters: req.Parameters, IsEnabled: enabled})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"query": q}})
+	case http.MethodDelete:
+		if err := a.service.DeleteQuery(r.Context(), id); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"deleted": true}})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, response{Error: "method not allowed"})
+	}
+}
+
+func (a *API) handleExecuteQuery(w http.ResponseWriter, r *http.Request, id string) {
+	var req executeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
+		return
+	}
+	result, err := a.service.ExecuteStoredQuery(r.Context(), id, req.Parameters, req.Limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: result})
+}
+
+func (a *API) handleOpenClaw(w http.ResponseWriter, r *http.Request) {
+	cred, err := a.service.EnsureOpenClawKey(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: openClawResponse(cred.APIKey, a.service.Status())})
+}
+
+func (a *API) handleRotateOpenClawKey(w http.ResponseWriter, r *http.Request) {
+	cred, err := a.service.RotateOpenClawKey(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: openClawResponse(cred.APIKey, a.service.Status())})
+}
+
+func openClawResponse(apiKey string, status map[string]any) map[string]any {
+	mcpURL, _ := status["mcp_url"].(string)
+	installCommand := fmt.Sprintf("openclaw mcp set dataclaw '{\n  \"url\": \"%s\",\n  \"transport\": \"streamable-http\",\n  \"headers\": {\n    \"Authorization\": \"Bearer ${DATACLAW_API_KEY}\"\n  }\n}'", mcpURL)
+	return map[string]any{
+		"api_key":              apiKey,
+		"mcp_url":              mcpURL,
+		"base_url":             status["base_url"],
+		"install_command":      installCommand,
+		"openclaw_cli":         installCommand,
+		"openclaw_config_json": map[string]any{"mcp": map[string]any{"servers": map[string]any{"dataclaw": map[string]any{"url": mcpURL, "transport": "streamable-http", "headers": map[string]any{"Authorization": "Bearer ${DATACLAW_API_KEY}"}}}}},
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload response) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	msg := err.Error()
+	if strings.Contains(strings.ToLower(msg), "unsupported") || strings.Contains(strings.ToLower(msg), "required") || strings.Contains(strings.ToLower(msg), "only read-only") || strings.Contains(strings.ToLower(msg), "multiple sql statements") {
+		status = http.StatusBadRequest
+	} else if strings.Contains(strings.ToLower(msg), "not found") {
+		status = http.StatusNotFound
+	} else if strings.Contains(strings.ToLower(msg), "no datasource") {
+		status = http.StatusConflict
+	} else if strings.Contains(strings.ToLower(msg), "connect") || strings.Contains(strings.ToLower(msg), "ping") {
+		status = http.StatusBadGateway
+	}
+	writeJSON(w, status, response{Error: msg})
+}
+
+func parseDatasourceRequest(req datasourceRequest) *storepkg.Datasource {
+	config := req.Config
+	if config == nil {
+		config = map[string]any{}
+		if req.Host != "" {
+			config["host"] = req.Host
+		}
+		if req.Port != nil {
+			config["port"] = req.Port
+		}
+		username := req.Username
+		if username == "" {
+			username = req.User
+		}
+		if username != "" {
+			config["user"] = username
+		}
+		if req.Password != "" {
+			config["password"] = req.Password
+		}
+		if req.Name != "" {
+			config["name"] = req.Name
+			config["database"] = req.Name
+		}
+		if req.SSLMode != "" {
+			config["ssl_mode"] = req.SSLMode
+		}
+		for key, value := range req.Options {
+			config[key] = value
+		}
+	}
+	name := req.DisplayName
+	if name == "" {
+		name = req.Name
+	}
+	return &storepkg.Datasource{Name: name, Type: req.Type, Provider: req.Provider, Config: config}
+}
+
+func flattenDatasource(ds *storepkg.Datasource) map[string]any {
+	if ds == nil {
+		return nil
+	}
+	out := map[string]any{
+		"id":           ds.ID,
+		"type":         ds.Type,
+		"provider":     ds.Provider,
+		"display_name": ds.Name,
+		"name":         stringFromMap(ds.Config, "database", "name"),
+		"database":     stringFromMap(ds.Config, "database", "name"),
+		"host":         stringFromMap(ds.Config, "host"),
+		"port":         firstValue(ds.Config, "port"),
+		"user":         stringFromMap(ds.Config, "user", "username"),
+		"username":     stringFromMap(ds.Config, "user", "username"),
+		"password":     stringFromMap(ds.Config, "password"),
+		"ssl_mode":     stringFromMap(ds.Config, "ssl_mode"),
+		"options": map[string]any{
+			"encrypt":                  firstValue(ds.Config, "encrypt"),
+			"trust_server_certificate": firstValue(ds.Config, "trust_server_certificate"),
+		},
+		"created_at": ds.CreatedAt,
+		"updated_at": ds.UpdatedAt,
+	}
+	return out
+}
+
+func stringFromMap(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key]; ok && value != nil {
+			if str, ok := value.(string); ok {
+				return str
+			}
+			return fmt.Sprint(value)
+		}
+	}
+	return ""
+}
+
+func firstValue(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func querySQLFromRequest(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
