@@ -22,7 +22,7 @@ export function ParameterEditor({ parameters, onChange }: { parameters: QueryPar
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-text-primary">Parameters</h3>
-          <p className="text-sm text-text-secondary">Optional placeholders for approved queries.</p>
+          <p className="text-sm text-text-secondary">Placeholders for approved queries. Required parameters must be supplied by callers.</p>
         </div>
         <Button
           type="button"

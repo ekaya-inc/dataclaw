@@ -71,21 +71,38 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 	if ds == nil {
 		return nil, errors.New("datasource is required")
 	}
-	if ds.Name == "" || ds.Type == "" {
-		return nil, errors.New("datasource name and type are required")
+	if ds.Name == "" {
+		return nil, errors.New("datasource name is required")
 	}
-	if ds.Type != "postgres" && ds.Type != "mssql" {
-		return nil, fmt.Errorf("unsupported datasource type: %s", ds.Type)
-	}
-	if err := s.tester(ctx, ds); err != nil {
+	existing, err := s.GetDatasource(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if existing != nil {
+		if err := validateDatasourceUpdate(existing, ds); err != nil {
+			return nil, err
+		}
+		ds = &storepkg.Datasource{
+			ID:        existing.ID,
+			Name:      ds.Name,
+			Type:      existing.Type,
+			Provider:  existing.Provider,
+			Config:    cloneDatasourceConfig(existing.Config),
+			CreatedAt: existing.CreatedAt,
+		}
+	} else {
+		if ds.Type == "" {
+			return nil, errors.New("datasource type is required")
+		}
+		if ds.Type != "postgres" && ds.Type != "mssql" {
+			return nil, fmt.Errorf("unsupported datasource type: %s", ds.Type)
+		}
+		if err := s.tester(ctx, ds); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.encryptDatasource(ds); err != nil {
 		return nil, err
-	}
-	if existing, err := s.store.GetDatasource(ctx); err == nil && existing != nil {
-		ds.ID = existing.ID
-		ds.CreatedAt = existing.CreatedAt
 	}
 	if err := s.store.SaveDatasource(ctx, ds); err != nil {
 		return nil, err
@@ -181,6 +198,22 @@ func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) 
 		return nil, err
 	}
 	return executeQueryRows(ctx, db, normalized, nil, limit)
+}
+
+func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, limit int) (*QueryResult, error) {
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prepared, args, err := prepareReadOnlyParameterizedQuery(ds.Type, sqlQuery, parameters, nil)
+	if err != nil {
+		return nil, err
+	}
+	db, err := s.executor.open(ctx, ds)
+	if err != nil {
+		return nil, err
+	}
+	return executeQueryRows(ctx, db, prepared, args, limit)
 }
 
 func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[string]any, limit int) (*QueryResult, error) {
@@ -321,4 +354,66 @@ func (s *Service) decryptDatasource(ds *storepkg.Datasource) error {
 	}
 	ds.Config = cfg
 	return nil
+}
+
+type datasourceConnectionSettings struct {
+	Type                   string
+	Provider               string
+	Host                   string
+	Port                   int
+	User                   string
+	Password               string
+	Database               string
+	SSLMode                string
+	Encrypt                bool
+	TrustServerCertificate bool
+}
+
+func validateDatasourceUpdate(existing, next *storepkg.Datasource) error {
+	if existing == nil || next == nil {
+		return nil
+	}
+	if datasourceConnectionFingerprint(existing) != datasourceConnectionFingerprint(next) {
+		return errors.New("datasource connection settings cannot be changed after creation; remove and recreate the datasource")
+	}
+	return nil
+}
+
+func datasourceConnectionFingerprint(ds *storepkg.Datasource) datasourceConnectionSettings {
+	if ds == nil {
+		return datasourceConnectionSettings{}
+	}
+	return datasourceConnectionSettings{
+		Type:                   ds.Type,
+		Provider:               normalizeDatasourceProvider(ds),
+		Host:                   stringValue(ds.Config["host"]),
+		Port:                   intValue(ds.Config["port"], 0),
+		User:                   stringValue(firstNonNil(ds.Config["username"], ds.Config["user"])),
+		Password:               stringValue(ds.Config["password"]),
+		Database:               stringValue(firstNonNil(ds.Config["database"], ds.Config["name"])),
+		SSLMode:                stringValue(ds.Config["ssl_mode"]),
+		Encrypt:                boolValue(ds.Config["encrypt"], false),
+		TrustServerCertificate: boolValue(ds.Config["trust_server_certificate"], false),
+	}
+}
+
+func normalizeDatasourceProvider(ds *storepkg.Datasource) string {
+	if ds == nil || ds.Provider == "" {
+		if ds == nil {
+			return ""
+		}
+		return ds.Type
+	}
+	return ds.Provider
+}
+
+func cloneDatasourceConfig(config map[string]any) map[string]any {
+	if config == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(config))
+	for key, value := range config {
+		cloned[key] = value
+	}
+	return cloned
 }

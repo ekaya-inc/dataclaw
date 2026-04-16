@@ -58,6 +58,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
     () => queries.find((query) => query.id === selectedQueryId) ?? null,
     [queries, selectedQueryId],
   );
+  const selectedQueryHasRequiredParameters = selectedQuery?.parameters.some((parameter) => parameter.required) ?? false;
 
   const dialect = datasource ? datasourceTypeToDialect[datasource.type] : 'PostgreSQL';
 
@@ -308,7 +309,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
                 </Button>
                 {selectedQuery ? (
                   <>
-                    <Button type="button" variant="outline" onClick={() => void runSavedQuery(selectedQuery.id)} disabled={busy !== null}>
+                    <Button type="button" variant="outline" onClick={() => void runSavedQuery(selectedQuery.id)} disabled={busy !== null || selectedQueryHasRequiredParameters}>
                       <Play className="h-4 w-4" />
                       Execute saved query
                     </Button>
@@ -319,6 +320,9 @@ export default function ApprovedQueriesPage(): JSX.Element {
                   </>
                 ) : null}
               </div>
+              {selectedQueryHasRequiredParameters ? (
+                <p className="text-sm text-text-secondary">Execute saved query is disabled here because this query requires parameter values. Run it through the API or MCP client with explicit parameters.</p>
+              ) : null}
             </CardContent>
           </Card>
           {results ? <QueryResultsTable columns={results.columns} rows={results.rows} rowCount={results.rowCount} /> : null}

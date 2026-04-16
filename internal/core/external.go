@@ -502,7 +502,7 @@ func validateStoredSQL(sqlQuery string, params []models.QueryParameter) (string,
 }
 
 func resolveSQLAndArgs(dsType, sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
-	prepared, args, err := sqltmpl.SubstituteParameters(sqlQuery, params, values)
+	prepared, args, err := prepareParameterizedQuery(sqlQuery, params, values)
 	if err != nil {
 		return "", nil, err
 	}
@@ -510,6 +510,29 @@ func resolveSQLAndArgs(dsType, sqlQuery string, params []models.QueryParameter, 
 		prepared, args = convertParamsToMSSQL(prepared, args)
 	}
 	return prepared, args, nil
+}
+
+func prepareParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+	normalized, err := validateStoredSQL(sqlQuery, params)
+	if err != nil {
+		return "", nil, err
+	}
+	return sqltmpl.SubstituteParameters(normalized, params, values)
+}
+
+func prepareReadOnlyParameterizedQuery(dsType, sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+	prepared, args, err := prepareParameterizedQuery(sqlQuery, params, values)
+	if err != nil {
+		return "", nil, err
+	}
+	readOnly, err := validateReadOnlySQL(prepared)
+	if err != nil {
+		return "", nil, err
+	}
+	if dsType == "mssql" {
+		readOnly, args = convertParamsToMSSQL(readOnly, args)
+	}
+	return readOnly, args, nil
 }
 
 func convertParamsToMSSQL(query string, args []any) (string, []any) {

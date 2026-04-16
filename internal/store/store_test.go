@@ -77,3 +77,53 @@ func TestStorePersistsSingleDatasourceAndQueries(t *testing.T) {
 		t.Fatalf("unexpected credential: %#v", cred)
 	}
 }
+
+func TestSaveDatasourceUpdatePreservesApprovedQueries(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	ds := &Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host": "db.example.com",
+			"port": 5432,
+			"name": "analytics",
+		},
+	}
+	if err := store.SaveDatasource(ctx, ds); err != nil {
+		t.Fatalf("save datasource: %v", err)
+	}
+
+	if err := store.CreateQuery(ctx, &ApprovedQuery{
+		DatasourceID: ds.ID,
+		Name:         "Connectivity",
+		SQLQuery:     "SELECT true AS connected",
+		IsEnabled:    true,
+	}); err != nil {
+		t.Fatalf("create query: %v", err)
+	}
+
+	ds.Name = "Primary warehouse"
+	if err := store.SaveDatasource(ctx, ds); err != nil {
+		t.Fatalf("rename datasource: %v", err)
+	}
+
+	loaded, err := store.GetDatasource(ctx)
+	if err != nil {
+		t.Fatalf("get datasource: %v", err)
+	}
+	if loaded == nil || loaded.Name != "Primary warehouse" {
+		t.Fatalf("unexpected datasource after rename: %#v", loaded)
+	}
+
+	queries, err := store.ListQueries(ctx)
+	if err != nil {
+		t.Fatalf("list queries: %v", err)
+	}
+	if len(queries) != 1 {
+		t.Fatalf("expected query to survive datasource rename, got %#v", queries)
+	}
+}

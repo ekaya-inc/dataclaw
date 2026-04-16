@@ -199,10 +199,14 @@ func SubstituteParameters(
 
 	// Track parameter order for positional binding
 	var orderedValues []any
+	var substituteErr error
 	paramIndex := 1
 	paramPositions := make(map[string]int)
 
 	result := parameterRegex.ReplaceAllStringFunc(sqlQuery, func(match string) string {
+		if substituteErr != nil {
+			return match
+		}
 		name := parameterRegex.FindStringSubmatch(match)[1]
 
 		// Check if already assigned position (same param used multiple times)
@@ -219,6 +223,11 @@ func SubstituteParameters(
 
 		value, supplied := suppliedValues[name]
 
+		if !supplied && def.Required {
+			substituteErr = fmt.Errorf("missing required parameter: %s", name)
+			return match
+		}
+
 		// Use supplied value or fall back to default
 		if !supplied {
 			value = def.Default
@@ -232,5 +241,8 @@ func SubstituteParameters(
 		return fmt.Sprintf("$%d", pos)
 	})
 
+	if substituteErr != nil {
+		return "", nil, substituteErr
+	}
 	return result, orderedValues, nil
 }

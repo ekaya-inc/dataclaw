@@ -82,8 +82,9 @@ type validateRequest struct {
 }
 
 type queryTestRequest struct {
-	SQLQuery string `json:"sql_query"`
-	Limit    int    `json:"limit,omitempty"`
+	SQLQuery   string                  `json:"sql_query"`
+	Parameters []models.QueryParameter `json:"parameters,omitempty"`
+	Limit      int                     `json:"limit,omitempty"`
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -170,7 +171,7 @@ func (a *API) handleTestQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlQuery := req.SQLQuery
-	result, err := a.service.TestRawQuery(r.Context(), sqlQuery, req.Limit)
+	result, err := a.service.TestDraftQuery(r.Context(), sqlQuery, req.Parameters, req.Limit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -298,7 +299,7 @@ func writeJSON(w http.ResponseWriter, status int, payload response) {
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
 	msg := err.Error()
-	if strings.Contains(strings.ToLower(msg), "unsupported") || strings.Contains(strings.ToLower(msg), "required") || strings.Contains(strings.ToLower(msg), "only read-only") || strings.Contains(strings.ToLower(msg), "multiple sql statements") {
+	if strings.Contains(strings.ToLower(msg), "unsupported") || strings.Contains(strings.ToLower(msg), "required") || strings.Contains(strings.ToLower(msg), "cannot be changed") || strings.Contains(strings.ToLower(msg), "only read-only") || strings.Contains(strings.ToLower(msg), "multiple sql statements") {
 		status = http.StatusBadRequest
 	} else if strings.Contains(strings.ToLower(msg), "not found") {
 		status = http.StatusNotFound

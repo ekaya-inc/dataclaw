@@ -144,3 +144,116 @@ func TestUpsertDatasourceReturnsDecryptedConfig(t *testing.T) {
 		t.Fatalf("expected decrypted password in response, got %#v", got)
 	}
 }
+
+func TestUpsertDatasourceRenamePreservesQueries(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+
+	testCalls := 0
+	service.tester = func(context.Context, *store.Datasource) error {
+		testCalls++
+		return nil
+	}
+
+	ctx := context.Background()
+	ds, err := service.UpsertDatasource(ctx, &store.Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "warehouse",
+			"user":     "analyst",
+			"password": "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create datasource: %v", err)
+	}
+	if testCalls != 1 {
+		t.Fatalf("expected tester to run once on create, ran %d times", testCalls)
+	}
+
+	if _, err := service.CreateQuery(ctx, &store.ApprovedQuery{
+		Name:      "Connectivity",
+		SQLQuery:  "SELECT true AS connected",
+		IsEnabled: true,
+	}); err != nil {
+		t.Fatalf("create query: %v", err)
+	}
+
+	renamed, err := service.UpsertDatasource(ctx, &store.Datasource{
+		Name:     "Primary warehouse",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "warehouse",
+			"user":     "analyst",
+			"password": "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("rename datasource: %v", err)
+	}
+	if renamed.Name != "Primary warehouse" {
+		t.Fatalf("expected renamed datasource, got %#v", renamed)
+	}
+	if renamed.ID != ds.ID {
+		t.Fatalf("expected rename to preserve datasource id, got %q want %q", renamed.ID, ds.ID)
+	}
+	if testCalls != 1 {
+		t.Fatalf("expected rename to skip tester, ran %d times", testCalls)
+	}
+
+	queries, err := service.ListQueries(ctx)
+	if err != nil {
+		t.Fatalf("list queries: %v", err)
+	}
+	if len(queries) != 1 {
+		t.Fatalf("expected query to survive rename, got %#v", queries)
+	}
+	if queries[0].DatasourceID != ds.ID {
+		t.Fatalf("expected query datasource id to remain %q, got %q", ds.ID, queries[0].DatasourceID)
+	}
+}
+
+func TestUpsertDatasourceRejectsConnectionChanges(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+
+	service.tester = func(context.Context, *store.Datasource) error { return nil }
+
+	ctx := context.Background()
+	if _, err := service.UpsertDatasource(ctx, &store.Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "warehouse",
+			"user":     "analyst",
+			"password": "secret",
+		},
+	}); err != nil {
+		t.Fatalf("create datasource: %v", err)
+	}
+
+	_, err := service.UpsertDatasource(ctx, &store.Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "reporting",
+			"user":     "analyst",
+			"password": "secret",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected update to reject connection changes")
+	}
+	if !strings.Contains(err.Error(), "remove and recreate") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

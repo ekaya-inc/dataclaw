@@ -349,11 +349,34 @@ func TestSubstituteParameters(t *testing.T) {
 			expectedSQL:    "SELECT * FROM users WHERE email LIKE $1",
 			expectedValues: []any{nil},
 		},
+		{
+			name: "missing required parameter returns error before default binding",
+			sql:  "SELECT * FROM orders WHERE customer_id = {{customer_id}}",
+			paramDefs: []models.QueryParameter{
+				{Name: "customer_id", Type: "uuid", Required: true, Default: "550e8400-e29b-41d4-a716-446655440000"},
+			},
+			suppliedValues: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resultSQL, resultValues, err := SubstituteParameters(tt.sql, tt.paramDefs, tt.suppliedValues)
+			if tt.name == "missing required parameter returns error before default binding" {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if err.Error() != "missing required parameter: customer_id" {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if resultSQL != "" {
+					t.Fatalf("expected empty SQL on error, got %q", resultSQL)
+				}
+				if resultValues != nil {
+					t.Fatalf("expected nil values on error, got %#v", resultValues)
+				}
+				return
+			}
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}

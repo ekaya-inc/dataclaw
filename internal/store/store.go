@@ -170,18 +170,17 @@ func (s *Store) SaveDatasource(ctx context.Context, ds *Datasource) error {
 		}
 		configRaw = string(cfg)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM datasources`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO datasources(id, name, type, provider, config_encrypted, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, ds.ID, ds.Name, ds.Type, ds.Provider, configRaw, ds.CreatedAt.Format(time.RFC3339), ds.UpdatedAt.Format(time.RFC3339)); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO datasources(id, name, type, provider, config_encrypted, created_at, updated_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			type = excluded.type,
+			provider = excluded.provider,
+			config_encrypted = excluded.config_encrypted,
+			updated_at = excluded.updated_at
+	`, ds.ID, ds.Name, ds.Type, ds.Provider, configRaw, ds.CreatedAt.Format(time.RFC3339), ds.UpdatedAt.Format(time.RFC3339))
+	return err
 }
 
 func (s *Store) DeleteDatasource(ctx context.Context) error {
