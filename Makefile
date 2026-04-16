@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := none
 SHELL := /bin/sh
 
-.PHONY: none check
+.PHONY: none check run
 
 none: ## Show available targets
 	@echo "DataClaw"
@@ -67,3 +67,33 @@ check: ## Run quiet backend and UI verification
 	run_step "ui build" npm --prefix ui run build; \
 	echo ""; \
 	echo "All checks passed."
+
+run: ## Rebuild embedded assets if needed, then start the server
+	@set -eu; \
+	dist_index="internal/uifs/dist/index.html"; \
+	needs_ui_build=0; \
+	if [ ! -f "$$dist_index" ]; then \
+		needs_ui_build=1; \
+	else \
+		if find ui/src -type f -newer "$$dist_index" | grep -q .; then \
+			needs_ui_build=1; \
+		fi; \
+		for path in ui/index.html ui/package.json ui/package-lock.json ui/postcss.config.js ui/tailwind.config.js ui/tsconfig.json ui/vite.config.ts ui/eslint.config.js; do \
+			if [ "$$path" -nt "$$dist_index" ]; then \
+				needs_ui_build=1; \
+				break; \
+			fi; \
+		done; \
+	fi; \
+	if [ "$$needs_ui_build" -eq 1 ]; then \
+		if [ ! -d ui/node_modules ]; then \
+			echo "Installing UI dependencies..."; \
+			npm --prefix ui install; \
+		fi; \
+		echo "Building embedded UI..."; \
+		npm --prefix ui run build; \
+		rm -rf internal/uifs/dist; \
+		cp -R ui/dist internal/uifs/; \
+	fi; \
+	echo "Starting DataClaw..."; \
+	exec go run .

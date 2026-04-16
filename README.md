@@ -52,6 +52,12 @@ Run the full backend + UI verification suite with compact output:
 make check
 ```
 
+Start the server, rebuilding embedded UI assets first when the checked-in bundle is stale:
+
+```bash
+make run
+```
+
 ## Run locally
 
 ```bash
