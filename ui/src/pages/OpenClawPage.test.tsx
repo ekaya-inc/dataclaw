@@ -2,7 +2,17 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
+import type * as ReactRouterDom from 'react-router-dom';
+
 import OpenClawPage from './OpenClawPage';
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof ReactRouterDom>('react-router-dom');
+  return {
+    ...actual,
+    useOutletContext: () => ({ refresh: vi.fn(async () => undefined), markAgentRevealed: vi.fn() }),
+  };
+});
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), {

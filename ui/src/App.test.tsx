@@ -31,9 +31,11 @@ describe('App shell', () => {
     });
 
     expect(screen.getByRole('link', { name: /approved queries/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /openclaw/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /openclaw/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/schema/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/ontology/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/datasource details/i)).toBeInTheDocument();
+    expect(screen.queryByText(/local api/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/fastest way to connect agents to datasources/i)).toBeInTheDocument();
   });
 });

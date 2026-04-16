@@ -1,6 +1,8 @@
 import { Cable, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 
+import type { AppOutletContext } from '../App';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBanner } from '../components/StatusBanner';
 import { Button } from '../components/ui/Button';
@@ -18,6 +20,7 @@ function buildInstallCommand(runtime: RuntimeStatus | null, config: OpenClawConf
 }
 
 export default function OpenClawPage(): JSX.Element {
+  const { markAgentRevealed } = useOutletContext<AppOutletContext>();
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [config, setConfig] = useState<OpenClawConfig | null>(null);
   const [revealKey, setRevealKey] = useState(false);
@@ -58,6 +61,7 @@ export default function OpenClawPage(): JSX.Element {
       const nextConfig = await rotateOpenClawKey(runtime);
       setConfig(nextConfig);
       setRevealKey(true);
+      markAgentRevealed();
       setFeedback({ tone: 'success', message: 'OpenClaw API key rotated.' });
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to rotate API key.' });
@@ -99,7 +103,18 @@ export default function OpenClawPage(): JSX.Element {
               <div className="text-sm font-medium text-text-primary">Single API key</div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <code className="rounded-lg bg-surface-primary px-3 py-2 text-sm text-text-primary">{displayedKey}</code>
-                <Button type="button" variant="outline" size="sm" onClick={() => setRevealKey((current) => !current)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRevealKey((current) => {
+                      const next = !current;
+                      if (next) markAgentRevealed();
+                      return next;
+                    });
+                  }}
+                >
                   {revealKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   {revealKey ? 'Hide' : 'Reveal'}
                 </Button>

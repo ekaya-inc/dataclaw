@@ -1,12 +1,13 @@
-import { DatabaseZap, RotateCcw, Save, TestTube2, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Pencil, Save, TestTube2, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 
+import type { AppOutletContext } from '../App';
 import { PROVIDERS } from '../constants';
-import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBanner } from '../components/StatusBanner';
 import { Button } from '../components/ui/Button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
+import { Card, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { deleteDatasource, getDatasource, saveDatasource, testDatasource } from '../services/api';
@@ -15,7 +16,7 @@ import type { DatasourceFormValues, DatasourceRecord, SSLMode } from '../types/d
 const DEFAULT_VALUES: DatasourceFormValues = {
   type: 'postgres',
   provider: 'postgres',
-  displayName: 'Primary datasource',
+  displayName: 'dataclaw',
   host: '',
   port: '5432',
   database: '',
@@ -25,6 +26,28 @@ const DEFAULT_VALUES: DatasourceFormValues = {
   encrypt: true,
   trustServerCertificate: false,
 };
+
+const CONNECTION_FIELDS: ReadonlySet<keyof DatasourceFormValues> = new Set([
+  'type',
+  'provider',
+  'host',
+  'port',
+  'database',
+  'username',
+  'password',
+  'sslMode',
+  'encrypt',
+  'trustServerCertificate',
+]);
+
+function FieldLabel({ htmlFor, children, locked = false }: { htmlFor: string; children: string; locked?: boolean }): JSX.Element {
+  return (
+    <div className="flex items-center gap-2">
+      <Label htmlFor={htmlFor}>{children}</Label>
+      {locked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
+    </div>
+  );
+}
 
 function toFormValues(datasource: DatasourceRecord): DatasourceFormValues {
   return {
@@ -43,11 +66,15 @@ function toFormValues(datasource: DatasourceRecord): DatasourceFormValues {
 }
 
 export default function DatasourcePage(): JSX.Element {
+  const { refresh } = useOutletContext<AppOutletContext>();
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [formValues, setFormValues] = useState<DatasourceFormValues>(DEFAULT_VALUES);
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | 'deleting' | null>('loading');
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'danger'; message: string } | null>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [testPassed, setTestPassed] = useState(false);
   const connectionLocked = datasource !== null;
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const providerOptions = useMemo(
     () => PROVIDERS.filter((provider) => provider.adapter === formValues.type),
@@ -61,6 +88,7 @@ export default function DatasourcePage(): JSX.Element {
         setDatasource(currentDatasource);
         if (currentDatasource) {
           setFormValues(toFormValues(currentDatasource));
+          setIsEditingName(false);
         }
       } catch (error) {
         setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to load datasource.' });
@@ -81,13 +109,23 @@ export default function DatasourcePage(): JSX.Element {
     }));
   }, [providerOptions, formValues.provider]);
 
+  useEffect(() => {
+    if (!isEditingName) return;
+    nameInputRef.current?.focus();
+    nameInputRef.current?.select();
+  }, [isEditingName]);
+
   const updateField = <K extends keyof DatasourceFormValues>(field: K, value: DatasourceFormValues[K]): void => {
+    if (CONNECTION_FIELDS.has(field)) {
+      setTestPassed(false);
+    }
     setFormValues((current) => ({ ...current, [field]: value }));
   };
 
   const handleProviderChange = (providerId: string): void => {
     const provider = PROVIDERS.find((item) => item.id === providerId);
     if (!provider) return;
+    setTestPassed(false);
     setFormValues((current) => ({
       ...current,
       type: provider.adapter,
@@ -102,8 +140,10 @@ export default function DatasourcePage(): JSX.Element {
     setFeedback(null);
     try {
       const result = await testDatasource(formValues);
+      setTestPassed(result.success);
       setFeedback({ tone: result.success ? 'success' : 'danger', message: result.message });
     } catch (error) {
+      setTestPassed(false);
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Connection test failed.' });
     } finally {
       setBusy(null);
@@ -117,12 +157,14 @@ export default function DatasourcePage(): JSX.Element {
       const savedDatasource = await saveDatasource(formValues);
       setDatasource(savedDatasource);
       setFormValues(toFormValues(savedDatasource));
+      setIsEditingName(false);
       setFeedback({
         tone: 'success',
         message: connectionLocked
           ? 'Datasource display name updated. Remove and recreate the datasource to change connection settings.'
           : 'Datasource saved. DataClaw will use this datasource for raw queries and approved queries.',
       });
+      void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to save datasource.' });
     } finally {
@@ -137,7 +179,10 @@ export default function DatasourcePage(): JSX.Element {
       await deleteDatasource();
       setDatasource(null);
       setFormValues(DEFAULT_VALUES);
+      setIsEditingName(false);
+      setTestPassed(false);
       setFeedback({ tone: 'success', message: 'Datasource removed.' });
+      void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to delete datasource.' });
     } finally {
@@ -146,44 +191,64 @@ export default function DatasourcePage(): JSX.Element {
   };
 
   const providerHelper = PROVIDERS.find((provider) => provider.id === formValues.provider)?.helperText;
+  const saveGated = !connectionLocked && !testPassed;
+  const saveLabel = datasource ? 'Save display name' : 'Save datasource';
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Datasource"
-        description="Configure the one datasource that OpenClaw will reach through DataClaw. As soon as it is saved, the backend can use it for raw queries and approved-query execution."
-        actions={
-          datasource ? (
-            <Button type="button" variant="outline" onClick={() => setFormValues(toFormValues(datasource))}>
-              <RotateCcw className="h-4 w-4" />
-              Reset form
-            </Button>
-          ) : undefined
-        }
+        description="Configure the datasource. The agent will be operating with the credentials you supplied below so limit their access appropriately."
       />
-      {feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
-      {!datasource && busy !== 'loading' ? (
-        <EmptyState title="No datasource configured yet" body="Choose a PostgreSQL-compatible service or SQL Server, test the connection, then save it. DataClaw keeps exactly one datasource in v1." />
-      ) : null}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <DatabaseZap className="h-5 w-5" />
-            Datasource details
-          </CardTitle>
-          <CardDescription>
-            {datasource
-              ? 'Only the display name can be edited after creation. Remove and recreate the datasource to change connection settings; removing it also deletes approved queries.'
-              : 'Supported today: PostgreSQL flavors and Microsoft SQL Server.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 pt-6">
+          <div className="border-b border-border-light pb-6">
+            {isEditingName ? (
+              <Input
+                ref={nameInputRef}
+                id="display-name"
+                aria-label="Display name"
+                className="h-auto max-w-xl border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight focus-visible:ring-0"
+                value={formValues.displayName}
+                onBlur={() => setIsEditingName(false)}
+                onChange={(event) => updateField('displayName', event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    setIsEditingName(false);
+                  } else if (event.key === 'Escape') {
+                    if (datasource) {
+                      setFormValues((current) => ({ ...current, displayName: datasource.displayName }));
+                    } else {
+                      setFormValues((current) => ({ ...current, displayName: DEFAULT_VALUES.displayName }));
+                    }
+                    setIsEditingName(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditingName(true)}
+                aria-label={`Edit display name (${formValues.displayName})`}
+                className="group inline-flex items-center gap-3 text-left"
+              >
+                <span className="border-b-2 border-dotted border-slate-300 pb-1 text-3xl font-semibold tracking-tight text-text-primary transition-colors group-hover:border-text-primary">
+                  {formValues.displayName}
+                </span>
+                <Pencil
+                  className="h-5 w-5 text-text-tertiary transition-colors group-hover:text-text-primary"
+                  aria-hidden="true"
+                />
+              </button>
+            )}
+          </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div>
-              <Label htmlFor="provider">Database</Label>
+              <FieldLabel htmlFor="provider" locked={connectionLocked}>Datasource Type</FieldLabel>
               <select
                 id="provider"
-                className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary"
+                className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary disabled:cursor-default disabled:bg-surface-secondary disabled:text-text-secondary disabled:opacity-100"
                 value={formValues.provider}
                 disabled={connectionLocked}
                 onChange={(event) => handleProviderChange(event.target.value)}
@@ -197,34 +262,30 @@ export default function DatasourcePage(): JSX.Element {
               {providerHelper ? <p className="mt-2 text-xs text-text-tertiary">{providerHelper}</p> : null}
             </div>
             <div>
-              <Label htmlFor="display-name">Display name</Label>
-              <Input id="display-name" className="mt-2" value={formValues.displayName} onChange={(event) => updateField('displayName', event.target.value)} />
+              <FieldLabel htmlFor="database" locked={connectionLocked}>Database Name</FieldLabel>
+              <Input id="database" className="mt-2" value={formValues.database} readOnly={connectionLocked} onChange={(event) => updateField('database', event.target.value)} />
             </div>
             <div>
-              <Label htmlFor="database">Database</Label>
-              <Input id="database" className="mt-2" value={formValues.database} disabled={connectionLocked} onChange={(event) => updateField('database', event.target.value)} />
+              <FieldLabel htmlFor="host" locked={connectionLocked}>Host</FieldLabel>
+              <Input id="host" className="mt-2" value={formValues.host} readOnly={connectionLocked} onChange={(event) => updateField('host', event.target.value)} placeholder="db.example.com" />
             </div>
             <div>
-              <Label htmlFor="host">Host</Label>
-              <Input id="host" className="mt-2" value={formValues.host} disabled={connectionLocked} onChange={(event) => updateField('host', event.target.value)} placeholder="db.example.com" />
+              <FieldLabel htmlFor="port" locked={connectionLocked}>Port</FieldLabel>
+              <Input id="port" className="mt-2" value={formValues.port} readOnly={connectionLocked} onChange={(event) => updateField('port', event.target.value)} />
             </div>
             <div>
-              <Label htmlFor="port">Port</Label>
-              <Input id="port" className="mt-2" value={formValues.port} disabled={connectionLocked} onChange={(event) => updateField('port', event.target.value)} />
+              <FieldLabel htmlFor="username" locked={connectionLocked}>Username</FieldLabel>
+              <Input id="username" className="mt-2" value={formValues.username} readOnly={connectionLocked} onChange={(event) => updateField('username', event.target.value)} />
             </div>
             <div>
-              <Label htmlFor="username">Username</Label>
-              <Input id="username" className="mt-2" value={formValues.username} disabled={connectionLocked} onChange={(event) => updateField('username', event.target.value)} />
+              <FieldLabel htmlFor="password" locked={connectionLocked}>Password</FieldLabel>
+              <Input id="password" className="mt-2" type="password" value={formValues.password} readOnly={connectionLocked} onChange={(event) => updateField('password', event.target.value)} />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" className="mt-2" type="password" value={formValues.password} disabled={connectionLocked} onChange={(event) => updateField('password', event.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="ssl-mode">SSL mode</Label>
+              <FieldLabel htmlFor="ssl-mode" locked={connectionLocked}>SSL mode</FieldLabel>
               <select
                 id="ssl-mode"
-                className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary"
+                className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary disabled:cursor-default disabled:bg-surface-secondary disabled:text-text-secondary disabled:opacity-100"
                 value={formValues.sslMode}
                 disabled={connectionLocked}
                 onChange={(event) => updateField('sslMode', event.target.value as SSLMode)}
@@ -241,6 +302,7 @@ export default function DatasourcePage(): JSX.Element {
                 <label className="mt-8 flex items-center gap-2 text-sm text-text-secondary">
                   <input type="checkbox" checked={formValues.encrypt} disabled={connectionLocked} onChange={(event) => updateField('encrypt', event.target.checked)} />
                   Encrypt connection
+                  {connectionLocked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
                 </label>
                 <label className="mt-8 flex items-center gap-2 text-sm text-text-secondary">
                   <input
@@ -250,26 +312,33 @@ export default function DatasourcePage(): JSX.Element {
                     onChange={(event) => updateField('trustServerCertificate', event.target.checked)}
                   />
                   Trust server certificate
+                  {connectionLocked ? <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">Read-only</span> : null}
                 </label>
               </>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Button type="button" onClick={() => void handleSave()} disabled={busy !== null}>
-              <Save className="h-4 w-4" />
-              {datasource ? 'Save display name' : 'Save datasource'}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void handleTest()} disabled={busy !== null}>
-              <TestTube2 className="h-4 w-4" />
-              Test connection
-            </Button>
-            {datasource ? (
-              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={busy !== null}>
-                <Trash2 className="h-4 w-4" />
-                Remove datasource
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" variant="outline" onClick={() => void handleTest()} disabled={busy !== null}>
+                <TestTube2 className="h-4 w-4" />
+                Test connection
               </Button>
+              <Button type="button" onClick={() => void handleSave()} disabled={busy !== null || saveGated}>
+                <Save className="h-4 w-4" />
+                {saveLabel}
+              </Button>
+              {datasource ? (
+                <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={busy !== null}>
+                  <Trash2 className="h-4 w-4" />
+                  Remove datasource
+                </Button>
+              ) : null}
+            </div>
+            {saveGated ? (
+              <p className="text-xs text-text-tertiary">Run Test connection successfully to enable saving.</p>
             ) : null}
           </div>
+          {feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
         </CardContent>
       </Card>
     </div>

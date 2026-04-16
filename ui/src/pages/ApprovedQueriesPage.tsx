@@ -1,6 +1,8 @@
 import { CheckCircle2, FlaskConical, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 
+import type { AppOutletContext } from '../App';
 import { QUERY_TEMPLATE } from '../constants';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
@@ -27,6 +29,7 @@ const EMPTY_QUERY: Omit<SavedQuery, 'id'> = {
 };
 
 export default function ApprovedQueriesPage(): JSX.Element {
+  const { refresh } = useOutletContext<AppOutletContext>();
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [queries, setQueries] = useState<SavedQuery[]>([]);
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
@@ -96,6 +99,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
       setQueries(nextQueries);
       resetDraft(saved);
       setFeedback({ tone: 'success', message: selectedQueryId ? 'Approved query updated.' : 'Approved query created.' });
+      void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to save query.' });
     } finally {
@@ -113,6 +117,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
       setQueries(remainingQueries);
       resetDraft(remainingQueries[0] ?? null);
       setFeedback({ tone: 'success', message: 'Approved query deleted.' });
+      void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to delete query.' });
     } finally {
