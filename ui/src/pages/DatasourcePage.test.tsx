@@ -21,6 +21,15 @@ function response(body: unknown): Response {
   });
 }
 
+function datasourceTypesResponse(): Response {
+  return response({
+    types: [
+      { type: 'postgres', display_name: 'PostgreSQL', description: 'Connect to PostgreSQL-compatible databases', icon: 'postgres', sql_dialect: 'PostgreSQL' },
+      { type: 'mssql', display_name: 'Microsoft SQL Server', description: 'Connect to Microsoft SQL Server', icon: 'mssql', sql_dialect: 'MSSQL' },
+    ],
+  });
+}
+
 async function pickPostgres(): Promise<void> {
   const tile = await screen.findByRole('button', { name: /postgresql/i });
   await userEvent.click(tile);
@@ -30,6 +39,7 @@ describe('DatasourcePage', () => {
   it('shows the type picker and switches to credentials after a type is chosen', async () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource') return response({ datasource: null });
       throw new Error(`Unhandled request: ${String(url)}`);
     });
@@ -52,6 +62,7 @@ describe('DatasourcePage', () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource' && !init?.method) return response({ datasource: null });
       if (url === '/api/datasource/test') return response({ success: true, message: 'Connected' });
       if (url === '/api/datasource' && init?.method === 'PUT') return response({ datasource: { id: 'ds_1', type: 'postgres', display_name: 'dataclaw', host: 'db.example.com', port: 5432, name: 'warehouse', user: 'analyst', ssl_mode: 'require' } });
@@ -85,6 +96,7 @@ describe('DatasourcePage', () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource' && !init?.method) return response({ datasource: null });
       if (url === '/api/datasource/test') return response({ success: true, message: 'Connected' });
       throw new Error(`Unhandled request: ${String(url)}`);
@@ -120,6 +132,7 @@ describe('DatasourcePage', () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource' && !init?.method) {
         return response({ datasource: savedDatasource });
       }
@@ -160,6 +173,7 @@ describe('DatasourcePage', () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource' && !init?.method) {
         return response({
           datasource: {

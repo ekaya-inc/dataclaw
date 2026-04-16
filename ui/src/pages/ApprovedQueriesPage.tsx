@@ -17,7 +17,7 @@ import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { createQuery, deleteQuery, executeSavedQuery, getDatasource, listQueries, testQuery, updateQuery, validateQuery } from '../services/api';
 import type { DatasourceRecord } from '../types/datasource';
-import { datasourceTypeToDialect } from '../types/query';
+import { DEFAULT_SQL_DIALECT } from '../types/query';
 import type { QueryExecutionResult, QueryValidationResult, SavedQuery } from '../types/query';
 
 const EMPTY_QUERY: Omit<SavedQuery, 'id'> = {
@@ -101,7 +101,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
   );
   const canExecuteSelectedQuery = selectedQuery ? canExecuteSavedQuery(selectedQuery, executeParameterValues) : false;
 
-  const dialect = datasource ? datasourceTypeToDialect[datasource.type] : 'PostgreSQL';
+  const dialect = datasource?.sqlDialect ?? DEFAULT_SQL_DIALECT;
 
   const resetDraft = (nextQuery?: SavedQuery | null): void => {
     setExecuteParameterValues({});

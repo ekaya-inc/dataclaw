@@ -10,6 +10,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpgoserver "github.com/mark3labs/mcp-go/server"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
+	_ "github.com/ekaya-inc/dataclaw/internal/adapters/datasource/mssql"
+	_ "github.com/ekaya-inc/dataclaw/internal/adapters/datasource/postgres"
 	"github.com/ekaya-inc/dataclaw/internal/core"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
@@ -214,7 +217,7 @@ func newTestMCPClient(t *testing.T) (*client.Client, *core.Service) {
 	if err != nil {
 		t.Fatalf("load secret: %v", err)
 	}
-	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" })
+	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, dsadapter.NewFactory(dsadapter.DefaultRegistry()))
 
 	configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
 	if err != nil {

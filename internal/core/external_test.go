@@ -13,7 +13,7 @@ func TestPrepareReadOnlyParameterizedQueryUsesDefaults(t *testing.T) {
 		{Name: "min_total", Type: "decimal", Required: false, Default: 0.0},
 	}
 
-	prepared, args, err := prepareReadOnlyParameterizedQuery("postgres", sqlQuery, params, nil)
+	prepared, args, err := prepareReadOnlyParameterizedQuery(sqlQuery, params, nil)
 	if err != nil {
 		t.Fatalf("prepareReadOnlyParameterizedQuery: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestPrepareReadOnlyParameterizedQueryRejectsMissingRequiredParameter(t *tes
 		{Name: "customer_id", Type: "uuid", Required: true},
 	}
 
-	_, _, err := prepareReadOnlyParameterizedQuery("postgres", sqlQuery, params, nil)
+	_, _, err := prepareReadOnlyParameterizedQuery(sqlQuery, params, nil)
 	if err == nil {
 		t.Fatal("expected missing required parameter error")
 	}

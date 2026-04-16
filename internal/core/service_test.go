@@ -2,17 +2,141 @@ package core
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	"github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
+type fakeAdapterFactory struct {
+	supported   map[string]bool
+	newTester   func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newExecutor func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+	fingerprint func(string, map[string]any) (string, error)
+	typeInfo    map[string]dsadapter.AdapterInfo
+}
+
+type fakeConnectionTester struct {
+	test func(context.Context) error
+}
+
+type fakeQueryExecutor struct {
+	query               func(context.Context, string, int) (*QueryResult, error)
+	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+}
+
+func newFakeAdapterFactory() *fakeAdapterFactory {
+	return &fakeAdapterFactory{
+		supported: map[string]bool{
+			"postgres": true,
+			"mssql":    true,
+		},
+		newTester: func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+			return fakeConnectionTester{}, nil
+		},
+		newExecutor: func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
+			return nil, errors.New("unexpected query execution in test")
+		},
+		fingerprint: func(_ string, config map[string]any) (string, error) {
+			return dsadapter.CanonicalFingerprint(config)
+		},
+		typeInfo: map[string]dsadapter.AdapterInfo{
+			"postgres": {
+				Type:        "postgres",
+				DisplayName: "PostgreSQL",
+				SQLDialect:  "PostgreSQL",
+				Capabilities: dsadapter.AdapterCapabilities{
+					SupportsArrayParameters: true,
+				},
+			},
+			"mssql": {
+				Type:        "mssql",
+				DisplayName: "Microsoft SQL Server",
+				SQLDialect:  "MSSQL",
+				Capabilities: dsadapter.AdapterCapabilities{
+					SupportsArrayParameters: false,
+				},
+			},
+		},
+	}
+}
+
+func (f *fakeAdapterFactory) NewConnectionTester(ctx context.Context, dsType string, config map[string]any) (dsadapter.ConnectionTester, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	return f.newTester(ctx, dsType, config)
+}
+
+func (f *fakeAdapterFactory) NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	return f.newExecutor(ctx, dsType, config)
+}
+
+func (f *fakeAdapterFactory) ConfigFingerprint(dsType string, config map[string]any) (string, error) {
+	if !f.SupportsType(dsType) {
+		return "", errors.New("unsupported datasource type: " + dsType)
+	}
+	return f.fingerprint(dsType, config)
+}
+
+func (f *fakeAdapterFactory) ListTypes() []dsadapter.AdapterInfo {
+	types := make([]dsadapter.AdapterInfo, 0, len(f.typeInfo))
+	for dsType, info := range f.typeInfo {
+		if f.supported[dsType] {
+			types = append(types, info)
+		}
+	}
+	return types
+}
+
+func (f *fakeAdapterFactory) TypeInfo(dsType string) (dsadapter.AdapterInfo, bool) {
+	info, ok := f.typeInfo[dsType]
+	return info, ok
+}
+
+func (f *fakeAdapterFactory) SupportsType(dsType string) bool {
+	return f != nil && f.supported[dsType]
+}
+
+func (f fakeConnectionTester) TestConnection(ctx context.Context) error {
+	if f.test != nil {
+		return f.test(ctx)
+	}
+	return nil
+}
+
+func (f fakeConnectionTester) Close() error { return nil }
+
+func (f fakeQueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+	if f.query != nil {
+		return f.query(ctx, sqlQuery, limit)
+	}
+	return nil, errors.New("unexpected Query call")
+}
+
+func (f fakeQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+	if f.queryWithParameters != nil {
+		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, limit)
+	}
+	return nil, errors.New("unexpected QueryWithParameters call")
+}
+
+func (f fakeQueryExecutor) Close() error { return nil }
+
 func newTestService(t *testing.T) *Service {
+	return newTestServiceWithFactory(t, newFakeAdapterFactory())
+}
+
+func newTestServiceWithFactory(t *testing.T, factory dsadapter.Factory) *Service {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
@@ -23,7 +147,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("load secret: %v", err)
 	}
-	return New(st, secret, "test", func() string { return "http://127.0.0.1:18790" })
+	return New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 }
 
 func TestEnsureOpenClawKeyIsStableUntilRotation(t *testing.T) {
@@ -126,7 +250,9 @@ func TestUpsertDatasourceReturnsDecryptedConfig(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
 
-	service.tester = func(context.Context, *store.Datasource) error { return nil }
+	service.adapters.(*fakeAdapterFactory).newTester = func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+		return fakeConnectionTester{}, nil
+	}
 
 	ds, err := service.UpsertDatasource(context.Background(), &store.Datasource{
 		Name: "Primary",
@@ -154,9 +280,13 @@ func TestUpsertDatasourceRenamePreservesQueries(t *testing.T) {
 	defer service.store.Close()
 
 	testCalls := 0
-	service.tester = func(context.Context, *store.Datasource) error {
-		testCalls++
-		return nil
+	service.adapters.(*fakeAdapterFactory).newTester = func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+		return fakeConnectionTester{
+			test: func(context.Context) error {
+				testCalls++
+				return nil
+			},
+		}, nil
 	}
 
 	ctx := context.Background()
@@ -226,7 +356,9 @@ func TestUpsertDatasourceRejectsConnectionChanges(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
 
-	service.tester = func(context.Context, *store.Datasource) error { return nil }
+	service.adapters.(*fakeAdapterFactory).newTester = func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+		return fakeConnectionTester{}, nil
+	}
 
 	ctx := context.Background()
 	if _, err := service.UpsertDatasource(ctx, &store.Datasource{

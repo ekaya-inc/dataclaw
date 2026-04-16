@@ -1,6 +1,4 @@
-import type { DatasourceType } from './datasource';
-
-export type SqlDialect = 'PostgreSQL' | 'MSSQL';
+export type SqlDialect = 'PostgreSQL' | 'MSSQL' | string;
 
 export type ParameterType =
   | 'string'
@@ -45,7 +43,4 @@ export interface QueryValidationResult {
   warnings?: string[] | undefined;
 }
 
-export const datasourceTypeToDialect: Record<DatasourceType, SqlDialect> = {
-  postgres: 'PostgreSQL',
-  mssql: 'MSSQL',
-};
+export const DEFAULT_SQL_DIALECT: SqlDialect = 'PostgreSQL';

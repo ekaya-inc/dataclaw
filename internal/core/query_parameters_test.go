@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
@@ -259,7 +260,9 @@ func TestCreateQueryRejectsMutatingApprovedSQL(t *testing.T) {
 func seedDatasource(t *testing.T, service *Service, dsType string) {
 	t.Helper()
 
-	service.tester = func(context.Context, *store.Datasource) error { return nil }
+	service.adapters.(*fakeAdapterFactory).newTester = func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+		return fakeConnectionTester{}, nil
+	}
 	_, err := service.UpsertDatasource(context.Background(), &store.Datasource{
 		Name:     "Primary",
 		Type:     dsType,

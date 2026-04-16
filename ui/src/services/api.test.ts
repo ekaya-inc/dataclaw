@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { executeSavedQuery, getOpenClaw, testQuery, validateQuery } from './api';
+import { executeSavedQuery, getDatasource, getDatasourceTypes, getOpenClaw, testQuery, validateQuery } from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
@@ -80,5 +80,57 @@ describe('api service contracts', () => {
     expect(config.installCommand).toContain('${DATACLAW_API_KEY}');
     expect(config.installCommand).not.toContain('dclw-live-secret');
     expect(config.endpointUrl).toBe('http://127.0.0.1:18790/mcp');
+  });
+
+  it('preserves datasource types from the server without coercing unknown adapters', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          datasource: {
+            id: 'ds_1',
+            type: 'snowflake',
+            sql_dialect: 'PostgreSQL',
+            display_name: 'Warehouse',
+          },
+        },
+      }),
+    );
+
+    const datasource = await getDatasource();
+
+    expect(datasource?.type).toBe('snowflake');
+    expect(datasource?.sqlDialect).toBe('PostgreSQL');
+  });
+
+  it('loads datasource type metadata from the server', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          types: [
+            {
+              type: 'postgres',
+              display_name: 'PostgreSQL',
+              sql_dialect: 'PostgreSQL',
+              capabilities: { supports_array_parameters: true },
+            },
+          ],
+        },
+      }),
+    );
+
+    const types = await getDatasourceTypes();
+
+    expect(types).toEqual([
+      {
+        type: 'postgres',
+        displayName: 'PostgreSQL',
+        description: undefined,
+        icon: undefined,
+        sqlDialect: 'PostgreSQL',
+        capabilities: { supportsArrayParameters: true },
+      },
+    ]);
   });
 });

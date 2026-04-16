@@ -24,6 +24,7 @@ func New(service *core.Service) *API { return &API{service: service} }
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/datasource", a.handleGetDatasource)
+	mux.HandleFunc("GET /api/datasource/types", a.handleGetDatasourceTypes)
 	mux.HandleFunc("PUT /api/datasource", a.handlePutDatasource)
 	mux.HandleFunc("DELETE /api/datasource", a.handleDeleteDatasource)
 	mux.HandleFunc("POST /api/datasource/test", a.handleTestDatasource)
@@ -97,7 +98,11 @@ func (a *API) handleGetDatasource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": a.flattenDatasource(ds)}})
+}
+
+func (a *API) handleGetDatasourceTypes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"types": a.service.DatasourceTypes()}})
 }
 
 func (a *API) handlePutDatasource(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +116,7 @@ func (a *API) handlePutDatasource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": a.flattenDatasource(ds)}})
 }
 
 func (a *API) handleDeleteDatasource(w http.ResponseWriter, r *http.Request) {
@@ -349,14 +354,16 @@ func parseDatasourceRequest(req datasourceRequest) *storepkg.Datasource {
 	return &storepkg.Datasource{Name: name, Type: req.Type, Provider: req.Provider, Config: config}
 }
 
-func flattenDatasource(ds *storepkg.Datasource) map[string]any {
+func (a *API) flattenDatasource(ds *storepkg.Datasource) map[string]any {
 	if ds == nil {
 		return nil
 	}
+	typeInfo, _ := a.service.DatasourceTypeInfo(ds.Type)
 	out := map[string]any{
 		"id":           ds.ID,
 		"type":         ds.Type,
 		"provider":     ds.Provider,
+		"sql_dialect":  typeInfo.SQLDialect,
 		"display_name": ds.Name,
 		"name":         stringFromMap(ds.Config, "database", "name"),
 		"database":     stringFromMap(ds.Config, "database", "name"),

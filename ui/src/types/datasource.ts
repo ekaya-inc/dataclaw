@@ -1,11 +1,25 @@
-export type DatasourceType = 'postgres' | 'mssql';
+export type DatasourceType = string;
 
 export type SSLMode = 'disable' | 'allow' | 'prefer' | 'require' | 'verify-ca' | 'verify-full';
+
+export interface DatasourceAdapterCapabilities {
+  supportsArrayParameters?: boolean | undefined;
+}
+
+export interface DatasourceAdapterInfo {
+  type: DatasourceType;
+  displayName: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+  sqlDialect?: string | undefined;
+  capabilities?: DatasourceAdapterCapabilities | undefined;
+}
 
 export interface DatasourceRecord {
   id: string;
   type: DatasourceType;
   provider?: string | undefined;
+  sqlDialect?: string | undefined;
   displayName: string;
   database: string;
   host: string;

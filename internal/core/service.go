@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
@@ -21,24 +22,39 @@ import (
 type Service struct {
 	store     *storepkg.Store
 	secret    []byte
-	executor  *datasourceExecutor
-	tester    func(context.Context, *storepkg.Datasource) error
+	adapters  dsadapter.Factory
 	uiBaseURL func() string
 	version   string
 }
 
-func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() string) *Service {
+func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() string, adapters dsadapter.Factory) *Service {
+	if adapters == nil {
+		adapters = dsadapter.NewFactory(dsadapter.DefaultRegistry())
+	}
 	return &Service{
 		store:     store,
 		secret:    secret,
-		executor:  &datasourceExecutor{},
-		tester:    testDatasourceConnection,
+		adapters:  adapters,
 		uiBaseURL: uiBaseURL,
 		version:   version,
 	}
 }
 
-func (s *Service) Close() error { return s.executor.Close() }
+func (s *Service) Close() error { return nil }
+
+func (s *Service) DatasourceTypes() []dsadapter.AdapterInfo {
+	if s.adapters == nil {
+		return nil
+	}
+	return s.adapters.ListTypes()
+}
+
+func (s *Service) DatasourceTypeInfo(dsType string) (dsadapter.AdapterInfo, bool) {
+	if s.adapters == nil {
+		return dsadapter.AdapterInfo{}, false
+	}
+	return s.adapters.TypeInfo(dsType)
+}
 
 func (s *Service) Status() map[string]any {
 	baseURL := s.uiBaseURL()
@@ -80,7 +96,7 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 		return nil, err
 	}
 	if existing != nil {
-		if err := validateDatasourceUpdate(existing, ds); err != nil {
+		if err := validateDatasourceUpdate(existing, ds, s.adapters); err != nil {
 			return nil, err
 		}
 		ds = &storepkg.Datasource{
@@ -95,10 +111,10 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 		if ds.Type == "" {
 			return nil, errors.New("datasource type is required")
 		}
-		if ds.Type != "postgres" && ds.Type != "mssql" {
+		if s.adapters == nil || !s.adapters.SupportsType(ds.Type) {
 			return nil, fmt.Errorf("unsupported datasource type: %s", ds.Type)
 		}
-		if err := s.tester(ctx, ds); err != nil {
+		if err := s.TestDatasource(ctx, ds); err != nil {
 			return nil, err
 		}
 	}
@@ -108,7 +124,6 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 	if err := s.store.SaveDatasource(ctx, ds); err != nil {
 		return nil, err
 	}
-	_ = s.executor.Close()
 	return s.GetDatasource(ctx)
 }
 
@@ -121,11 +136,22 @@ func (s *Service) DeleteDatasource(ctx context.Context) error {
 	if err := s.store.DeleteDatasource(ctx); err != nil {
 		return err
 	}
-	return s.executor.Close()
+	return nil
 }
 
 func (s *Service) TestDatasource(ctx context.Context, ds *storepkg.Datasource) error {
-	return s.tester(ctx, ds)
+	if ds == nil {
+		return errors.New("datasource is required")
+	}
+	if s.adapters == nil {
+		return errors.New("datasource adapter factory is not configured")
+	}
+	tester, err := s.adapters.NewConnectionTester(ctx, ds.Type, ds.Config)
+	if err != nil {
+		return err
+	}
+	defer tester.Close()
+	return tester.TestConnection(ctx)
 }
 
 func (s *Service) ListQueries(ctx context.Context) ([]*storepkg.ApprovedQuery, error) {
@@ -199,11 +225,12 @@ func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	db, err := s.executor.open(ctx, ds)
+	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
 	if err != nil {
 		return nil, err
 	}
-	return executeQueryRows(ctx, db, normalized, nil, limit)
+	defer executor.Close()
+	return executor.Query(ctx, normalized, limit)
 }
 
 func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, limit int) (*QueryResult, error) {
@@ -211,15 +238,12 @@ func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameter
 	if err != nil {
 		return nil, err
 	}
-	prepared, args, err := prepareReadOnlyParameterizedQuery(ds.Type, sqlQuery, parameters, nil)
+	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
 	if err != nil {
 		return nil, err
 	}
-	db, err := s.executor.open(ctx, ds)
-	if err != nil {
-		return nil, err
-	}
-	return executeQueryRows(ctx, db, prepared, args, limit)
+	defer executor.Close()
+	return executor.QueryWithParameters(ctx, sqlQuery, parameters, nil, limit)
 }
 
 func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[string]any, limit int) (*QueryResult, error) {
@@ -244,18 +268,19 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 	if injectionResults := sqltmpl.CheckAllParameters(effectiveValues); len(injectionResults) > 0 {
 		return nil, fmt.Errorf("potential SQL injection detected in parameter '%s'", injectionResults[0].ParamName)
 	}
-	if ds.Type == "mssql" && hasArrayParameters(q.Parameters, effectiveValues) {
-		return nil, errors.New("array parameters are not supported for SQL Server saved-query execution yet")
+	if adapterInfo, ok := s.DatasourceTypeInfo(ds.Type); ok && hasArrayParameters(q.Parameters, effectiveValues) && !adapterInfo.Capabilities.SupportsArrayParameters {
+		name := adapterInfo.DisplayName
+		if name == "" {
+			name = ds.Type
+		}
+		return nil, fmt.Errorf("array parameters are not supported for %s saved-query execution yet", name)
 	}
-	prepared, args, err := prepareReadOnlyParameterizedQuery(ds.Type, q.SQLQuery, q.Parameters, effectiveValues)
+	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
 	if err != nil {
 		return nil, err
 	}
-	db, err := s.executor.open(ctx, ds)
-	if err != nil {
-		return nil, err
-	}
-	return executeQueryRows(ctx, db, prepared, args, limit)
+	defer executor.Close()
+	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
 }
 
 func (s *Service) EnsureOpenClawKey(ctx context.Context) (*storepkg.OpenClawCredential, error) {
@@ -375,45 +400,28 @@ func (s *Service) decryptDatasource(ds *storepkg.Datasource) error {
 	return nil
 }
 
-type datasourceConnectionSettings struct {
-	Type                   string
-	Provider               string
-	Host                   string
-	Port                   int
-	User                   string
-	Password               string
-	Database               string
-	SSLMode                string
-	Encrypt                bool
-	TrustServerCertificate bool
-}
-
-func validateDatasourceUpdate(existing, next *storepkg.Datasource) error {
+func validateDatasourceUpdate(existing, next *storepkg.Datasource, adapters dsadapter.Factory) error {
 	if existing == nil || next == nil {
 		return nil
 	}
-	if datasourceConnectionFingerprint(existing) != datasourceConnectionFingerprint(next) {
+	if existing.Type != next.Type || normalizeDatasourceProvider(existing) != normalizeDatasourceProvider(next) {
+		return errors.New("datasource connection settings cannot be changed after creation; remove and recreate the datasource")
+	}
+	if adapters == nil {
+		return errors.New("datasource adapter factory is not configured")
+	}
+	existingFingerprint, err := adapters.ConfigFingerprint(existing.Type, existing.Config)
+	if err != nil {
+		return err
+	}
+	nextFingerprint, err := adapters.ConfigFingerprint(next.Type, next.Config)
+	if err != nil {
+		return err
+	}
+	if existingFingerprint != nextFingerprint {
 		return errors.New("datasource connection settings cannot be changed after creation; remove and recreate the datasource")
 	}
 	return nil
-}
-
-func datasourceConnectionFingerprint(ds *storepkg.Datasource) datasourceConnectionSettings {
-	if ds == nil {
-		return datasourceConnectionSettings{}
-	}
-	return datasourceConnectionSettings{
-		Type:                   ds.Type,
-		Provider:               normalizeDatasourceProvider(ds),
-		Host:                   stringValue(ds.Config["host"]),
-		Port:                   intValue(ds.Config["port"], 0),
-		User:                   stringValue(firstNonNil(ds.Config["username"], ds.Config["user"])),
-		Password:               stringValue(ds.Config["password"]),
-		Database:               stringValue(firstNonNil(ds.Config["database"], ds.Config["name"])),
-		SSLMode:                stringValue(ds.Config["ssl_mode"]),
-		Encrypt:                boolValue(ds.Config["encrypt"], false),
-		TrustServerCertificate: boolValue(ds.Config["trust_server_certificate"], false),
-	}
 }
 
 func normalizeDatasourceProvider(ds *storepkg.Datasource) string {

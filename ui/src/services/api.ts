@@ -1,6 +1,6 @@
 import { QUERY_TEMPLATE } from '../constants';
 import type { ApiEnvelope } from '../types/api';
-import type { DatasourceFormValues, DatasourceRecord, RuntimeStatus, TestConnectionResult } from '../types/datasource';
+import type { DatasourceAdapterInfo, DatasourceFormValues, DatasourceRecord, RuntimeStatus, TestConnectionResult } from '../types/datasource';
 import type { OpenClawConfig } from '../types/openclaw';
 import type { QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
 
@@ -60,17 +60,35 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
+  const record = asRecord(raw);
+  const type = asString(pick(record, 'type'));
+  if (!record || !type) return null;
+  const capabilities = asRecord(record.capabilities);
+  return {
+    type,
+    displayName: asString(pick(record, 'displayName', 'display_name')) ?? type,
+    description: asString(pick(record, 'description')),
+    icon: asString(pick(record, 'icon')),
+    sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
+    capabilities: capabilities
+      ? {
+          supportsArrayParameters: asBoolean(pick(capabilities, 'supportsArrayParameters', 'supports_array_parameters')),
+        }
+      : undefined,
+  };
+}
+
 function toDatasourceRecord(raw: unknown): DatasourceRecord | null {
   const record = asRecord(raw);
-  if (!record) return null;
-
-  const typeValue = pick(record, 'type');
-  const type = typeValue === 'mssql' ? 'mssql' : 'postgres';
+  const type = asString(pick(record, 'type'));
+  if (!record || !type) return null;
 
   return {
     id: asString(pick(record, 'id', 'datasource_id')) ?? 'default',
     type,
     provider: asString(pick(record, 'provider')),
+    sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
     displayName: asString(pick(record, 'displayName', 'display_name', 'name')) ?? 'Datasource',
     database: asString(pick(record, 'database', 'name')) ?? '',
     host: asString(pick(record, 'host')) ?? '',
@@ -190,6 +208,13 @@ export async function getDatasource(): Promise<DatasourceRecord | null> {
   const record = asRecord(data);
   const datasource = record && 'datasource' in record ? record.datasource : data;
   return toDatasourceRecord(datasource);
+}
+
+export async function getDatasourceTypes(): Promise<DatasourceAdapterInfo[]> {
+  const data = await parseResponse<unknown>(await fetch('/api/datasource/types'));
+  const record = asRecord(data);
+  const types = Array.isArray(record?.types) ? record.types : [];
+  return types.map(toDatasourceAdapterInfo).filter((type): type is DatasourceAdapterInfo => type !== null);
 }
 
 export async function saveDatasource(values: DatasourceFormValues): Promise<DatasourceRecord> {

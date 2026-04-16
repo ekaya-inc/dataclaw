@@ -1,4 +1,4 @@
-package core
+package datasource
 
 import (
 	"errors"
@@ -6,12 +6,11 @@ import (
 	"io"
 	"strings"
 
-	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 	sqltmpl "github.com/ekaya-inc/dataclaw/pkg/sql"
 )
 
-func validateReadOnlySQL(sqlQuery string) (string, error) {
+func ValidateReadOnlySQL(sqlQuery string) (string, error) {
 	result := sqltmpl.ValidateAndNormalize(sqlQuery)
 	if result.Error != nil {
 		return "", result.Error
@@ -46,6 +45,52 @@ func validateReadOnlySQL(sqlQuery string) (string, error) {
 		}
 	}
 	return normalized, nil
+}
+
+func ValidateStoredSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+	result := sqltmpl.ValidateAndNormalize(sqlQuery)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	normalized := result.NormalizedSQL
+	if normalized == "" {
+		return "", errors.New("sql is required")
+	}
+	if err := sqltmpl.ValidateParameterDefinitions(normalized, params); err != nil {
+		return "", err
+	}
+	if problems := sqltmpl.FindParametersInStringLiterals(normalized); len(problems) > 0 {
+		return "", fmt.Errorf("parameters inside string literals are not allowed: %s", strings.Join(problems, ", "))
+	}
+	return normalized, nil
+}
+
+func ValidateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+	normalized, err := ValidateStoredSQL(sqlQuery, params)
+	if err != nil {
+		return "", err
+	}
+	return ValidateReadOnlySQL(normalized)
+}
+
+func PrepareParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+	normalized, err := ValidateStoredSQL(sqlQuery, params)
+	if err != nil {
+		return "", nil, err
+	}
+	return sqltmpl.SubstituteParameters(normalized, params, values)
+}
+
+func PrepareReadOnlyParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+	prepared, args, err := PrepareParameterizedQuery(sqlQuery, params, values)
+	if err != nil {
+		return "", nil, err
+	}
+	readOnly, err := ValidateReadOnlySQL(prepared)
+	if err != nil {
+		return "", nil, err
+	}
+	return readOnly, args, nil
 }
 
 type sqlToken struct {
@@ -297,38 +342,4 @@ func skipDollarQuotedString(sqlQuery string, start int) (int, bool) {
 		return len(sqlQuery), true
 	}
 	return end + 1 + closeIdx + len(delimiter), true
-}
-
-func validateStoredSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
-	result := sqltmpl.ValidateAndNormalize(sqlQuery)
-	if result.Error != nil {
-		return "", result.Error
-	}
-	normalized := result.NormalizedSQL
-	if normalized == "" {
-		return "", errors.New("sql is required")
-	}
-	if err := sqltmpl.ValidateParameterDefinitions(normalized, params); err != nil {
-		return "", err
-	}
-	if problems := sqltmpl.FindParametersInStringLiterals(normalized); len(problems) > 0 {
-		return "", fmt.Errorf("parameters inside string literals are not allowed: %s", strings.Join(problems, ", "))
-	}
-	return normalized, nil
-}
-
-func validateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) (string, error) {
-	normalized, err := validateStoredSQL(sqlQuery, params)
-	if err != nil {
-		return "", err
-	}
-	return validateReadOnlySQL(normalized)
-}
-
-func prepareParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
-	return dsadapter.PrepareParameterizedQuery(sqlQuery, params, values)
-}
-
-func prepareReadOnlyParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
-	return dsadapter.PrepareReadOnlyParameterizedQuery(sqlQuery, params, values)
 }
