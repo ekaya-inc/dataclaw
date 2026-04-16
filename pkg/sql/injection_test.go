@@ -274,6 +274,22 @@ func TestCheckAllParameters(t *testing.T) {
 			expectParamNames:     nil,
 		},
 		{
+			name: "string array values are inspected recursively",
+			params: map[string]any{
+				"statuses": []string{"pending", "' OR 1=1--"},
+			},
+			expectInjectionCount: 1,
+			expectParamNames:     []string{"statuses"},
+		},
+		{
+			name: "json-style arrays are inspected recursively",
+			params: map[string]any{
+				"statuses": []any{"pending", "'; DROP TABLE users--"},
+			},
+			expectInjectionCount: 1,
+			expectParamNames:     []string{"statuses"},
+		},
+		{
 			name: "complex injection patterns",
 			params: map[string]any{
 				"a": "normal",

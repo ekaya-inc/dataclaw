@@ -9,14 +9,16 @@ export type ParameterType =
   | 'boolean'
   | 'date'
   | 'timestamp'
-  | 'uuid';
+  | 'uuid'
+  | 'string[]'
+  | 'integer[]';
 
 export interface QueryParameter {
   name: string;
   type: ParameterType;
   description: string;
   required: boolean;
-  default?: string | null;
+  default?: unknown;
 }
 
 export interface SavedQuery {

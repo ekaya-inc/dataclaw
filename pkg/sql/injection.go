@@ -1,6 +1,8 @@
 package sql
 
 import (
+	"reflect"
+
 	libinjection "github.com/corazawaf/libinjection-go"
 )
 
@@ -33,19 +35,38 @@ type InjectionCheckResult struct {
 //	// result.Fingerprint == "s&1c" (or similar)
 //	// result.ParamName == "search"
 func CheckParameterForInjection(paramName string, value any) *InjectionCheckResult {
-	// Only check string values - numbers/booleans can't contain injection
+	return checkParameterForInjection(paramName, value, value)
+}
+
+func checkParameterForInjection(paramName string, value any, rootValue any) *InjectionCheckResult {
 	strValue, ok := value.(string)
-	if !ok {
+	if ok {
+		isSQLi, fingerprint := libinjection.IsSQLi(strValue)
+		if isSQLi {
+			return &InjectionCheckResult{
+				IsSQLi:      true,
+				Fingerprint: string(fingerprint),
+				ParamName:   paramName,
+				ParamValue:  rootValue,
+			}
+		}
 		return nil
 	}
 
-	isSQLi, fingerprint := libinjection.IsSQLi(strValue)
-	if isSQLi {
-		return &InjectionCheckResult{
-			IsSQLi:      true,
-			Fingerprint: string(fingerprint),
-			ParamName:   paramName,
-			ParamValue:  value,
+	if value == nil {
+		return nil
+	}
+
+	reflectValue := reflect.ValueOf(value)
+	switch reflectValue.Kind() {
+	case reflect.Array, reflect.Slice:
+		if reflectValue.Type().Elem().Kind() == reflect.Uint8 {
+			return nil
+		}
+		for i := 0; i < reflectValue.Len(); i++ {
+			if result := checkParameterForInjection(paramName, reflectValue.Index(i).Interface(), rootValue); result != nil {
+				return result
+			}
 		}
 	}
 

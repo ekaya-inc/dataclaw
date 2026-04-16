@@ -501,6 +501,14 @@ func validateStoredSQL(sqlQuery string, params []models.QueryParameter) (string,
 	return normalized, nil
 }
 
+func validateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+	normalized, err := validateStoredSQL(sqlQuery, params)
+	if err != nil {
+		return "", err
+	}
+	return validateReadOnlySQL(normalized)
+}
+
 func resolveSQLAndArgs(dsType, sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
 	prepared, args, err := prepareParameterizedQuery(sqlQuery, params, values)
 	if err != nil {

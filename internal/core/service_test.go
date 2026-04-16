@@ -9,6 +9,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	"github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/migrations"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 func newTestService(t *testing.T) *Service {
@@ -115,6 +116,9 @@ func TestValidateQuerySQLReadOnly(t *testing.T) {
 	}
 	if _, err := service.ValidateQuerySQL("SELECT * INTO archive_users FROM users", nil, true); err == nil {
 		t.Fatal("expected SELECT INTO to be rejected for read-only validation")
+	}
+	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", []models.QueryParameter{}, false); err == nil {
+		t.Fatal("expected approved-query validation to reject mutating SQL")
 	}
 }
 

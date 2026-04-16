@@ -7,6 +7,7 @@ import { QUERY_TEMPLATE } from '../constants';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { ParameterEditor } from '../components/ParameterEditor';
+import { ParameterInputForm } from '../components/ParameterInputForm';
 import { QueryResultsTable } from '../components/QueryResultsTable';
 import { SqlEditor } from '../components/SqlEditor';
 import { StatusBanner } from '../components/StatusBanner';
@@ -28,12 +29,49 @@ const EMPTY_QUERY: Omit<SavedQuery, 'id'> = {
   parameters: [],
 };
 
+function queryParameterHasDefault(value: unknown): boolean {
+  return value !== null && value !== undefined;
+}
+
+function hasProvidedQueryParameterValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return value.trim() !== '';
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  return true;
+}
+
+function canExecuteSavedQuery(query: SavedQuery, values: Record<string, unknown>): boolean {
+  if (!query.isEnabled) {
+    return false;
+  }
+
+  return query.parameters.every((parameter) => {
+    if (!parameter.required) {
+      return true;
+    }
+
+    const hasExplicitValue = Object.prototype.hasOwnProperty.call(values, parameter.name);
+    if (hasExplicitValue) {
+      return hasProvidedQueryParameterValue(values[parameter.name]);
+    }
+
+    return queryParameterHasDefault(parameter.default);
+  });
+}
+
 export default function ApprovedQueriesPage(): JSX.Element {
   const { refresh } = useOutletContext<AppOutletContext>();
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [queries, setQueries] = useState<SavedQuery[]>([]);
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Omit<SavedQuery, 'id'>>(EMPTY_QUERY);
+  const [executeParameterValues, setExecuteParameterValues] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState<'loading' | 'saving' | 'validating' | 'testing' | 'executing' | 'deleting' | null>('loading');
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'danger'; message: string } | null>(null);
   const [validation, setValidation] = useState<QueryValidationResult | null>(null);
@@ -61,11 +99,12 @@ export default function ApprovedQueriesPage(): JSX.Element {
     () => queries.find((query) => query.id === selectedQueryId) ?? null,
     [queries, selectedQueryId],
   );
-  const selectedQueryHasRequiredParameters = selectedQuery?.parameters.some((parameter) => parameter.required) ?? false;
+  const canExecuteSelectedQuery = selectedQuery ? canExecuteSavedQuery(selectedQuery, executeParameterValues) : false;
 
   const dialect = datasource ? datasourceTypeToDialect[datasource.type] : 'PostgreSQL';
 
   const resetDraft = (nextQuery?: SavedQuery | null): void => {
+    setExecuteParameterValues({});
     if (!nextQuery) {
       setSelectedQueryId(null);
       setDraft({ ...EMPTY_QUERY, datasourceId: datasource?.id });
@@ -158,10 +197,14 @@ export default function ApprovedQueriesPage(): JSX.Element {
   };
 
   const runSavedQuery = async (queryId: string): Promise<void> => {
+    if (!selectedQuery || !canExecuteSavedQuery(selectedQuery, executeParameterValues)) {
+      return;
+    }
+
     setBusy('executing');
     setFeedback(null);
     try {
-      const execution = await executeSavedQuery(queryId);
+      const execution = await executeSavedQuery(queryId, executeParameterValues, 100);
       setResults(execution);
       setFeedback({ tone: 'success', message: 'Approved query executed.' });
     } catch (error) {
@@ -299,6 +342,9 @@ export default function ApprovedQueriesPage(): JSX.Element {
                 </div>
               </div>
               <ParameterEditor parameters={draft.parameters} onChange={(parameters) => setDraft((current) => ({ ...current, parameters }))} />
+              {selectedQuery && selectedQuery.parameters.length > 0 ? (
+                <ParameterInputForm parameters={selectedQuery.parameters} values={executeParameterValues} onChange={setExecuteParameterValues} />
+              ) : null}
               <div className="flex flex-wrap gap-3">
                 <Button type="button" onClick={() => void persistDraft()} disabled={busy !== null || !draft.name.trim() || !draft.sql.trim()}>
                   <Save className="h-4 w-4" />
@@ -314,7 +360,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
                 </Button>
                 {selectedQuery ? (
                   <>
-                    <Button type="button" variant="outline" onClick={() => void runSavedQuery(selectedQuery.id)} disabled={busy !== null || selectedQueryHasRequiredParameters}>
+                    <Button type="button" variant="outline" onClick={() => void runSavedQuery(selectedQuery.id)} disabled={busy !== null || !canExecuteSelectedQuery}>
                       <Play className="h-4 w-4" />
                       Execute saved query
                     </Button>
@@ -325,8 +371,11 @@ export default function ApprovedQueriesPage(): JSX.Element {
                   </>
                 ) : null}
               </div>
-              {selectedQueryHasRequiredParameters ? (
-                <p className="text-sm text-text-secondary">Execute saved query is disabled here because this query requires parameter values. Run it through the API or MCP client with explicit parameters.</p>
+              {selectedQuery && !selectedQuery.isEnabled ? (
+                <p className="text-sm text-text-secondary">Execute saved query is disabled because this approved query is currently disabled.</p>
+              ) : null}
+              {selectedQuery && selectedQuery.isEnabled && !canExecuteSelectedQuery ? (
+                <p className="text-sm text-text-secondary">Provide values for the required execution parameters before running this approved query.</p>
               ) : null}
             </CardContent>
           </Card>

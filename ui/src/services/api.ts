@@ -94,7 +94,7 @@ function toQueryParameter(raw: unknown): QueryParameter | null {
     type,
     description: asString(pick(record, 'description')) ?? '',
     required: asBoolean(pick(record, 'required')) ?? true,
-    default: asString(pick(record, 'default')) ?? null,
+    default: pick(record, 'default') ?? null,
   };
 }
 
@@ -314,12 +314,15 @@ export async function testQuery(sql: string, parameters: QueryParameter[]): Prom
   return toExecutionResult(record && 'result' in record ? record.result : data);
 }
 
-export async function executeSavedQuery(id: string): Promise<QueryExecutionResult> {
+export async function executeSavedQuery(id: string, parameters?: Record<string, unknown>, limit = 100): Promise<QueryExecutionResult> {
   const data = await parseResponse<unknown>(
     await fetch(`/api/queries/${id}/execute`, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        ...(parameters && Object.keys(parameters).length > 0 ? { parameters } : {}),
+        limit,
+      }),
     }),
   );
   const record = asRecord(data);

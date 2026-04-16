@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getOpenClaw, testQuery, validateQuery } from './api';
+import { executeSavedQuery, getOpenClaw, testQuery, validateQuery } from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
@@ -43,6 +43,22 @@ describe('api service contracts', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       sql_query: 'SELECT 1',
       parameters: [],
+    });
+  });
+
+  it('sends parameters and limit to the saved-query execute endpoint', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({ success: true, data: { columns: [], rows: [], row_count: 0 } }),
+    );
+
+    await executeSavedQuery('query_1', { account_id: '550e8400-e29b-41d4-a716-446655440000' }, 25);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe('/api/queries/query_1/execute');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      parameters: { account_id: '550e8400-e29b-41d4-a716-446655440000' },
+      limit: 25,
     });
   });
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
+	sqltmpl "github.com/ekaya-inc/dataclaw/pkg/sql"
 )
 
 type Service struct {
@@ -144,7 +145,7 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 		return nil, errors.New("query name is required")
 	}
 	q.DatasourceID = ds.ID
-	normalized, err := validateStoredSQL(q.SQLQuery, q.Parameters)
+	normalized, err := validateStoredReadOnlySQL(q.SQLQuery, q.Parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +164,7 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	if existing == nil {
 		return nil, errors.New("query not found")
 	}
-	normalized, err := validateStoredSQL(q.SQLQuery, q.Parameters)
+	normalized, err := validateStoredReadOnlySQL(q.SQLQuery, q.Parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +187,7 @@ func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryPar
 	if readOnly {
 		return validateReadOnlySQL(sqlQuery)
 	}
-	return validateStoredSQL(sqlQuery, parameters)
+	return validateStoredReadOnlySQL(sqlQuery, parameters)
 }
 
 func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
@@ -233,7 +234,20 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 	if q == nil {
 		return nil, errors.New("query not found")
 	}
-	prepared, args, err := resolveSQLAndArgs(ds.Type, q.SQLQuery, q.Parameters, values)
+	if !q.IsEnabled {
+		return nil, errors.New("query is disabled")
+	}
+	effectiveValues, err := prepareExecutionParameterValues(q.Parameters, values)
+	if err != nil {
+		return nil, err
+	}
+	if injectionResults := sqltmpl.CheckAllParameters(effectiveValues); len(injectionResults) > 0 {
+		return nil, fmt.Errorf("potential SQL injection detected in parameter '%s'", injectionResults[0].ParamName)
+	}
+	if ds.Type == "mssql" && hasArrayParameters(q.Parameters, effectiveValues) {
+		return nil, errors.New("array parameters are not supported for SQL Server saved-query execution yet")
+	}
+	prepared, args, err := prepareReadOnlyParameterizedQuery(ds.Type, q.SQLQuery, q.Parameters, effectiveValues)
 	if err != nil {
 		return nil, err
 	}

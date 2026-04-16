@@ -157,7 +157,7 @@ export default function OpenClawPage(): JSX.Element {
               <div className="font-medium text-text-primary">MCP tools</div>
               <ul className="mt-3 space-y-2">
                 <li><code>query</code> for raw read-only SQL against the configured datasource</li>
-                <li><code>list_queries</code>, <code>create_query</code>, <code>update_query</code>, and <code>delete_query</code> for approved-query management</li>
+                <li><code>list_queries</code>, <code>create_query</code>, <code>update_query</code>, <code>delete_query</code>, and <code>execute_query</code> for approved-query management and execution</li>
               </ul>
             </div>
             <div className="rounded-2xl border border-border-light bg-surface-secondary p-4">

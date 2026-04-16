@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -20,6 +21,18 @@ type Server struct {
 	service    *core.Service
 }
 
+type approvedQueryResponse struct {
+	QueryID      string                  `json:"query_id"`
+	DatasourceID string                  `json:"datasource_id,omitempty"`
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description"`
+	SQL          string                  `json:"sql"`
+	Parameters   []models.QueryParameter `json:"parameters,omitempty"`
+	IsEnabled    bool                    `json:"is_enabled"`
+	CreatedAt    time.Time               `json:"created_at"`
+	UpdatedAt    time.Time               `json:"updated_at"`
+}
+
 func New(version string, service *core.Service) *Server {
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true))
 	registerQueryTool(mcpServer, service)
@@ -27,6 +40,7 @@ func New(version string, service *core.Service) *Server {
 	registerCreateQueryTool(mcpServer, service)
 	registerUpdateQueryTool(mcpServer, service)
 	registerDeleteQueryTool(mcpServer, service)
+	registerExecuteQueryTool(mcpServer, service)
 	return &Server{httpServer: server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true)), service: service}
 }
 
@@ -90,7 +104,7 @@ func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		body, _ := json.Marshal(map[string]any{"queries": queries})
+		body, _ := json.Marshal(map[string]any{"queries": normalizeApprovedQueries(queries)})
 		return mcp.NewToolResultText(string(body)), nil
 	})
 }
@@ -110,9 +124,15 @@ func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		name, _ := args["name"].(string)
-		description, _ := args["description"].(string)
-		sqlQuery, _ := args["sql"].(string)
+		name, err := req.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		description, _ := stringArg(args, "description")
+		sqlQuery, err := req.RequireString("sql")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		enabled := true
 		if raw, ok := args["is_enabled"].(bool); ok {
 			enabled = raw
@@ -121,7 +141,7 @@ func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		body, _ := json.Marshal(map[string]any{"query": query})
+		body, _ := json.Marshal(map[string]any{"query": normalizeApprovedQuery(query)})
 		return mcp.NewToolResultText(string(body)), nil
 	})
 }
@@ -138,14 +158,23 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
-		id, _ := args["query_id"].(string)
+		id, err := req.RequireString("query_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		parameters, err := parseParameters(args["parameters"])
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		name, _ := args["name"].(string)
-		description, _ := args["description"].(string)
-		sqlQuery, _ := args["sql"].(string)
+		name, err := req.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		description, _ := stringArg(args, "description")
+		sqlQuery, err := req.RequireString("sql")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		enabled := true
 		if raw, ok := args["is_enabled"].(bool); ok {
 			enabled = raw
@@ -154,7 +183,7 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		body, _ := json.Marshal(map[string]any{"query": query})
+		body, _ := json.Marshal(map[string]any{"query": normalizeApprovedQuery(query)})
 		return mcp.NewToolResultText(string(body)), nil
 	})
 }
@@ -173,6 +202,51 @@ func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(`{"deleted":true}`), nil
+	})
+}
+
+func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
+	tool := mcp.NewTool("execute_query",
+		mcp.WithDescription("Execute an enabled approved query stored in DataClaw. Parameters are validated and bound before execution."),
+		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
+		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
+		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+	)
+	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args, _ := req.Params.Arguments.(map[string]any)
+		queryID, err := req.RequireString("query_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		parameters, err := parseParameterValues(args["parameters"])
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		limit := 100
+		if raw, ok := args["limit"].(float64); ok {
+			limit = int(raw)
+		}
+
+		result, err := service.ExecuteStoredQuery(ctx, queryID, parameters, limit)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		queryName := ""
+		if query, getErr := service.GetQuery(ctx, queryID); getErr == nil && query != nil {
+			queryName = query.Name
+		}
+
+		body, _ := json.Marshal(map[string]any{
+			"query_id":   queryID,
+			"query_name": queryName,
+			"columns":    result.Columns,
+			"rows":       result.Rows,
+			"row_count":  result.RowCount,
+		})
+		return mcp.NewToolResultText(string(body)), nil
 	})
 }
 
@@ -214,4 +288,50 @@ func parseParameters(raw any) ([]models.QueryParameter, error) {
 		params = append(params, param)
 	}
 	return params, nil
+}
+
+func parseParameterValues(raw any) (map[string]any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("parameters must be an object")
+	}
+	return values, nil
+}
+
+func normalizeApprovedQueries(queries []*storepkg.ApprovedQuery) []approvedQueryResponse {
+	normalized := make([]approvedQueryResponse, 0, len(queries))
+	for _, query := range queries {
+		if query == nil {
+			continue
+		}
+		normalized = append(normalized, normalizeApprovedQuery(query))
+	}
+	return normalized
+}
+
+func normalizeApprovedQuery(query *storepkg.ApprovedQuery) approvedQueryResponse {
+	return approvedQueryResponse{
+		QueryID:      query.ID,
+		DatasourceID: query.DatasourceID,
+		Name:         query.Name,
+		Description:  query.Description,
+		SQL:          query.SQLQuery,
+		Parameters:   query.Parameters,
+		IsEnabled:    query.IsEnabled,
+		CreatedAt:    query.CreatedAt,
+		UpdatedAt:    query.UpdatedAt,
+	}
+}
+
+func stringArg(args map[string]any, keys ...string) (string, bool) {
+	for _, key := range keys {
+		value, ok := args[key].(string)
+		if ok && strings.TrimSpace(value) != "" {
+			return value, true
+		}
+	}
+	return "", false
 }
