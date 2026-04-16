@@ -36,6 +36,6 @@ describe('App shell', () => {
     expect(screen.queryByText(/schema/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/ontology/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/local api/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/fastest way to connect agents to datasources/i)).toBeInTheDocument();
+    expect(screen.getByText(/fastest way to connect agents to data/i)).toBeInTheDocument();
   });
 });

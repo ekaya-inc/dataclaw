@@ -1,9 +1,10 @@
-import { Pencil, Save, TestTube2, Unplug } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Pencil, Save, TestTube2, Unplug } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
 import { PROVIDERS } from '../constants';
+import { DatasourceTypePicker } from '../components/DatasourceTypePicker';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBanner } from '../components/StatusBanner';
 import { Button } from '../components/ui/Button';
@@ -12,6 +13,7 @@ import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { deleteDatasource, getDatasource, saveDatasource, testDatasource } from '../services/api';
 import type { DatasourceFormValues, DatasourceRecord, SSLMode } from '../types/datasource';
+import { parsePostgresUrl } from '../utils/connectionString';
 
 const DEFAULT_VALUES: DatasourceFormValues = {
   type: 'postgres',
@@ -68,16 +70,14 @@ export default function DatasourcePage(): JSX.Element {
   const [testPassed, setTestPassed] = useState(false);
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
   const [disconnectConfirmText, setDisconnectConfirmText] = useState('');
+  const [typeSelected, setTypeSelected] = useState(false);
+  const [connString, setConnString] = useState('');
+  const [connStringError, setConnStringError] = useState('');
   const connectionLocked = datasource !== null;
   const nameInputRef = useRef<HTMLInputElement>(null);
   const disconnectInputRef = useRef<HTMLInputElement>(null);
 
   const disconnectConfirmed = disconnectConfirmText.trim().toLowerCase() === DISCONNECT_CONFIRMATION;
-
-  const providerOptions = useMemo(
-    () => PROVIDERS.filter((provider) => provider.adapter === formValues.type),
-    [formValues.type],
-  );
 
   useEffect(() => {
     void (async () => {
@@ -87,6 +87,7 @@ export default function DatasourcePage(): JSX.Element {
         if (currentDatasource) {
           setFormValues(toFormValues(currentDatasource));
           setIsEditingName(false);
+          setTypeSelected(true);
         }
       } catch (error) {
         setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to load datasource.' });
@@ -95,17 +96,6 @@ export default function DatasourcePage(): JSX.Element {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    const selectedProvider = providerOptions.find((provider) => provider.id === formValues.provider) ?? providerOptions[0];
-    if (!selectedProvider) return;
-    setFormValues((current) => ({
-      ...current,
-      provider: selectedProvider.id,
-      port: current.port || selectedProvider.defaultPort,
-      sslMode: current.sslMode || selectedProvider.defaultSSL,
-    }));
-  }, [providerOptions, formValues.provider]);
 
   useEffect(() => {
     if (!isEditingName) return;
@@ -137,6 +127,44 @@ export default function DatasourcePage(): JSX.Element {
       port: provider.defaultPort,
       sslMode: provider.defaultSSL,
     }));
+  };
+
+  const handlePickerSelect = (providerId: string): void => {
+    handleProviderChange(providerId);
+    setFeedback(null);
+    setTypeSelected(true);
+  };
+
+  const handleCancelSetup = (): void => {
+    setFormValues(DEFAULT_VALUES);
+    setTestPassed(false);
+    setFeedback(null);
+    setTypeSelected(false);
+    setConnString('');
+    setConnStringError('');
+  };
+
+  const handleParseConnectionString = (): void => {
+    const parsed = parsePostgresUrl(connString.trim());
+    if (!parsed) {
+      setConnStringError('Invalid connection string. Expected: postgresql://user:password@host:port/database');
+      return;
+    }
+    const detected = parsed.providerId ? PROVIDERS.find((provider) => provider.id === parsed.providerId) : undefined;
+    setTestPassed(false);
+    setFormValues((current) => ({
+      ...current,
+      type: 'postgres',
+      provider: detected?.id ?? current.provider,
+      host: parsed.host,
+      port: String(parsed.port),
+      database: parsed.database,
+      username: parsed.user,
+      password: parsed.password,
+      sslMode: parsed.sslMode,
+    }));
+    setConnString('');
+    setConnStringError('');
   };
 
   const handleTest = async (): Promise<void> => {
@@ -203,6 +231,7 @@ export default function DatasourcePage(): JSX.Element {
       setFormValues(DEFAULT_VALUES);
       setIsEditingName(false);
       setTestPassed(false);
+      setTypeSelected(false);
       setShowDisconnectDialog(false);
       setDisconnectConfirmText('');
       resetAgentRevealed();
@@ -215,15 +244,18 @@ export default function DatasourcePage(): JSX.Element {
     }
   };
 
-  const providerHelper = PROVIDERS.find((provider) => provider.id === formValues.provider)?.helperText;
   const saveGated = !connectionLocked && !testPassed;
+
+  const showPicker = !datasource && !typeSelected;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Datasource"
-        description="Configure the datasource. The agent will be operating with the credentials you supplied below so limit their access appropriately."
+        description="Configure the datasource. The agent will be operating with the credentials you supply below so limit their access appropriately."
       />
+      {showPicker ? <DatasourceTypePicker onSelect={handlePickerSelect} /> : null}
+      {!showPicker ? (
       <Card>
         <CardContent className="space-y-6 pt-6">
           <div className="border-b border-border-light pb-6">
@@ -271,24 +303,41 @@ export default function DatasourcePage(): JSX.Element {
               </button>
             )}
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-              <Label htmlFor="provider">Datasource Type</Label>
-              <select
-                id="provider"
-                className="mt-2 flex h-10 w-full rounded-lg border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary disabled:cursor-default disabled:bg-surface-secondary disabled:text-text-secondary disabled:opacity-100"
-                value={formValues.provider}
-                disabled={connectionLocked}
-                onChange={(event) => handleProviderChange(event.target.value)}
-              >
-                {PROVIDERS.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.label}
-                  </option>
-                ))}
-              </select>
-              {providerHelper ? <p className="mt-2 text-xs text-text-tertiary">{providerHelper}</p> : null}
+          {!connectionLocked && formValues.type === 'postgres' ? (
+            <div className="rounded-xl border border-border-light bg-surface-secondary/60 p-4">
+              <Label htmlFor="connection-string">Quick setup: paste a connection string</Label>
+              <p className="mt-1 text-xs text-text-tertiary">
+                Optional. Fills host, port, user, password, database, and SSL mode. Detects Supabase, Neon, Redshift, and CockroachDB from the hostname.
+              </p>
+              <div className="mt-3 flex flex-wrap items-start gap-2">
+                <Input
+                  id="connection-string"
+                  className="flex-1 min-w-[260px]"
+                  placeholder="postgresql://user:password@host:port/database"
+                  value={connString}
+                  onChange={(event) => {
+                    setConnString(event.target.value);
+                    if (connStringError) setConnStringError('');
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && connString.trim()) {
+                      event.preventDefault();
+                      handleParseConnectionString();
+                    }
+                  }}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button type="button" variant="outline" onClick={handleParseConnectionString} disabled={!connString.trim()}>
+                  Parse
+                </Button>
+              </div>
+              {connStringError ? (
+                <p className="mt-2 text-xs text-red-600">{connStringError}</p>
+              ) : null}
             </div>
+          ) : null}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div>
               <Label htmlFor="database">Database Name</Label>
               <Input id="database" className="mt-2" value={formValues.database} readOnly={connectionLocked} onChange={(event) => updateField('database', event.target.value)} />
@@ -345,6 +394,12 @@ export default function DatasourcePage(): JSX.Element {
           </div>
           <div className="space-y-2">
             <div className="flex flex-wrap gap-3">
+              {!connectionLocked ? (
+                <Button type="button" variant="outline" onClick={handleCancelSetup} disabled={busy !== null}>
+                  <ArrowLeft className="h-4 w-4" />
+                  Cancel
+                </Button>
+              ) : null}
               <Button type="button" variant="outline" onClick={() => void handleTest()} disabled={busy !== null}>
                 <TestTube2 className="h-4 w-4" />
                 Test connection
@@ -369,6 +424,8 @@ export default function DatasourcePage(): JSX.Element {
           {feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
         </CardContent>
       </Card>
+      ) : null}
+      {showPicker && feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
       {showDisconnectDialog ? (
         <div
           role="dialog"

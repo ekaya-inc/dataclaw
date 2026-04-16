@@ -21,7 +21,33 @@ function response(body: unknown): Response {
   });
 }
 
+async function pickPostgres(): Promise<void> {
+  const tile = await screen.findByRole('button', { name: /postgresql/i });
+  await userEvent.click(tile);
+}
+
 describe('DatasourcePage', () => {
+  it('shows the type picker and switches to credentials after a type is chosen', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource') return response({ datasource: null });
+      throw new Error(`Unhandled request: ${String(url)}`);
+    });
+
+    render(<DatasourcePage />);
+
+    expect(await screen.findByText(/choose a datasource type to connect/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/host/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /supabase/i }));
+
+    await waitFor(() => expect(screen.getByLabelText(/host/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByText(/choose a datasource type to connect/i)).toBeInTheDocument());
+  });
+
   it('gates save on a successful test connection and saves a datasource', async () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
@@ -33,6 +59,7 @@ describe('DatasourcePage', () => {
     });
 
     render(<DatasourcePage />);
+    await pickPostgres();
 
     const saveButton = await screen.findByRole('button', { name: /save datasource/i });
     expect(saveButton).toBeDisabled();
@@ -64,6 +91,7 @@ describe('DatasourcePage', () => {
     });
 
     render(<DatasourcePage />);
+    await pickPostgres();
 
     const saveButton = await screen.findByRole('button', { name: /save datasource/i });
     await userEvent.type(screen.getByLabelText(/host/i), 'db.example.com');
@@ -105,7 +133,7 @@ describe('DatasourcePage', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: /edit display name/i })).toBeInTheDocument());
 
-    expect(screen.getByLabelText(/datasource type/i)).toBeDisabled();
+    expect(screen.queryByLabelText(/datasource type/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/database name/i)).toHaveAttribute('readonly');
     expect(screen.getByLabelText(/host/i)).toHaveAttribute('readonly');
     expect(screen.getByLabelText(/port/i)).toHaveAttribute('readonly');

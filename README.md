@@ -21,7 +21,7 @@ DataClaw has exactly three screens:
 
 1. **Datasource**
 2. **Approved Queries**
-3. **OpenClaw**
+3. **Agent**
 
 There is no web authentication and no schema / ontology workflow.
 
@@ -52,11 +52,31 @@ Run the full backend + UI verification suite with compact output:
 make check
 ```
 
+Build the embedded UI and a local binary:
+
+```bash
+make build
+```
+
 Start the server, rebuilding embedded UI assets first when the checked-in bundle is stale:
 
 ```bash
 make run
 ```
+
+Run the server against `ui/dist` on disk (skips the embed) for a live dev loop:
+
+```bash
+make dev
+```
+
+In a second terminal, rebuild `ui/dist` on every save:
+
+```bash
+make dev-ui
+```
+
+`make dev` and `make dev-ui` do not refresh `internal/uifs/dist`, so run `make run` or `make check` before shipping.
 
 ## Run locally
 
@@ -67,8 +87,8 @@ go run .
 Or build a binary:
 
 ```bash
-go build -o dataclaw .
-./dataclaw
+make build
+./bin/dataclaw
 ```
 
 ## Runtime configuration
@@ -82,23 +102,7 @@ uncommenting the ones you want.
 
 ## Rebuild the UI
 
-```bash
-cd ui
-npm install
-npm run lint
-npm run typecheck
-npm test
-npm run build
-cd ..
-rm -rf internal/uifs/dist
-cp -R ui/dist internal/uifs/
-```
-
-Then rebuild the Go binary so the latest UI is embedded:
-
-```bash
-go build -o dataclaw .
-```
+`make run` rebuilds `internal/uifs/dist` when `ui/src` is newer. For an interactive dev loop, use `make dev` + `make dev-ui`. `make check` runs the full UI verification suite.
 
 ## OpenClaw setup
 
@@ -107,7 +111,7 @@ After starting DataClaw:
 1. open the app in your browser
 2. save a datasource
 3. create an approved query such as `SELECT true AS connected`
-4. copy the generated OpenClaw command from the **OpenClaw** page
+4. copy the generated OpenClaw command from the **Agent** page
 
 The command looks like this:
 

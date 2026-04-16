@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 7. `internal/mcpserver` mounts `/mcp` (streamable HTTP via `mark3labs/mcp-go`), bearer-token gated by `core.Service.ValidateOpenClawKey`. MCP tools: `query`, `list_queries`, `create_query`, `update_query`, `delete_query`.
 8. `internal/uifs` embeds `ui/dist` via `go:embed`; `uifs.Load()` returns an `fs.FS` that normally reads the embed, but switches to `os.DirFS($DATACLAW_UI_DIR)` when that env var is set (dev mode). `app.registerUIRoutes` serves it with SPA fallback (unknown paths → `index.html`), explicitly skipping `/api/` and `/mcp`.
 
-The UI lives in `ui/` (React 18 + Vite + Tailwind + react-router + CodeMirror). It has **exactly three pages** — Datasource, Approved Queries, OpenClaw — and no auth. Don't add a fourth page or an auth flow without an explicit product-level change. Built assets are checked into `internal/uifs/dist/` so the Go binary is self-contained; `make run` keeps them fresh.
+The UI lives in `ui/` (React 18 + Vite + Tailwind + react-router + CodeMirror). It has **exactly three pages** — Datasource, Approved Queries, Agent — and no auth. Don't add a fourth page or an auth flow without an explicit product-level change. Built assets are checked into `internal/uifs/dist/` so the Go binary is self-contained; `make run` keeps them fresh.
 
 `pkg/sql` is SQL validation and parameter binding (uses `corazawaf/libinjection-go`). `validateReadOnlySQL` gates raw queries through the `query` MCP tool and `/api/queries/test`; `validateStoredSQL` gates approved queries. Both run **before** anything hits a real database. When adding query features, route through these — don't bypass.
 
@@ -37,3 +37,4 @@ Datasource support is PostgreSQL (`jackc/pgx/v5`) and SQL Server (`microsoft/go-
 - Localhost-only is a hard constraint. `normalizeBindAddr` throws away any non-loopback value — don't "fix" that without an explicit product change.
 - Datasource `Config` is encrypted at rest. Always call `Service.GetDatasource` / `requireDatasource` (which decrypt) rather than reading `store.GetDatasource` directly from handler code.
 - Prefer small, reversible diffs and reuse existing backend/UI patterns before introducing new abstractions (per `AGENTS.md`).
+- `Service.DeleteDatasource` rotates the OpenClaw key before deleting the datasource. This is load-bearing: it invalidates any agent credentials tied to the connection so agents can no longer query after disconnect. Approved queries cascade-delete via the FK on `approved_queries.datasource_id` (foreign_keys pragma is enabled in `store.Open`). Don't remove the key rotation without understanding this contract.
