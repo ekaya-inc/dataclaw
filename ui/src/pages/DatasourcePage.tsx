@@ -160,13 +160,30 @@ export default function DatasourcePage(): JSX.Element {
       setIsEditingName(false);
       setFeedback({
         tone: 'success',
-        message: connectionLocked
-          ? 'Datasource display name updated. Remove and recreate the datasource to change connection settings.'
-          : 'Datasource saved. DataClaw will use this datasource for raw queries and approved queries.',
+        message: 'Datasource saved. DataClaw will use this datasource for raw queries and approved queries.',
       });
       void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to save datasource.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const commitDisplayNameIfChanged = async (): Promise<void> => {
+    if (!datasource) return;
+    if (busy !== null) return;
+    if (formValues.displayName === datasource.displayName) return;
+    setBusy('saving');
+    setFeedback(null);
+    try {
+      const savedDatasource = await saveDatasource(formValues);
+      setDatasource(savedDatasource);
+      setFormValues(toFormValues(savedDatasource));
+      setFeedback({ tone: 'success', message: 'Display name updated.' });
+      void refresh();
+    } catch (error) {
+      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to update display name.' });
     } finally {
       setBusy(null);
     }
@@ -192,7 +209,6 @@ export default function DatasourcePage(): JSX.Element {
 
   const providerHelper = PROVIDERS.find((provider) => provider.id === formValues.provider)?.helperText;
   const saveGated = !connectionLocked && !testPassed;
-  const saveLabel = datasource ? 'Save display name' : 'Save datasource';
 
   return (
     <div className="space-y-6">
@@ -210,12 +226,16 @@ export default function DatasourcePage(): JSX.Element {
                 aria-label="Display name"
                 className="h-auto max-w-xl border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight focus-visible:ring-0"
                 value={formValues.displayName}
-                onBlur={() => setIsEditingName(false)}
+                onBlur={() => {
+                  setIsEditingName(false);
+                  if (connectionLocked) void commitDisplayNameIfChanged();
+                }}
                 onChange={(event) => updateField('displayName', event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
                     setIsEditingName(false);
+                    if (connectionLocked) void commitDisplayNameIfChanged();
                   } else if (event.key === 'Escape') {
                     if (datasource) {
                       setFormValues((current) => ({ ...current, displayName: datasource.displayName }));
@@ -323,10 +343,12 @@ export default function DatasourcePage(): JSX.Element {
                 <TestTube2 className="h-4 w-4" />
                 Test connection
               </Button>
-              <Button type="button" onClick={() => void handleSave()} disabled={busy !== null || saveGated}>
-                <Save className="h-4 w-4" />
-                {saveLabel}
-              </Button>
+              {!connectionLocked ? (
+                <Button type="button" onClick={() => void handleSave()} disabled={busy !== null || saveGated}>
+                  <Save className="h-4 w-4" />
+                  Save datasource
+                </Button>
+              ) : null}
               {datasource ? (
                 <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={busy !== null}>
                   <Trash2 className="h-4 w-4" />

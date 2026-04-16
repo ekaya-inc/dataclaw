@@ -76,32 +76,34 @@ describe('DatasourcePage', () => {
     expect(saveButton).toBeDisabled();
   });
 
-  it('locks connection fields when a datasource already exists', async () => {
+  it('locks connection fields when a datasource already exists and auto-saves display name on blur', async () => {
+    const savedDatasource = {
+      id: 'ds_1',
+      type: 'postgres',
+      provider: 'postgres',
+      display_name: 'dataclaw',
+      host: 'db.example.com',
+      port: 5432,
+      name: 'warehouse',
+      user: 'analyst',
+      password: 'secret',
+      ssl_mode: 'require',
+    };
     const fetchMock = vi.spyOn(global, 'fetch');
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/datasource' && !init?.method) {
-        return response({
-          datasource: {
-            id: 'ds_1',
-            type: 'postgres',
-            provider: 'postgres',
-            display_name: 'dataclaw',
-            host: 'db.example.com',
-            port: 5432,
-            name: 'warehouse',
-            user: 'analyst',
-            password: 'secret',
-            ssl_mode: 'require',
-          },
-        });
+        return response({ datasource: savedDatasource });
+      }
+      if (url === '/api/datasource' && init?.method === 'PUT') {
+        return response({ datasource: { ...savedDatasource, display_name: 'renamed' } });
       }
       throw new Error(`Unhandled request: ${String(url)}`);
     });
 
     render(<DatasourcePage />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /save display name/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /edit display name/i })).toBeInTheDocument());
 
     expect(screen.getByLabelText(/datasource type/i)).toBeDisabled();
     expect(screen.getByLabelText(/database name/i)).toHaveAttribute('readonly');
@@ -110,11 +112,18 @@ describe('DatasourcePage', () => {
     expect(screen.getByLabelText(/username/i)).toHaveAttribute('readonly');
     expect(screen.getByLabelText(/password/i)).toHaveAttribute('readonly');
     expect(screen.getByLabelText(/ssl mode/i)).toBeDisabled();
-    expect(screen.getByRole('button', { name: /edit display name/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save display name/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save datasource/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/this name is used for the mcp server/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save display name/i })).toBeEnabled();
 
     await userEvent.click(screen.getByRole('button', { name: /edit display name/i }));
-    expect(screen.getByLabelText(/display name/i)).toHaveValue('dataclaw');
+    const input = screen.getByLabelText(/display name/i);
+    expect(input).toHaveValue('dataclaw');
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'renamed');
+    await userEvent.tab();
+
+    await waitFor(() => expect(screen.getByText(/display name updated/i)).toBeInTheDocument());
   });
 });
