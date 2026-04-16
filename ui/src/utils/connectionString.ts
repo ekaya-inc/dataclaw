@@ -37,13 +37,15 @@ export function parsePostgresUrl(url: string): ParsedConnectionString | null {
   const params = new URLSearchParams(queryString ?? '');
   const detectedProvider = detectProviderFromUrl(url);
   const defaultPort = detectedProvider ? Number(detectedProvider.defaultPort) : 5432;
+  const explicitSSL = params.get('sslmode');
+  const defaultSSL = detectedProvider?.defaultSSL ?? 'require';
   return {
     host: host ?? '',
     port: port ? Number(port) : defaultPort,
     user: decodeURIComponent(user ?? ''),
     password: decodeURIComponent(password ?? ''),
     database: database ?? '',
-    sslMode: toSSLMode(params.get('sslmode')),
+    sslMode: explicitSSL ? toSSLMode(explicitSSL) : defaultSSL,
     providerId: detectedProvider?.id,
   };
 }
