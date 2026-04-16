@@ -11,7 +11,7 @@ import (
 // `make dev` / `make dev-ui` dev loop where Vite rebuilds ui/dist on save.
 const DirEnv = "DATACLAW_UI_DIR"
 
-//go:embed dist
+//go:embed all:dist
 var embedded embed.FS
 
 // Load returns the UI filesystem rooted at the bundle directory

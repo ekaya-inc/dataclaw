@@ -1,0 +1,2 @@
+Placeholder so `//go:embed all:dist` resolves when no UI bundle has been built yet.
+Run `make run` (or `make dev` + `make dev-ui`) to populate this directory.

@@ -28,6 +28,11 @@ go.work.sum
 # env file
 .env
 
+# Built UI bundles — rebuild locally with `make run`, never committed
+internal/uifs/dist/*
+!internal/uifs/dist/.gitkeep
+ui/dist/
+
 # Editor/IDE
 # .idea/
 # .vscode/
