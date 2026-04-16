@@ -53,13 +53,13 @@ func Run(version string) error {
 	mux := http.NewServeMux()
 	api.Register(mux)
 	mux.Handle("/mcp", mcpSrv.Handler())
-	uiFS, err := loadUIDist()
+	uiFS, err := uifs.Load()
 	if err != nil {
-		return fmt.Errorf("load embedded ui: %w", err)
+		return fmt.Errorf("load ui: %w", err)
 	}
 	registerUIRoutes(mux, uiFS)
 	server := &http.Server{Handler: logRequests(mux)}
-	slog.Info("starting dataclaw", "base_url", baseURL, "mcp_url", baseURL+"/mcp", "sqlite", cfg.SQLitePath)
+	slog.Info("starting dataclaw", "base_url", baseURL, "mcp_url", baseURL+"/mcp", "sqlite", cfg.SQLitePath, "ui_source", uifs.Source())
 	shutdownDone := make(chan struct{})
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -100,19 +100,11 @@ func registerUIRoutes(mux *http.ServeMux, uiFS fs.FS) {
 		indexHTML, err := fs.ReadFile(uiFS, "index.html")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err != nil {
-			http.Error(w, "embedded index.html missing", http.StatusInternalServerError)
+			http.Error(w, "index.html missing", http.StatusInternalServerError)
 			return
 		}
 		_, _ = w.Write(indexHTML)
 	})
-}
-
-func loadUIDist() (fs.FS, error) {
-	uiFS, err := fs.Sub(uifs.FS, "dist")
-	if err != nil {
-		return nil, err
-	}
-	return uiFS, nil
 }
 
 func logRequests(next http.Handler) http.Handler {

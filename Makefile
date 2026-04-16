@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := none
 SHELL := /bin/sh
 
-.PHONY: none check run
+.PHONY: none check run dev dev-ui
 
 none: ## Show available targets
 	@echo "DataClaw"
@@ -97,3 +97,14 @@ run: ## Rebuild embedded assets if needed, then start the server
 	fi; \
 	echo "Starting DataClaw..."; \
 	exec go run .
+
+dev: ## Start the Go server against ui/dist on disk (pair with `make dev-ui`)
+	@DATACLAW_UI_DIR="$(CURDIR)/ui/dist" exec go run .
+
+dev-ui: ## Watch ui/src and rebuild ui/dist on save (pair with `make dev`)
+	@set -eu; \
+	if [ ! -d ui/node_modules ]; then \
+		echo "Installing UI dependencies..."; \
+		npm --prefix ui install; \
+	fi; \
+	exec npm --prefix ui run build:watch
