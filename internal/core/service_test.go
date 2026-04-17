@@ -158,43 +158,6 @@ func newTestServiceWithFactory(t *testing.T, factory dsadapter.Factory) *Service
 	return New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 }
 
-func TestEnsureOpenClawKeyIsStableUntilRotation(t *testing.T) {
-	service := newTestService(t)
-	defer service.store.Close()
-
-	ctx := context.Background()
-	first, err := service.EnsureOpenClawKey(ctx)
-	if err != nil {
-		t.Fatalf("EnsureOpenClawKey first call: %v", err)
-	}
-	second, err := service.EnsureOpenClawKey(ctx)
-	if err != nil {
-		t.Fatalf("EnsureOpenClawKey second call: %v", err)
-	}
-	if first.APIKey == "" || second.APIKey == "" {
-		t.Fatal("expected non-empty api keys")
-	}
-	if first.APIKey != second.APIKey {
-		t.Fatalf("expected key to remain stable, got %q and %q", first.APIKey, second.APIKey)
-	}
-
-	rotated, err := service.RotateOpenClawKey(ctx)
-	if err != nil {
-		t.Fatalf("RotateOpenClawKey: %v", err)
-	}
-	if rotated.APIKey == first.APIKey {
-		t.Fatal("expected rotated key to change")
-	}
-
-	ok, err := service.ValidateOpenClawKey(ctx, rotated.APIKey)
-	if err != nil {
-		t.Fatalf("ValidateOpenClawKey: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected rotated key to validate")
-	}
-}
-
 func TestDatasourceConfigIsEncryptedAtRest(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()

@@ -36,8 +36,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/queries/", a.handleQueryByID)
 	mux.HandleFunc("DELETE /api/queries/", a.handleQueryByID)
 	mux.HandleFunc("POST /api/queries/", a.handleQueryByID)
-	mux.HandleFunc("GET /api/openclaw", a.handleOpenClaw)
-	mux.HandleFunc("POST /api/openclaw/rotate-key", a.handleRotateOpenClawKey)
+	mux.HandleFunc("GET /api/agents", a.handleListAgents)
+	mux.HandleFunc("POST /api/agents", a.handleCreateAgent)
+	mux.HandleFunc("GET /api/agents/", a.handleAgentByID)
+	mux.HandleFunc("PUT /api/agents/", a.handleAgentByID)
+	mux.HandleFunc("DELETE /api/agents/", a.handleAgentByID)
+	mux.HandleFunc("POST /api/agents/", a.handleAgentByID)
 }
 
 type response struct {
@@ -254,37 +258,6 @@ func (a *API) handleExecuteQuery(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	writeJSON(w, http.StatusOK, response{Success: true, Data: result})
-}
-
-func (a *API) handleOpenClaw(w http.ResponseWriter, r *http.Request) {
-	cred, err := a.service.EnsureOpenClawKey(r.Context())
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: openClawResponse(cred.APIKey, a.service.Status())})
-}
-
-func (a *API) handleRotateOpenClawKey(w http.ResponseWriter, r *http.Request) {
-	cred, err := a.service.RotateOpenClawKey(r.Context())
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: openClawResponse(cred.APIKey, a.service.Status())})
-}
-
-func openClawResponse(apiKey string, status map[string]any) map[string]any {
-	mcpURL, _ := status["mcp_url"].(string)
-	installCommand := fmt.Sprintf("openclaw mcp set dataclaw '{\n  \"url\": \"%s\",\n  \"transport\": \"streamable-http\",\n  \"headers\": {\n    \"Authorization\": \"Bearer ${DATACLAW_API_KEY}\"\n  }\n}'", mcpURL)
-	return map[string]any{
-		"api_key":              apiKey,
-		"mcp_url":              mcpURL,
-		"base_url":             status["base_url"],
-		"install_command":      installCommand,
-		"openclaw_cli":         installCommand,
-		"openclaw_config_json": map[string]any{"mcp": map[string]any{"servers": map[string]any{"dataclaw": map[string]any{"url": mcpURL, "transport": "streamable-http", "headers": map[string]any{"Authorization": "Bearer ${DATACLAW_API_KEY}"}}}}},
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload response) {

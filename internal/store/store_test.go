@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
@@ -19,7 +18,7 @@ func openTestStore(t *testing.T) *Store {
 	return store
 }
 
-func TestStorePersistsSingleDatasourceAndQueries(t *testing.T) {
+func TestStorePersistsDatasourceAndQueries(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	defer store.Close()
@@ -69,16 +68,6 @@ func TestStorePersistsSingleDatasourceAndQueries(t *testing.T) {
 		t.Fatalf("expected output columns to round-trip, got %#v", queries[0].OutputColumns)
 	}
 
-	if err := store.SaveOpenClawCredential(ctx, "encrypted-key", time.Now().UTC()); err != nil {
-		t.Fatalf("save openclaw credential: %v", err)
-	}
-	cred, err := store.GetOpenClawCredential(ctx)
-	if err != nil {
-		t.Fatalf("get openclaw credential: %v", err)
-	}
-	if cred == nil || cred.APIKey != "encrypted-key" {
-		t.Fatalf("unexpected credential: %#v", cred)
-	}
 }
 
 func TestSaveDatasourceUpdatePreservesApprovedQueries(t *testing.T) {

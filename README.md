@@ -1,28 +1,30 @@
 # DataClaw
 
-DataClaw is a localhost-only server that makes it fast to connect OpenClaw to a PostgreSQL-family database or SQL Server.
+DataClaw is a localhost-only server that makes it fast to connect multiple local AI agents to a PostgreSQL-family database or SQL Server with explicit MCP permissions.
 
 ## What it does
 
 - runs as a single-user local app
 - stores its own metadata in bundled SQLite
 - serves a browser UI directly from the binary
-- exposes a small MCP surface:
+- exposes a small MCP surface, gated per agent:
   - `query`
+  - `execute`
   - `list_queries`
-  - `create_query`
-  - `update_query`
-  - `delete_query`
   - `execute_query`
-- gives OpenClaw one API key and a copy-paste `openclaw mcp set ...` command
+- lets you create multiple named agents, each with:
+  - its own API key
+  - an immutable install alias
+  - raw query / raw execute toggles
+  - approved-query scope set to none, all, or selected queries
 
 ## UI
 
 DataClaw has exactly three screens:
 
 1. **Datasource**
-2. **Approved Queries**
-3. **Agent**
+2. **Agents**
+3. **Approved Queries**
 
 There is no web authentication and no schema / ontology workflow.
 
@@ -105,25 +107,31 @@ uncommenting the ones you want.
 
 `make run` rebuilds `internal/uifs/dist` when `ui/src` is newer. For an interactive dev loop, use `make dev` + `make dev-ui`. `make check` runs the full UI verification suite.
 
-## OpenClaw setup
+## Agent setup
 
 After starting DataClaw:
 
 1. open the app in your browser
 2. save a datasource
-3. create an approved query such as `SELECT true AS connected`
-4. copy the generated OpenClaw command from the **Agent** page
+3. create approved queries if the agent should use approved-query tools
+4. create an agent on the **Agents** page
+5. reveal or rotate the agent key
+6. copy the generated MCP config snippet and set `DATACLAW_API_KEY` to that agent key
 
-The command looks like this:
+A typical MCP config snippet looks like this:
 
-```bash
-openclaw mcp set dataclaw '{
-  "url": "http://127.0.0.1:18790/mcp",
-  "transport": "streamable-http",
-  "headers": {
-    "Authorization": "Bearer ${DATACLAW_API_KEY}"
+```json
+{
+  "mcpServers": {
+    "warehouse-analyst-123456": {
+      "url": "http://127.0.0.1:18790/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer ${DATACLAW_API_KEY}"
+      }
+    }
   }
-}'
+}
 ```
 
 ## Environment variables

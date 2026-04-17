@@ -54,6 +54,8 @@ export interface TestConnectionResult {
 export interface RuntimeStatus {
   version?: string | undefined;
   baseUrl?: string | undefined;
+  mcpUrl?: string | undefined;
   port?: number | undefined;
   datasourceConfigured?: boolean | undefined;
+  agentCount?: number | undefined;
 }

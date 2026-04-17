@@ -61,7 +61,7 @@ function toFormValues(datasource: DatasourceRecord): DatasourceFormValues {
 const DISCONNECT_CONFIRMATION = 'disconnect datasource';
 
 export default function DatasourcePage(): JSX.Element {
-  const { refresh, resetAgentRevealed } = useOutletContext<AppOutletContext>();
+  const { refresh } = useOutletContext<AppOutletContext>();
   const [adapterTypes, setAdapterTypes] = useState<DatasourceAdapterInfo[]>([]);
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [formValues, setFormValues] = useState<DatasourceFormValues>(DEFAULT_VALUES);
@@ -237,8 +237,10 @@ export default function DatasourcePage(): JSX.Element {
       setTypeSelected(false);
       setShowDisconnectDialog(false);
       setDisconnectConfirmText('');
-      resetAgentRevealed();
-      setFeedback({ tone: 'success', message: 'Datasource disconnected. Saved queries and the agent key have been cleared.' });
+      setFeedback({
+        tone: 'success',
+        message: 'Datasource disconnected. Saved queries were cleared. Agents stay configured, but their MCP tools remain unavailable until you connect a datasource again.',
+      });
       void refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to disconnect datasource.' });

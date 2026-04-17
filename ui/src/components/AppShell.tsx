@@ -1,4 +1,4 @@
-import { Cable, CheckCircle2, DatabaseZap, FileCheck2, Menu } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
@@ -20,8 +20,8 @@ const NAV_ITEMS: ReadonlyArray<{
   completionKey: keyof Completion;
 }> = [
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
+  { to: '/agents', label: 'Agents', icon: Bot, completionKey: 'agent' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
-  { to: '/openclaw', label: 'Agent', icon: Cable, completionKey: 'agent' },
 ];
 
 interface AppShellProps {
@@ -51,7 +51,7 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
             </button>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-300">
-            The fastest way to connect Agents to Data
+            Connect local agents to your data with explicit, testable access controls.
           </p>
           <nav className="mt-8 space-y-2">
             {NAV_ITEMS.map((item) => {
