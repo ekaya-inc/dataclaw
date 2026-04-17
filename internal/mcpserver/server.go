@@ -22,15 +22,17 @@ type Server struct {
 }
 
 type approvedQueryResponse struct {
-	QueryID      string                  `json:"query_id"`
-	DatasourceID string                  `json:"datasource_id,omitempty"`
-	Name         string                  `json:"name"`
-	Description  string                  `json:"description"`
-	SQL          string                  `json:"sql"`
-	Parameters   []models.QueryParameter `json:"parameters,omitempty"`
-	IsEnabled    bool                    `json:"is_enabled"`
-	CreatedAt    time.Time               `json:"created_at"`
-	UpdatedAt    time.Time               `json:"updated_at"`
+	QueryID               string                  `json:"query_id"`
+	DatasourceID          string                  `json:"datasource_id,omitempty"`
+	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
+	AdditionalContext     string                  `json:"additional_context,omitempty"`
+	SQLQuery              string                  `json:"sql_query"`
+	AllowsModification    bool                    `json:"allows_modification"`
+	Parameters            []models.QueryParameter `json:"parameters"`
+	OutputColumns         []models.OutputColumn   `json:"output_columns"`
+	Constraints           string                  `json:"constraints,omitempty"`
+	CreatedAt             time.Time               `json:"created_at"`
+	UpdatedAt             time.Time               `json:"updated_at"`
 }
 
 func New(version string, service *core.Service) *Server {
@@ -112,11 +114,13 @@ func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
 func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("create_query",
 		mcp.WithDescription("Create an approved query directly in DataClaw."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Human-readable query name")),
-		mcp.WithString("description", mcp.Description("What the query is for")),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL query text with optional {{parameters}} placeholders")),
-		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions"), mcp.Items(map[string]any{"type": "object"})),
-		mcp.WithBoolean("is_enabled", mcp.Description("Whether the query is enabled")),
+		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Plain-language description of what the agent should run this query for; used to match requests to queries.")),
+		mcp.WithString("additional_context", mcp.Description("Extra hints to give the LLM when choosing this query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL query text with optional {{parameters}} placeholders.")),
+		mcp.WithBoolean("allows_modification", mcp.Description("Allow this query to run INSERT/UPDATE/DELETE. Defaults to false (read-only).")),
+		mcp.WithArray("parameters", mcp.Description("Parameter definitions accepted by the query."), mcp.Items(map[string]any{"type": "object"})),
+		mcp.WithArray("output_columns", mcp.Description("Columns the query is expected to return (documentation only)."), mcp.Items(map[string]any{"type": "object"})),
+		mcp.WithString("constraints", mcp.Description("Free-form rules the LLM must respect when using this query.")),
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
@@ -124,20 +128,33 @@ func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		name, err := req.RequireString("name")
+		outputColumns, err := parseOutputColumns(args["output_columns"])
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		description, _ := stringArg(args, "description")
-		sqlQuery, err := req.RequireString("sql")
+		prompt, err := req.RequireString("natural_language_prompt")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		enabled := true
-		if raw, ok := args["is_enabled"].(bool); ok {
-			enabled = raw
+		additionalContext, _ := stringArg(args, "additional_context")
+		sqlQuery, err := req.RequireString("sql_query")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
-		query, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{Name: name, Description: description, SQLQuery: sqlQuery, Parameters: parameters, IsEnabled: enabled})
+		allowsModification := false
+		if raw, ok := args["allows_modification"].(bool); ok {
+			allowsModification = raw
+		}
+		constraints, _ := stringArg(args, "constraints")
+		query, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+			NaturalLanguagePrompt: prompt,
+			AdditionalContext:     additionalContext,
+			SQLQuery:              sqlQuery,
+			AllowsModification:    allowsModification,
+			Parameters:            parameters,
+			OutputColumns:         outputColumns,
+			Constraints:           constraints,
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -150,11 +167,13 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("update_query",
 		mcp.WithDescription("Update an approved query directly in DataClaw."),
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Human-readable query name")),
-		mcp.WithString("description", mcp.Description("What the query is for")),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL query text with optional {{parameters}} placeholders")),
-		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions"), mcp.Items(map[string]any{"type": "object"})),
-		mcp.WithBoolean("is_enabled", mcp.Description("Whether the query is enabled")),
+		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Plain-language description of what the agent should run this query for.")),
+		mcp.WithString("additional_context", mcp.Description("Extra hints to give the LLM when choosing this query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL query text with optional {{parameters}} placeholders.")),
+		mcp.WithBoolean("allows_modification", mcp.Description("Allow this query to run INSERT/UPDATE/DELETE.")),
+		mcp.WithArray("parameters", mcp.Description("Parameter definitions accepted by the query."), mcp.Items(map[string]any{"type": "object"})),
+		mcp.WithArray("output_columns", mcp.Description("Columns the query is expected to return."), mcp.Items(map[string]any{"type": "object"})),
+		mcp.WithString("constraints", mcp.Description("Free-form rules the LLM must respect when using this query.")),
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
@@ -162,24 +181,55 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		parameters, err := parseParameters(args["parameters"])
+		prompt, err := req.RequireString("natural_language_prompt")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		name, err := req.RequireString("name")
+		sqlQuery, err := req.RequireString("sql_query")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		description, _ := stringArg(args, "description")
-		sqlQuery, err := req.RequireString("sql")
+
+		existing, err := service.GetQuery(ctx, id)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		enabled := true
-		if raw, ok := args["is_enabled"].(bool); ok {
-			enabled = raw
+		if existing == nil {
+			return mcp.NewToolResultError("query not found"), nil
 		}
-		query, err := service.UpdateQuery(ctx, id, &storepkg.ApprovedQuery{Name: name, Description: description, SQLQuery: sqlQuery, Parameters: parameters, IsEnabled: enabled})
+
+		merged := *existing
+		merged.NaturalLanguagePrompt = prompt
+		merged.SQLQuery = sqlQuery
+
+		if _, present := args["additional_context"]; present {
+			value, _ := args["additional_context"].(string)
+			merged.AdditionalContext = value
+		}
+		if _, present := args["allows_modification"]; present {
+			value, _ := args["allows_modification"].(bool)
+			merged.AllowsModification = value
+		}
+		if _, present := args["parameters"]; present {
+			parameters, err := parseParameters(args["parameters"])
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			merged.Parameters = parameters
+		}
+		if _, present := args["output_columns"]; present {
+			outputColumns, err := parseOutputColumns(args["output_columns"])
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			merged.OutputColumns = outputColumns
+		}
+		if _, present := args["constraints"]; present {
+			value, _ := args["constraints"].(string)
+			merged.Constraints = value
+		}
+
+		query, err := service.UpdateQuery(ctx, id, &merged)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -234,17 +284,17 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		queryName := ""
+		queryPrompt := ""
 		if query, getErr := service.GetQuery(ctx, queryID); getErr == nil && query != nil {
-			queryName = query.Name
+			queryPrompt = query.NaturalLanguagePrompt
 		}
 
 		body, _ := json.Marshal(map[string]any{
-			"query_id":   queryID,
-			"query_name": queryName,
-			"columns":    result.Columns,
-			"rows":       result.Rows,
-			"row_count":  result.RowCount,
+			"query_id":                queryID,
+			"natural_language_prompt": queryPrompt,
+			"columns":                 result.Columns,
+			"rows":                    result.Rows,
+			"row_count":               result.RowCount,
 		})
 		return mcp.NewToolResultText(string(body)), nil
 	})
@@ -290,6 +340,35 @@ func parseParameters(raw any) ([]models.QueryParameter, error) {
 	return params, nil
 }
 
+func parseOutputColumns(raw any) ([]models.OutputColumn, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("output_columns must be an array")
+	}
+	columns := make([]models.OutputColumn, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("invalid output_columns entry")
+		}
+		col := models.OutputColumn{}
+		if name, ok := m["name"].(string); ok {
+			col.Name = name
+		}
+		if typ, ok := m["type"].(string); ok {
+			col.Type = typ
+		}
+		if desc, ok := m["description"].(string); ok {
+			col.Description = desc
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func parseParameterValues(raw any) (map[string]any, error) {
 	if raw == nil {
 		return nil, nil
@@ -313,16 +392,26 @@ func normalizeApprovedQueries(queries []*storepkg.ApprovedQuery) []approvedQuery
 }
 
 func normalizeApprovedQuery(query *storepkg.ApprovedQuery) approvedQueryResponse {
+	parameters := query.Parameters
+	if parameters == nil {
+		parameters = []models.QueryParameter{}
+	}
+	outputs := query.OutputColumns
+	if outputs == nil {
+		outputs = []models.OutputColumn{}
+	}
 	return approvedQueryResponse{
-		QueryID:      query.ID,
-		DatasourceID: query.DatasourceID,
-		Name:         query.Name,
-		Description:  query.Description,
-		SQL:          query.SQLQuery,
-		Parameters:   query.Parameters,
-		IsEnabled:    query.IsEnabled,
-		CreatedAt:    query.CreatedAt,
-		UpdatedAt:    query.UpdatedAt,
+		QueryID:               query.ID,
+		DatasourceID:          query.DatasourceID,
+		NaturalLanguagePrompt: query.NaturalLanguagePrompt,
+		AdditionalContext:     query.AdditionalContext,
+		SQLQuery:              query.SQLQuery,
+		AllowsModification:    query.AllowsModification,
+		Parameters:            parameters,
+		OutputColumns:         outputs,
+		Constraints:           query.Constraints,
+		CreatedAt:             query.CreatedAt,
+		UpdatedAt:             query.UpdatedAt,
 	}
 }
 

@@ -27,8 +27,9 @@ type fakeConnectionTester struct {
 }
 
 type fakeQueryExecutor struct {
-	query               func(context.Context, string, int) (*QueryResult, error)
-	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+	query                func(context.Context, string, int) (*QueryResult, error)
+	queryWithParameters  func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+	executeMutatingQuery func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
 }
 
 func newFakeAdapterFactory() *fakeAdapterFactory {
@@ -130,6 +131,13 @@ func (f fakeQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery str
 	return nil, errors.New("unexpected QueryWithParameters call")
 }
 
+func (f fakeQueryExecutor) ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+	if f.executeMutatingQuery != nil {
+		return f.executeMutatingQuery(ctx, sqlQuery, paramDefs, values, limit)
+	}
+	return nil, errors.New("unexpected ExecuteMutatingQuery call")
+}
+
 func (f fakeQueryExecutor) Close() error { return nil }
 
 func newTestService(t *testing.T) *Service {
@@ -226,23 +234,29 @@ func TestValidateQuerySQLReadOnly(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
 
-	if _, err := service.ValidateQuerySQL("SELECT 1", nil, true); err != nil {
+	if _, err := service.ValidateQuerySQL("SELECT 1", nil, false); err != nil {
 		t.Fatalf("expected SELECT to be valid: %v", err)
 	}
-	if _, err := service.ValidateQuerySQL("WITH sample AS (SELECT 1 AS value) SELECT value FROM sample", nil, true); err != nil {
+	if _, err := service.ValidateQuerySQL("WITH sample AS (SELECT 1 AS value) SELECT value FROM sample", nil, false); err != nil {
 		t.Fatalf("expected read-only CTE to be valid: %v", err)
 	}
-	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", nil, true); err == nil {
+	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", nil, false); err == nil {
 		t.Fatal("expected UPDATE to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", nil, true); err == nil {
+	if _, err := service.ValidateQuerySQL("WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", nil, false); err == nil {
 		t.Fatal("expected mutating CTE to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("SELECT * INTO archive_users FROM users", nil, true); err == nil {
+	if _, err := service.ValidateQuerySQL("SELECT * INTO archive_users FROM users", nil, false); err == nil {
 		t.Fatal("expected SELECT INTO to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", []models.QueryParameter{}, false); err == nil {
-		t.Fatal("expected approved-query validation to reject mutating SQL")
+	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", []models.QueryParameter{}, true); err != nil {
+		t.Fatalf("expected mutating validation to accept UPDATE, got %v", err)
+	}
+	if _, err := service.ValidateQuerySQL("SELECT 1", nil, true); err == nil {
+		t.Fatal("expected mutating validation to reject SELECT")
+	}
+	if _, err := service.ValidateQuerySQL("DROP TABLE users", nil, true); err == nil {
+		t.Fatal("expected mutating validation to reject DDL")
 	}
 }
 
@@ -309,9 +323,8 @@ func TestUpsertDatasourceRenamePreservesQueries(t *testing.T) {
 	}
 
 	if _, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		Name:      "Connectivity",
-		SQLQuery:  "SELECT true AS connected",
-		IsEnabled: true,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	}); err != nil {
 		t.Fatalf("create query: %v", err)
 	}

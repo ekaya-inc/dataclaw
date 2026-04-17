@@ -73,6 +73,34 @@ func ValidateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) 
 	return ValidateReadOnlySQL(normalized)
 }
 
+func ValidateMutatingSQL(sqlQuery string) (string, error) {
+	result := sqltmpl.ValidateAndNormalize(sqlQuery)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	normalized := result.NormalizedSQL
+	tokens := tokenizeSQL(normalized)
+	if len(tokens) == 0 {
+		return "", errors.New("sql is required")
+	}
+	first := tokens[0].Text
+	if first != "INSERT" && first != "UPDATE" && first != "DELETE" {
+		return "", errors.New("mutating queries must start with INSERT, UPDATE, or DELETE")
+	}
+	if containsForbiddenDDL(tokens) {
+		return "", errors.New("DDL statements (DROP, CREATE, ALTER, TRUNCATE, GRANT, REVOKE, RENAME, VACUUM, ATTACH, DETACH, PRAGMA) are not allowed")
+	}
+	return normalized, nil
+}
+
+func ValidateStoredMutatingSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+	normalized, err := ValidateStoredSQL(sqlQuery, params)
+	if err != nil {
+		return "", err
+	}
+	return ValidateMutatingSQL(normalized)
+}
+
 func PrepareParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
 	normalized, err := ValidateStoredSQL(sqlQuery, params)
 	if err != nil {
@@ -91,6 +119,18 @@ func PrepareReadOnlyParameterizedQuery(sqlQuery string, params []models.QueryPar
 		return "", nil, err
 	}
 	return readOnly, args, nil
+}
+
+func PrepareMutatingParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+	prepared, args, err := PrepareParameterizedQuery(sqlQuery, params, values)
+	if err != nil {
+		return "", nil, err
+	}
+	mutating, err := ValidateMutatingSQL(prepared)
+	if err != nil {
+		return "", nil, err
+	}
+	return mutating, args, nil
 }
 
 type sqlToken struct {
@@ -155,6 +195,16 @@ func containsMutatingKeyword(tokens []sqlToken) bool {
 	for _, token := range tokens {
 		switch token.Text {
 		case "INSERT", "UPDATE", "DELETE", "MERGE", "ALTER", "CREATE", "DROP", "TRUNCATE":
+			return true
+		}
+	}
+	return false
+}
+
+func containsForbiddenDDL(tokens []sqlToken) bool {
+	for _, token := range tokens {
+		switch token.Text {
+		case "DROP", "CREATE", "ALTER", "TRUNCATE", "GRANT", "REVOKE", "RENAME", "VACUUM", "ATTACH", "DETACH", "PRAGMA":
 			return true
 		}
 	}

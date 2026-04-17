@@ -21,6 +21,9 @@ func (testQueryExecutor) Query(context.Context, string, int) (*QueryResult, erro
 func (testQueryExecutor) QueryWithParameters(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error) {
 	return &QueryResult{}, nil
 }
+func (testQueryExecutor) ExecuteMutatingQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error) {
+	return &QueryResult{}, nil
+}
 func (testQueryExecutor) Close() error { return nil }
 
 func TestFactoryResolvesRegisteredAdapters(t *testing.T) {

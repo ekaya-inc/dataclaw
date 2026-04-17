@@ -14,6 +14,7 @@ type ConnectionTester interface {
 type QueryExecutor interface {
 	Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error)
 	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
+	ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
 	Close() error
 }
 

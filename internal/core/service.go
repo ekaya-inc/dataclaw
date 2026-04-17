@@ -167,11 +167,11 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 	if err != nil {
 		return nil, err
 	}
-	if q.Name == "" {
-		return nil, errors.New("query name is required")
+	if q.NaturalLanguagePrompt == "" {
+		return nil, errors.New("natural_language_prompt is required")
 	}
 	q.DatasourceID = ds.ID
-	normalized, err := validateStoredReadOnlySQL(q.SQLQuery, q.Parameters)
+	normalized, err := validateStoredQueryForStorage(q.SQLQuery, q.Parameters, q.AllowsModification)
 	if err != nil {
 		return nil, err
 	}
@@ -190,15 +190,20 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	if existing == nil {
 		return nil, errors.New("query not found")
 	}
-	normalized, err := validateStoredReadOnlySQL(q.SQLQuery, q.Parameters)
+	if q.NaturalLanguagePrompt == "" {
+		return nil, errors.New("natural_language_prompt is required")
+	}
+	normalized, err := validateStoredQueryForStorage(q.SQLQuery, q.Parameters, q.AllowsModification)
 	if err != nil {
 		return nil, err
 	}
-	existing.Name = q.Name
-	existing.Description = q.Description
+	existing.NaturalLanguagePrompt = q.NaturalLanguagePrompt
+	existing.AdditionalContext = q.AdditionalContext
 	existing.SQLQuery = normalized
+	existing.AllowsModification = q.AllowsModification
 	existing.Parameters = q.Parameters
-	existing.IsEnabled = q.IsEnabled
+	existing.OutputColumns = q.OutputColumns
+	existing.Constraints = q.Constraints
 	if err := s.store.UpdateQuery(ctx, existing); err != nil {
 		return nil, err
 	}
@@ -209,11 +214,12 @@ func (s *Service) DeleteQuery(ctx context.Context, id string) error {
 	return s.store.DeleteQuery(ctx, id)
 }
 
-func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryParameter, readOnly bool) (string, error) {
-	if readOnly {
-		return validateReadOnlySQL(sqlQuery)
-	}
-	return validateStoredReadOnlySQL(sqlQuery, parameters)
+func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
+	return validateStoredQueryForStorage(sqlQuery, parameters, allowsModification)
+}
+
+func (s *Service) ValidateRawSQL(sqlQuery string) (string, error) {
+	return validateReadOnlySQL(sqlQuery)
 }
 
 func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
@@ -233,7 +239,7 @@ func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) 
 	return executor.Query(ctx, normalized, limit)
 }
 
-func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, limit int) (*QueryResult, error) {
+func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, allowsModification bool, limit int) (*QueryResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
@@ -243,6 +249,9 @@ func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameter
 		return nil, err
 	}
 	defer executor.Close()
+	if allowsModification {
+		return executor.ExecuteMutatingQuery(ctx, sqlQuery, parameters, nil, limit)
+	}
 	return executor.QueryWithParameters(ctx, sqlQuery, parameters, nil, limit)
 }
 
@@ -257,9 +266,6 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 	}
 	if q == nil {
 		return nil, errors.New("query not found")
-	}
-	if !q.IsEnabled {
-		return nil, errors.New("query is disabled")
 	}
 	effectiveValues, err := prepareExecutionParameterValues(q.Parameters, values)
 	if err != nil {
@@ -280,6 +286,9 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 		return nil, err
 	}
 	defer executor.Close()
+	if q.AllowsModification {
+		return executor.ExecuteMutatingQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
+	}
 	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
 }
 

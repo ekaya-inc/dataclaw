@@ -34,6 +34,14 @@ func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string
 	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, params, limit)
 }
 
+func (e *QueryExecutor) ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+	prepared, params, err := datasource.PrepareMutatingParameterizedQuery(sqlQuery, paramDefs, values)
+	if err != nil {
+		return nil, err
+	}
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, params, limit)
+}
+
 func (e *QueryExecutor) Close() error {
 	if e == nil || e.adapter == nil {
 		return nil

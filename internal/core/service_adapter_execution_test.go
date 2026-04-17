@@ -98,7 +98,7 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 		}}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, 25)
+	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, false, 25)
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -124,11 +124,10 @@ func TestExecuteStoredQueryUsesPreparedParameters(t *testing.T) {
 
 	ctx := context.Background()
 	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		Name:        "Account lookup",
-		Description: "Find one account",
-		SQLQuery:    "SELECT * FROM accounts WHERE id = {{account_id}}",
-		Parameters:  []models.QueryParameter{{Name: "account_id", Type: "uuid", Required: true}},
-		IsEnabled:   true,
+		NaturalLanguagePrompt: "Find one account by id",
+		AdditionalContext:     "Lookup a single account row for a given id.",
+		SQLQuery:              "SELECT * FROM accounts WHERE id = {{account_id}}",
+		Parameters:            []models.QueryParameter{{Name: "account_id", Type: "uuid", Required: true}},
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -163,5 +162,76 @@ func TestExecuteStoredQueryUsesPreparedParameters(t *testing.T) {
 	}
 	if gotLimit != 50 {
 		t.Fatalf("expected limit 50, got %d", gotLimit)
+	}
+}
+
+func TestExecuteStoredQueryForwardsLimitForMutatingQueries(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	ctx := context.Background()
+	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
+		NaturalLanguagePrompt: "Retire a batch of marketing contracts",
+		SQLQuery:              "DELETE FROM contracts WHERE owner = {{owner}} RETURNING id",
+		AllowsModification:    true,
+		Parameters:            []models.QueryParameter{{Name: "owner", Type: "string", Required: true}},
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery: %v", err)
+	}
+
+	var gotLimit int
+	var gotValues map[string]any
+	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
+		return fakeQueryExecutor{
+			executeMutatingQuery: func(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+				gotValues = values
+				gotLimit = limit
+				return &QueryResult{}, nil
+			},
+		}, nil
+	}
+
+	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"owner": "marketing"}, 250)
+	if err != nil {
+		t.Fatalf("ExecuteStoredQuery: %v", err)
+	}
+	if gotLimit != 250 {
+		t.Fatalf("expected caller limit 250 to flow through, got %d", gotLimit)
+	}
+	if gotValues["owner"] != "marketing" {
+		t.Fatalf("expected execution values, got %#v", gotValues)
+	}
+}
+
+func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	var gotLimit int
+	var gotQuery string
+	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
+		return fakeQueryExecutor{
+			executeMutatingQuery: func(_ context.Context, sqlQuery string, _ []models.QueryParameter, _ map[string]any, limit int) (*QueryResult, error) {
+				gotQuery = sqlQuery
+				gotLimit = limit
+				return &QueryResult{}, nil
+			},
+		}, nil
+	}
+
+	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, true, 400)
+	if err != nil {
+		t.Fatalf("TestDraftQuery: %v", err)
+	}
+	if gotQuery != "DELETE FROM contracts WHERE id = {{id}} RETURNING id" {
+		t.Fatalf("expected unprepared SQL, got %q", gotQuery)
+	}
+	if gotLimit != 400 {
+		t.Fatalf("expected caller limit 400 to flow through, got %d", gotLimit)
 	}
 }

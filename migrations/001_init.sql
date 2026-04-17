@@ -16,15 +16,19 @@ CREATE TABLE IF NOT EXISTS datasources (
 CREATE TABLE IF NOT EXISTS approved_queries (
   id TEXT PRIMARY KEY,
   datasource_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
+  natural_language_prompt TEXT NOT NULL,
+  additional_context TEXT NOT NULL DEFAULT '',
   sql_query TEXT NOT NULL,
+  allows_modification INTEGER NOT NULL DEFAULT 0,
   parameters_json TEXT NOT NULL DEFAULT '[]',
-  is_enabled INTEGER NOT NULL DEFAULT 1,
+  output_columns_json TEXT NOT NULL DEFAULT '[]',
+  constraints TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(datasource_id) REFERENCES datasources(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_approved_queries_datasource ON approved_queries(datasource_id);
 
 CREATE TABLE IF NOT EXISTS openclaw_credentials (
   id INTEGER PRIMARY KEY CHECK (id = 1),

@@ -169,28 +169,6 @@ func TestPrepareExecutionParameterValues(t *testing.T) {
 	}
 }
 
-func TestExecuteStoredQueryRejectsDisabledQueries(t *testing.T) {
-	service := newTestService(t)
-	defer service.store.Close()
-	seedDatasource(t, service, "postgres")
-
-	ctx := context.Background()
-	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		Name:        "Disabled query",
-		Description: "Should not execute",
-		SQLQuery:    "SELECT true AS connected",
-		IsEnabled:   false,
-	})
-	if err != nil {
-		t.Fatalf("CreateQuery: %v", err)
-	}
-
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, nil, 100)
-	if err == nil || !strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("expected disabled-query error, got %v", err)
-	}
-}
-
 func TestExecuteStoredQueryRejectsInjectionBeforeDatasourceCall(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
@@ -198,13 +176,12 @@ func TestExecuteStoredQueryRejectsInjectionBeforeDatasourceCall(t *testing.T) {
 
 	ctx := context.Background()
 	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		Name:        "Account lookup",
-		Description: "Find one account",
-		SQLQuery:    "SELECT * FROM accounts WHERE id = {{account_id}}",
+		NaturalLanguagePrompt: "Account lookup",
+		AdditionalContext:     "Find one account",
+		SQLQuery:              "SELECT * FROM accounts WHERE id = {{account_id}}",
 		Parameters: []models.QueryParameter{
 			{Name: "account_id", Type: "string", Required: true},
 		},
-		IsEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -223,13 +200,11 @@ func TestExecuteStoredQueryRejectsSQLServerArrayParameters(t *testing.T) {
 
 	ctx := context.Background()
 	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		Name:        "Account lookup",
-		Description: "Find a set of accounts",
-		SQLQuery:    "SELECT * FROM accounts WHERE id IN ({{account_ids}})",
+		NaturalLanguagePrompt: "Find a set of accounts",
+		SQLQuery:              "SELECT * FROM accounts WHERE id IN ({{account_ids}})",
 		Parameters: []models.QueryParameter{
 			{Name: "account_ids", Type: "integer[]", Required: true},
 		},
-		IsEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -247,13 +222,47 @@ func TestCreateQueryRejectsMutatingApprovedSQL(t *testing.T) {
 	seedDatasource(t, service, "postgres")
 
 	_, err := service.CreateQuery(context.Background(), &store.ApprovedQuery{
-		Name:        "Mutating query",
-		Description: "Should be rejected",
-		SQLQuery:    "UPDATE accounts SET disabled = true",
-		IsEnabled:   true,
+		NaturalLanguagePrompt: "Mutating query without allows_modification",
+		SQLQuery:              "UPDATE accounts SET disabled = true",
 	})
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("expected read-only validation error, got %v", err)
+	}
+}
+
+func TestCreateQueryAcceptsMutatingSQLWhenAllowsModification(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	created, err := service.CreateQuery(context.Background(), &store.ApprovedQuery{
+		NaturalLanguagePrompt: "Retire a marketing contract",
+		SQLQuery:              "DELETE FROM contracts WHERE id = {{id}} RETURNING id",
+		AllowsModification:    true,
+		Parameters: []models.QueryParameter{
+			{Name: "id", Type: "uuid", Required: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected mutating query to be accepted, got %v", err)
+	}
+	if !created.AllowsModification {
+		t.Fatal("expected stored query to have allows_modification=true")
+	}
+}
+
+func TestCreateQueryRejectsDDLEvenWithAllowsModification(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	_, err := service.CreateQuery(context.Background(), &store.ApprovedQuery{
+		NaturalLanguagePrompt: "Drop a table",
+		SQLQuery:              "DROP TABLE accounts",
+		AllowsModification:    true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "INSERT, UPDATE, or DELETE") {
+		t.Fatalf("expected DDL rejection, got %v", err)
 	}
 }
 

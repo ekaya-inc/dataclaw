@@ -17,6 +17,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/migrations"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 func TestListQueriesReturnsCanonicalFields(t *testing.T) {
@@ -24,10 +25,9 @@ func TestListQueriesReturnsCanonicalFields(t *testing.T) {
 	mcpClient, service := newTestMCPClient(t)
 
 	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
-		Name:        "Connectivity Check",
-		Description: "Use this for testing connectivity to the datasource",
-		SQLQuery:    "SELECT true AS connected",
-		IsEnabled:   true,
+		NaturalLanguagePrompt: "Connectivity check",
+		AdditionalContext:     "Probe the datasource to confirm it is reachable.",
+		SQLQuery:              "SELECT true AS connected",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -48,10 +48,9 @@ func TestCreateQueryUsesCanonicalSQLOnly(t *testing.T) {
 	mcpClient, service := newTestMCPClient(t)
 
 	payload := callToolJSON(t, ctx, mcpClient, "create_query", map[string]any{
-		"name":        "Connectivity Check",
-		"description": "Use this for testing connectivity to the datasource",
-		"sql":         "SELECT true AS connected",
-		"is_enabled":  true,
+		"natural_language_prompt": "Connectivity check",
+		"additional_context":      "Probe the datasource to confirm it is reachable.",
+		"sql_query":               "SELECT true AS connected",
 	})
 
 	query := asMap(t, payload["query"])
@@ -70,30 +69,150 @@ func TestCreateQueryUsesCanonicalSQLOnly(t *testing.T) {
 	}
 }
 
+func TestCreateQueryAllowsModificationWithReturningClause(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, _ := newTestMCPClient(t)
+
+	payload := callToolJSON(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "Retire a marketing contract",
+		"sql_query":               "DELETE FROM contracts WHERE id = {{id}} RETURNING id",
+		"allows_modification":     true,
+		"parameters": []any{
+			map[string]any{"name": "id", "type": "uuid", "required": true},
+		},
+	})
+
+	query := asMap(t, payload["query"])
+	if allowsModification, ok := query["allows_modification"].(bool); !ok || !allowsModification {
+		t.Fatalf("expected allows_modification=true, got %#v", query["allows_modification"])
+	}
+}
+
+func TestCreateQueryRejectsMutatingSQLWithoutAllowsModification(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, _ := newTestMCPClient(t)
+
+	assertToolError(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "Delete a row",
+		"sql_query":               "DELETE FROM contracts WHERE id = 'abc'",
+	}, "only read-only SELECT or WITH statements are allowed")
+}
+
 func TestUpdateQueryUsesCanonicalArguments(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newTestMCPClient(t)
 	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
-		Name:      "Connectivity Check",
-		SQLQuery:  "SELECT true AS connected",
-		IsEnabled: true,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
 	}
 
 	payload := callToolJSON(t, ctx, mcpClient, "update_query", map[string]any{
-		"query_id":    created.ID,
-		"name":        "Updated Connectivity Check",
-		"description": "Updated description",
-		"sql":         "SELECT 42 AS answer",
-		"is_enabled":  false,
+		"query_id":                created.ID,
+		"natural_language_prompt": "The meaning of life",
+		"additional_context":      "Returns the universal answer.",
+		"sql_query":               "SELECT 42 AS answer",
 	})
 
 	query := asMap(t, payload["query"])
 	assertQueryFields(t, query, created.ID, "SELECT 42 AS answer")
-	if enabled, ok := query["is_enabled"].(bool); !ok || enabled {
-		t.Fatalf("expected updated query to be disabled, got %#v", query["is_enabled"])
+	if got := requireString(t, query, "natural_language_prompt"); got != "The meaning of life" {
+		t.Fatalf("expected updated prompt, got %q", got)
+	}
+}
+
+func TestUpdateQueryPreservesOmittedOptionalFields(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Retire a marketing contract",
+		AdditionalContext:     "Delete one contract row by id.",
+		SQLQuery:              "DELETE FROM contracts WHERE id = {{id}} RETURNING id",
+		AllowsModification:    true,
+		Parameters: []models.QueryParameter{
+			{Name: "id", Type: "uuid", Required: true},
+		},
+		OutputColumns: []models.OutputColumn{{Name: "id", Type: "uuid"}},
+		Constraints:   "Only one id per call.",
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery: %v", err)
+	}
+
+	payload := callToolJSON(t, ctx, mcpClient, "update_query", map[string]any{
+		"query_id":                created.ID,
+		"natural_language_prompt": "Retire a marketing contract (v2)",
+		"sql_query":               created.SQLQuery,
+	})
+
+	query := asMap(t, payload["query"])
+	if got := requireString(t, query, "natural_language_prompt"); got != "Retire a marketing contract (v2)" {
+		t.Fatalf("expected updated prompt, got %q", got)
+	}
+
+	stored, err := service.GetQuery(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetQuery: %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected query to still exist after update")
+	}
+	if !stored.AllowsModification {
+		t.Fatal("expected allows_modification to be preserved when omitted")
+	}
+	if stored.AdditionalContext != created.AdditionalContext {
+		t.Fatalf("expected additional_context to be preserved, got %q", stored.AdditionalContext)
+	}
+	if len(stored.Parameters) != 1 || stored.Parameters[0].Name != "id" {
+		t.Fatalf("expected parameters to be preserved, got %#v", stored.Parameters)
+	}
+	if len(stored.OutputColumns) != 1 || stored.OutputColumns[0].Name != "id" {
+		t.Fatalf("expected output_columns to be preserved, got %#v", stored.OutputColumns)
+	}
+	if stored.Constraints != created.Constraints {
+		t.Fatalf("expected constraints to be preserved, got %q", stored.Constraints)
+	}
+}
+
+func TestUpdateQueryAllowsExplicitlyClearingOptionalFields(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Lookup account",
+		AdditionalContext:     "Original context",
+		SQLQuery:              "SELECT true AS connected",
+		Constraints:           "Original constraints",
+		OutputColumns:         []models.OutputColumn{{Name: "connected", Type: "boolean"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery: %v", err)
+	}
+
+	callToolJSON(t, ctx, mcpClient, "update_query", map[string]any{
+		"query_id":                created.ID,
+		"natural_language_prompt": created.NaturalLanguagePrompt,
+		"sql_query":               created.SQLQuery,
+		"additional_context":      "",
+		"constraints":             "",
+		"output_columns":          []any{},
+	})
+
+	stored, err := service.GetQuery(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetQuery: %v", err)
+	}
+	if stored.AdditionalContext != "" {
+		t.Fatalf("expected additional_context to be cleared, got %q", stored.AdditionalContext)
+	}
+	if stored.Constraints != "" {
+		t.Fatalf("expected constraints to be cleared, got %q", stored.Constraints)
+	}
+	if len(stored.OutputColumns) != 0 {
+		t.Fatalf("expected output_columns to be cleared, got %#v", stored.OutputColumns)
 	}
 }
 
@@ -101,9 +220,8 @@ func TestDeleteQueryUsesCanonicalIdentifier(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newTestMCPClient(t)
 	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
-		Name:      "Connectivity Check",
-		SQLQuery:  "SELECT true AS connected",
-		IsEnabled: true,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -128,9 +246,8 @@ func TestLegacyAliasesAreRejected(t *testing.T) {
 	mcpClient, service := newTestMCPClient(t)
 
 	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
-		Name:      "Connectivity Check",
-		SQLQuery:  "SELECT true AS connected",
-		IsEnabled: false,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -143,15 +260,21 @@ func TestLegacyAliasesAreRejected(t *testing.T) {
 		message string
 	}{
 		{
-			name:    "create_query rejects sql_query",
+			name:    "create_query rejects legacy sql alias",
 			tool:    "create_query",
-			args:    map[string]any{"name": "Connectivity Check", "sql_query": "SELECT true AS connected"},
-			message: "required argument \"sql\" not found",
+			args:    map[string]any{"natural_language_prompt": "Connectivity check", "sql": "SELECT true AS connected"},
+			message: "required argument \"sql_query\" not found",
 		},
 		{
-			name:    "update_query rejects id and sql_query",
+			name:    "create_query rejects legacy name alias",
+			tool:    "create_query",
+			args:    map[string]any{"name": "Connectivity check", "sql_query": "SELECT true AS connected"},
+			message: "required argument \"natural_language_prompt\" not found",
+		},
+		{
+			name:    "update_query rejects id and sql",
 			tool:    "update_query",
-			args:    map[string]any{"id": created.ID, "name": "Updated Connectivity Check", "sql_query": "SELECT 42 AS answer"},
+			args:    map[string]any{"id": created.ID, "natural_language_prompt": "Updated", "sql_query": "SELECT 42 AS answer"},
 			message: "required argument \"query_id\" not found",
 		},
 		{
@@ -180,9 +303,8 @@ func TestExecuteQueryRejectsNonObjectParameters(t *testing.T) {
 	mcpClient, service := newTestMCPClient(t)
 
 	created, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
-		Name:      "Connectivity Check",
-		SQLQuery:  "SELECT true AS connected",
-		IsEnabled: true,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	})
 	if err != nil {
 		t.Fatalf("CreateQuery: %v", err)
@@ -306,14 +428,17 @@ func assertQueryFields(t *testing.T, query map[string]any, expectedID, expectedS
 	if got := requireString(t, query, "query_id"); got != expectedID {
 		t.Fatalf("expected query_id %q, got %q", expectedID, got)
 	}
-	if got := requireString(t, query, "sql"); got != expectedSQL {
-		t.Fatalf("expected sql %q, got %q", expectedSQL, got)
+	if got := requireString(t, query, "sql_query"); got != expectedSQL {
+		t.Fatalf("expected sql_query %q, got %q", expectedSQL, got)
 	}
-	if _, exists := query["id"]; exists {
-		t.Fatalf("did not expect legacy id field in response: %#v", query["id"])
+	if _, exists := query["sql"]; exists {
+		t.Fatalf("did not expect legacy sql field in response: %#v", query["sql"])
 	}
-	if _, exists := query["sql_query"]; exists {
-		t.Fatalf("did not expect legacy sql_query field in response: %#v", query["sql_query"])
+	if _, exists := query["name"]; exists {
+		t.Fatalf("did not expect legacy name field in response: %#v", query["name"])
+	}
+	if _, exists := query["is_enabled"]; exists {
+		t.Fatalf("did not expect legacy is_enabled field in response: %#v", query["is_enabled"])
 	}
 }
 
