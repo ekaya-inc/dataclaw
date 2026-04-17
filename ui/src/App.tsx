@@ -9,6 +9,7 @@ import ApprovedQueriesPage from './pages/ApprovedQueriesPage';
 import AgentDetailPage from './pages/AgentDetailPage';
 import AgentEditorPage from './pages/AgentEditorPage';
 import AgentsPage from './pages/AgentsPage';
+import QueryDetailPage from './pages/QueryDetailPage';
 import QueryEditorPage from './pages/QueryEditorPage';
 import { getStatus, listQueries } from './services/api';
 import type { RuntimeStatus } from './types/datasource';
@@ -59,7 +60,8 @@ export default function App(): JSX.Element {
             <Route path="/datasource" element={<DatasourcePage />} />
             <Route path="/queries" element={<ApprovedQueriesPage />} />
             <Route path="/queries/new" element={<QueryEditorPage />} />
-            <Route path="/queries/:id" element={<QueryEditorPage />} />
+            <Route path="/queries/:id/edit" element={<QueryEditorPage />} />
+            <Route path="/queries/:id" element={<QueryDetailPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/agents/new" element={<AgentEditorPage />} />
             <Route path="/agents/:id" element={<AgentDetailPage />} />

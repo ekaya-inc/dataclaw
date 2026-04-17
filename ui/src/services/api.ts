@@ -352,6 +352,12 @@ export async function listQueries(): Promise<SavedQuery[]> {
   return queries.map(toQuery);
 }
 
+export async function getQuery(id: string): Promise<SavedQuery> {
+  const data = await parseResponse<unknown>(await fetch(`/api/queries/${id}`));
+  const record = asRecord(data);
+  return toQuery(record && 'query' in record ? record.query : data);
+}
+
 function approvedQueryPayload(query: Omit<SavedQuery, 'id'>): Record<string, unknown> {
   return {
     natural_language_prompt: query.naturalLanguagePrompt,

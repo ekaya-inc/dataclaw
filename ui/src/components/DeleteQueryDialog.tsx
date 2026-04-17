@@ -6,12 +6,14 @@ import { Button } from './ui/Button';
 export function DeleteQueryDialog({
   open,
   queryPrompt,
+  disabled,
   deleting,
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   queryPrompt: string;
+  disabled?: boolean;
   deleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -55,10 +57,10 @@ export function DeleteQueryDialog({
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={deleting}>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={deleting || disabled}>
             Cancel
           </Button>
-          <Button type="button" variant="destructive" onClick={onConfirm} disabled={deleting}>
+          <Button type="button" variant="destructive" onClick={onConfirm} disabled={deleting || disabled}>
             {deleting ? 'Deleting…' : 'Delete query'}
           </Button>
         </div>
