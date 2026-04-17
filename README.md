@@ -14,7 +14,6 @@ DataClaw is a localhost-only server that makes it fast to connect multiple local
   - `execute_query`
 - lets you create multiple named agents, each with:
   - its own API key
-  - an immutable install alias
   - raw query / raw execute toggles
   - approved-query scope set to none, all, or selected queries
 

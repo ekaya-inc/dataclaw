@@ -219,9 +219,6 @@ func TestAgentCRUDAndSecretHandling(t *testing.T) {
 	if updated["name"] != "Ops agent v2" {
 		t.Fatalf("expected updated name, got %#v", updated["name"])
 	}
-	if updated["install_alias"] != createdAgent["install_alias"] {
-		t.Fatalf("expected install alias to remain stable, got %#v then %#v", createdAgent["install_alias"], updated["install_alias"])
-	}
 
 	revealRec := performJSONRequest(t, api, http.MethodPost, "/api/agents/"+agentID+"/reveal-key", map[string]any{})
 	if revealRec.Code != http.StatusOK {

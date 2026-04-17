@@ -50,7 +50,6 @@ func TestStorePersistsAgentsAndSelectedQueryMemberships(t *testing.T) {
 
 	agent := &Agent{
 		Name:               "Sales Assistant",
-		InstallAlias:       "sales-assistant-123456",
 		APIKeyEncrypted:    "encrypted-key",
 		CanQuery:           true,
 		CanExecute:         false,
@@ -76,8 +75,8 @@ func TestStorePersistsAgentsAndSelectedQueryMemberships(t *testing.T) {
 	if loaded == nil {
 		t.Fatal("expected persisted agent")
 	}
-	if loaded.InstallAlias != agent.InstallAlias {
-		t.Fatalf("expected install alias %q, got %q", agent.InstallAlias, loaded.InstallAlias)
+	if loaded.Name != agent.Name {
+		t.Fatalf("expected name %q, got %q", agent.Name, loaded.Name)
 	}
 	if len(loaded.ApprovedQueryIDs) != 2 || !containsAll(loaded.ApprovedQueryIDs, []string{queryA.ID, queryB.ID}) {
 		t.Fatalf("unexpected approved query ids: %#v", loaded.ApprovedQueryIDs)
@@ -99,7 +98,6 @@ func TestDeleteDatasourcePreservesAgentsAndClearsSelectedMemberships(t *testing.
 	}
 	agent := &Agent{
 		Name:               "Planner",
-		InstallAlias:       "planner-123456",
 		APIKeyEncrypted:    "encrypted-key",
 		ApprovedQueryScope: ApprovedQueryScopeSelected,
 		ApprovedQueryIDs:   []string{query.ID},

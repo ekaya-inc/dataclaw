@@ -33,7 +33,6 @@ CREATE INDEX IF NOT EXISTS idx_approved_queries_datasource ON approved_queries(d
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  install_alias TEXT NOT NULL UNIQUE,
   api_key_encrypted TEXT NOT NULL,
   can_query INTEGER NOT NULL DEFAULT 0,
   can_execute INTEGER NOT NULL DEFAULT 0,
@@ -43,7 +42,7 @@ CREATE TABLE IF NOT EXISTS agents (
   last_used_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_agents_install_alias ON agents(install_alias);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name_lower ON agents(LOWER(name));
 
 CREATE TABLE IF NOT EXISTS agent_approved_queries (
   agent_id TEXT NOT NULL,

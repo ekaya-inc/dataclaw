@@ -32,9 +32,6 @@ func TestCreateAgentRevealRotateAndAuthenticate(t *testing.T) {
 	if created.APIKey == "" {
 		t.Fatal("expected plaintext api key on create")
 	}
-	if created.InstallAlias == "" {
-		t.Fatal("expected install alias on create")
-	}
 	if created.MaskedAPIKey == "" || created.MaskedAPIKey == created.APIKey {
 		t.Fatalf("expected masked key to differ from plaintext, got %#v", created.MaskedAPIKey)
 	}
@@ -79,7 +76,7 @@ func TestCreateAgentRevealRotateAndAuthenticate(t *testing.T) {
 	}
 }
 
-func TestUpdateAgentPreservesInstallAliasAndValidatesSelections(t *testing.T) {
+func TestUpdateAgentChangesScopeAndValidatesSelections(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
 	ctx := context.Background()
@@ -98,25 +95,36 @@ func TestUpdateAgentPreservesInstallAliasAndValidatesSelections(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	updated, err := service.UpdateAgent(ctx, created.ID, AgentInput{
-		Name:               "Planner v2",
+		Name:               "Planner",
 		ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected,
 		ApprovedQueryIDs:   []string{query.ID},
 	})
 	if err != nil {
 		t.Fatalf("UpdateAgent: %v", err)
 	}
-	if updated.InstallAlias != created.InstallAlias {
-		t.Fatalf("expected install alias to remain stable, got %q then %q", created.InstallAlias, updated.InstallAlias)
-	}
-	if updated.Name != "Planner v2" {
-		t.Fatalf("expected updated name, got %#v", updated.Name)
+	if updated.Name != "Planner" {
+		t.Fatalf("expected name to persist, got %#v", updated.Name)
 	}
 	if len(updated.ApprovedQueryIDs) != 1 || updated.ApprovedQueryIDs[0] != query.ID {
 		t.Fatalf("unexpected approved query ids: %#v", updated.ApprovedQueryIDs)
 	}
 
-	if _, err := service.UpdateAgent(ctx, created.ID, AgentInput{Name: "Broken", ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected}); err == nil {
+	if _, err := service.UpdateAgent(ctx, created.ID, AgentInput{Name: "Planner", ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected}); err == nil {
 		t.Fatal("expected selected scope without query ids to fail")
+	}
+}
+
+func TestCreateAgentRejectsDuplicateNameCaseInsensitive(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	ctx := context.Background()
+	seedDatasource(t, service, "postgres")
+
+	if _, err := service.CreateAgent(ctx, AgentInput{Name: "Finance Bot", CanQuery: true}); err != nil {
+		t.Fatalf("CreateAgent first: %v", err)
+	}
+	if _, err := service.CreateAgent(ctx, AgentInput{Name: "finance bot", CanQuery: true}); err == nil {
+		t.Fatal("expected case-insensitive duplicate name to fail")
 	}
 }
 

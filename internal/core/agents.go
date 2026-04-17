@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
@@ -25,7 +24,6 @@ type AgentInput struct {
 type AgentView struct {
 	ID                 string                      `json:"id"`
 	Name               string                      `json:"name"`
-	InstallAlias       string                      `json:"install_alias"`
 	MaskedAPIKey       string                      `json:"masked_api_key"`
 	CanQuery           bool                        `json:"can_query"`
 	CanExecute         bool                        `json:"can_execute"`
@@ -86,34 +84,25 @@ func (s *Service) CreateAgent(ctx context.Context, input AgentInput) (*AgentCred
 		return nil, err
 	}
 
-	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		agent := &storepkg.Agent{
-			Name:               normalized.Name,
-			InstallAlias:       generateInstallAlias(normalized.Name),
-			APIKeyEncrypted:    encryptedKey,
-			CanQuery:           normalized.CanQuery,
-			CanExecute:         normalized.CanExecute,
-			ApprovedQueryScope: normalized.ApprovedQueryScope,
-			ApprovedQueryIDs:   append([]string(nil), normalized.ApprovedQueryIDs...),
-		}
-		if err := s.store.CreateAgent(ctx, agent); err != nil {
-			lastErr = err
-			if isAgentAliasConflict(err) {
-				continue
-			}
-			return nil, err
-		}
-		view, err := s.agentView(agent, plainKey)
-		if err != nil {
-			return nil, err
-		}
-		return &AgentCredentialView{AgentView: *view, APIKey: plainKey}, nil
+	agent := &storepkg.Agent{
+		Name:               normalized.Name,
+		APIKeyEncrypted:    encryptedKey,
+		CanQuery:           normalized.CanQuery,
+		CanExecute:         normalized.CanExecute,
+		ApprovedQueryScope: normalized.ApprovedQueryScope,
+		ApprovedQueryIDs:   append([]string(nil), normalized.ApprovedQueryIDs...),
 	}
-	if lastErr == nil {
-		lastErr = errors.New("failed to create agent")
+	if err := s.store.CreateAgent(ctx, agent); err != nil {
+		if isAgentNameConflict(err) {
+			return nil, fmt.Errorf("an agent named %q already exists", normalized.Name)
+		}
+		return nil, err
 	}
-	return nil, fmt.Errorf("could not generate a unique install alias: %w", lastErr)
+	view, err := s.agentView(agent, plainKey)
+	if err != nil {
+		return nil, err
+	}
+	return &AgentCredentialView{AgentView: *view, APIKey: plainKey}, nil
 }
 
 func (s *Service) UpdateAgent(ctx context.Context, id string, input AgentInput) (*AgentView, error) {
@@ -134,6 +123,9 @@ func (s *Service) UpdateAgent(ctx context.Context, id string, input AgentInput) 
 	existing.ApprovedQueryScope = normalized.ApprovedQueryScope
 	existing.ApprovedQueryIDs = append([]string(nil), normalized.ApprovedQueryIDs...)
 	if err := s.store.UpdateAgent(ctx, existing); err != nil {
+		if isAgentNameConflict(err) {
+			return nil, fmt.Errorf("an agent named %q already exists", normalized.Name)
+		}
 		return nil, err
 	}
 	updated, err := s.store.GetAgent(ctx, id)
@@ -305,9 +297,6 @@ func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (Ag
 			}
 		}
 	}
-	if !input.CanQuery && !input.CanExecute && scope == storepkg.ApprovedQueryScopeNone {
-		return AgentInput{}, errors.New("enable query, execute, or approved queries access before saving the agent")
-	}
 	return AgentInput{
 		Name:               name,
 		CanQuery:           input.CanQuery,
@@ -354,7 +343,6 @@ func (s *Service) agentView(agent *storepkg.Agent, plainKey string) (*AgentView,
 	return &AgentView{
 		ID:                 agent.ID,
 		Name:               agent.Name,
-		InstallAlias:       agent.InstallAlias,
 		MaskedAPIKey:       maskAPIKey(plainKey),
 		CanQuery:           agent.CanQuery,
 		CanExecute:         agent.CanExecute,
@@ -393,42 +381,6 @@ func maskAPIKey(key string) string {
 	return key[:keep] + "••••"
 }
 
-func generateInstallAlias(name string) string {
-	seed := slugifyAliasSeed(name)
-	suffix := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
-	if len(suffix) > 6 {
-		suffix = suffix[len(suffix)-6:]
-	}
-	return fmt.Sprintf("%s-%s", seed, suffix)
-}
-
-func slugifyAliasSeed(name string) string {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	var b strings.Builder
-	lastHyphen := false
-	for _, r := range lower {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			lastHyphen = false
-		case !lastHyphen:
-			b.WriteRune('-')
-			lastHyphen = true
-		}
-	}
-	seed := strings.Trim(b.String(), "-")
-	if seed == "" {
-		seed = "agent"
-	}
-	if len(seed) > 24 {
-		seed = strings.Trim(seed[:24], "-")
-	}
-	if seed == "" {
-		seed = "agent"
-	}
-	return seed
-}
-
 func dedupeStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))
@@ -446,10 +398,10 @@ func dedupeStrings(values []string) []string {
 	return result
 }
 
-func isAgentAliasConflict(err error) bool {
+func isAgentNameConflict(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique constraint failed: agents.install_alias") || strings.Contains(msg, "agents.install_alias")
+	return strings.Contains(msg, "idx_agents_name_lower") || strings.Contains(msg, "agents.name")
 }

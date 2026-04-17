@@ -177,7 +177,6 @@ func agentResponse(agent *core.AgentView) map[string]any {
 	return map[string]any{
 		"id":                   agent.ID,
 		"name":                 agent.Name,
-		"install_alias":        agent.InstallAlias,
 		"masked_api_key":       agent.MaskedAPIKey,
 		"can_query":            agent.CanQuery,
 		"can_execute":          agent.CanExecute,
