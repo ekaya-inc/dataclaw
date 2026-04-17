@@ -106,9 +106,9 @@ describe('AgentsPage', () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText(/no agents yet/i)).toBeInTheDocument(),
+      expect(screen.getByRole('heading', { name: /no agents yet/i })).toBeInTheDocument(),
     );
-    expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /new agent/i }).length).toBeGreaterThan(0);
   });
 
   it('renders the agent row with tool pills', async () => {
@@ -186,6 +186,6 @@ describe('AgentsPage', () => {
     expect(deleteButton).toBeEnabled();
     await userEvent.click(deleteButton);
 
-    await waitFor(() => expect(screen.getByText(/no agents yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /no agents yet/i })).toBeInTheDocument());
   });
 });

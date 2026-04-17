@@ -6,8 +6,10 @@ import App from './App';
 
 function mockFetch(routes: Record<string, unknown>): void {
   vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
-    const body = routes[url];
+    const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const url = new URL(rawUrl, 'http://localhost');
+    const key = `${url.pathname}${url.search}`;
+    const body = key in routes ? routes[key] : routes[url.pathname];
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -41,21 +43,41 @@ describe('App shell', () => {
     expect(screen.queryByText(/schema/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/ontology/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/local api/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/connect local agents to your data with explicit, trackable access controls/i)).toBeInTheDocument();
+    expect(screen.getByText(/connect local agents to your data safely and securely/i)).toBeInTheDocument();
   });
 
-  it('keeps / blank when a datasource is connected', async () => {
+  it('renders the dashboard on / when a datasource is connected', async () => {
     window.history.pushState({}, '', '/');
     mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: true },
+      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 1, datasource_configured: true },
       '/api/queries': { queries: [] },
+      '/api/mcp-events': {
+        items: [
+          {
+            id: 'evt_1',
+            created_at: '2026-04-17T17:00:00Z',
+            agent_name: 'Marketing bot',
+            tool_name: 'execute_query',
+            event_type: 'tool_call',
+            was_successful: true,
+            duration_ms: 28,
+            request_params: { query_id: 'query_1' },
+            result_summary: { row_count: 2 },
+            error_message: '',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
     });
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('link', { name: /dataclaw/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument());
     await waitFor(() => expect(window.location.pathname).toBe('/'));
 
+    expect(screen.getByText('Marketing bot')).toBeInTheDocument();
     expect(screen.queryByText(/configure the datasource\./i)).not.toBeInTheDocument();
   });
 
@@ -79,6 +101,7 @@ describe('App shell', () => {
       },
       '/api/datasource/types': { types: [{ type: 'postgres', display_name: 'PostgreSQL' }, { type: 'mssql', display_name: 'Microsoft SQL Server' }] },
       '/api/queries': { queries: [] },
+      '/api/mcp-events': { items: [], total: 0, limit: 50, offset: 0 },
     });
 
     render(<App />);

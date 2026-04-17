@@ -59,3 +59,25 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Fresh-schema-only product constraint: existing sqlite files are replaced before relaunch,
+-- so homepage MCP event storage is added directly to the bootstrap schema instead of a follow-on migration.
+CREATE TABLE IF NOT EXISTS mcp_tool_events (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT,
+  agent_name TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('tool_call', 'tool_error')),
+  was_successful INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  request_params_json TEXT NOT NULL DEFAULT '{}',
+  result_summary_json TEXT NOT NULL DEFAULT '{}',
+  error_message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_created_at ON mcp_tool_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_agent_name_created_at ON mcp_tool_events(agent_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_tool_name_created_at ON mcp_tool_events(tool_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_event_type_created_at ON mcp_tool_events(event_type, created_at DESC);

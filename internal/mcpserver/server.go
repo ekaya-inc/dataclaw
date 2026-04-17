@@ -92,29 +92,17 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL SELECT statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		agent, err := requireAgent(ctx)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+	srv.AddTool(tool, trackedToolHandler(service, "query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanQuery {
-			return mcp.NewToolResultError("agent is not allowed to use raw query"), nil
+			return nil, errors.New("agent is not allowed to use raw query")
 		}
 		sqlQuery, err := req.RequireString("sql")
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
 		limit := extractLimit(req, 100)
-		result, err := service.TestRawQuery(ctx, sqlQuery, limit)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		if err := service.RecordAgentToolUse(ctx, agent.ID); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		body, _ := json.Marshal(result)
-		return mcp.NewToolResultText(string(body)), nil
-	})
+		return service.TestRawQuery(ctx, sqlQuery, limit)
+	}))
 }
 
 func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
@@ -123,48 +111,28 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("sql", mcp.Required(), mcp.Description("Mutating SQL statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		agent, err := requireAgent(ctx)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+	srv.AddTool(tool, trackedToolHandler(service, "execute", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanExecute {
-			return mcp.NewToolResultError("agent is not allowed to use raw execute"), nil
+			return nil, errors.New("agent is not allowed to use raw execute")
 		}
 		sqlQuery, err := req.RequireString("sql")
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
 		limit := extractLimit(req, 100)
-		result, err := service.ExecuteRawMutation(ctx, sqlQuery, limit)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		if err := service.RecordAgentToolUse(ctx, agent.ID); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		body, _ := json.Marshal(result)
-		return mcp.NewToolResultText(string(body)), nil
-	})
+		return service.ExecuteRawMutation(ctx, sqlQuery, limit)
+	}))
 }
 
 func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("list_queries", mcp.WithDescription("List approved queries available to the authenticated agent."))
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		agent, err := requireAgent(ctx)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+	srv.AddTool(tool, trackedToolHandler(service, "list_queries", func(ctx context.Context, agent *storepkg.Agent, _ mcp.CallToolRequest) (any, error) {
 		queries, err := service.ListQueriesForAgent(ctx, agent)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
-		if err := service.RecordAgentToolUse(ctx, agent.ID); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		body, _ := json.Marshal(map[string]any{"queries": normalizeApprovedQueries(queries)})
-		return mcp.NewToolResultText(string(body)), nil
-	})
+		return map[string]any{"queries": normalizeApprovedQueries(queries)}, nil
+	}))
 }
 
 func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
@@ -174,31 +142,19 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		agent, err := requireAgent(ctx)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+	srv.AddTool(tool, trackedToolHandler(service, "execute_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		queryID, err := req.RequireString("query_id")
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
 		args, _ := req.Params.Arguments.(map[string]any)
 		values, err := parseParameterValues(args["parameters"])
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
 		limit := extractLimit(req, 100)
-		result, err := service.ExecuteStoredQueryForAgent(ctx, agent, queryID, values, limit)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		if err := service.RecordAgentToolUse(ctx, agent.ID); err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		body, _ := json.Marshal(result)
-		return mcp.NewToolResultText(string(body)), nil
-	})
+		return service.ExecuteStoredQueryForAgent(ctx, agent, queryID, values, limit)
+	}))
 }
 
 func filterToolsForContext(ctx context.Context, service *core.Service, tools []mcp.Tool) []mcp.Tool {

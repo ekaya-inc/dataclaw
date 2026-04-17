@@ -51,7 +51,7 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
             </button>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-300">
-            Connect local agents to your data with explicit, trackable access controls.
+            Connect local agents to your data safely and securely.
           </p>
           <nav className="mt-8 space-y-2">
             {NAV_ITEMS.map((item) => {
