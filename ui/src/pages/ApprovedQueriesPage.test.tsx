@@ -29,7 +29,7 @@ function renderPage(): void {
       <MemoryRouter initialEntries={['/queries']}>
         <Routes>
           <Route path="/queries" element={<ApprovedQueriesPage />} />
-          <Route path="/queries/:id" element={<div>Editor page for route</div>} />
+          <Route path="/queries/:id" element={<div>Detail page for route</div>} />
         </Routes>
       </MemoryRouter>
     </ToastProvider>,
@@ -80,7 +80,7 @@ describe('ApprovedQueriesPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /use select true as connected/i }));
 
-    await waitFor(() => expect(screen.getByText(/editor page for route/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/detail page for route/i)).toBeInTheDocument());
   });
 
   it('filters the list by the search input', async () => {

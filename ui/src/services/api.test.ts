@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, listMCPEvents, testQuery, validateQuery } from './api';
+import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, getQuery, listMCPEvents, testQuery, validateQuery } from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
@@ -46,6 +46,31 @@ describe('api service contracts', () => {
       parameters: [],
       allows_modification: false,
     });
+  });
+
+  it('loads a single saved query from the detail endpoint', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          query: {
+            query_id: 'query_1',
+            natural_language_prompt: 'Connectivity check',
+            additional_context: 'Verify the datasource is reachable.',
+            sql_query: 'SELECT true AS connected',
+            allows_modification: false,
+            parameters: [],
+            output_columns: [],
+            constraints: '',
+          },
+        },
+      }),
+    );
+
+    const query = await getQuery('query_1');
+
+    expect(query.id).toBe('query_1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/queries/query_1');
   });
 
   it('sends parameters and limit to the saved-query execute endpoint', async () => {
