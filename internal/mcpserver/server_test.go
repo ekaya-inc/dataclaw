@@ -246,30 +246,7 @@ func newTestMCPClientWithFactoryAndDatasource(t *testing.T, factory dsadapter.Fa
 	t.Helper()
 
 	ctx := context.Background()
-	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	secret, err := security.LoadOrCreateSecret(filepath.Join(t.TempDir(), "secret.key"))
-	if err != nil {
-		t.Fatalf("load secret: %v", err)
-	}
-	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
-
-	if seedDatasource {
-		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
-		if err != nil {
-			t.Fatalf("encrypt datasource config: %v", err)
-		}
-		if err := st.SaveDatasource(ctx, &storepkg.Datasource{
-			Name:            "Primary",
-			Type:            "postgres",
-			Provider:        "postgres",
-			ConfigEncrypted: configCiphertext,
-		}); err != nil {
-			t.Fatalf("SaveDatasource: %v", err)
-		}
-	}
+	service, st := newTestMCPService(t, factory, seedDatasource)
 
 	mcpServer := New("test", service)
 	inProcess, err := client.NewInProcessClient(extractMCPServer(t, mcpServer))
@@ -304,30 +281,7 @@ func newHTTPMCPClientWithFactoryAndDatasource(t *testing.T, factory dsadapter.Fa
 	t.Helper()
 
 	ctx := context.Background()
-	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	secret, err := security.LoadOrCreateSecret(filepath.Join(t.TempDir(), "secret.key"))
-	if err != nil {
-		t.Fatalf("load secret: %v", err)
-	}
-	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
-
-	if seedDatasource {
-		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
-		if err != nil {
-			t.Fatalf("encrypt datasource config: %v", err)
-		}
-		if err := st.SaveDatasource(ctx, &storepkg.Datasource{
-			Name:            "Primary",
-			Type:            "postgres",
-			Provider:        "postgres",
-			ConfigEncrypted: configCiphertext,
-		}); err != nil {
-			t.Fatalf("SaveDatasource: %v", err)
-		}
-	}
+	service, st := newTestMCPService(t, factory, seedDatasource)
 	bootstrapAgent, err := service.CreateAgent(ctx, core.AgentInput{Name: "Bootstrap", CanQuery: true})
 	if err != nil {
 		t.Fatalf("CreateAgent(bootstrap): %v", err)
@@ -368,6 +322,38 @@ func newHTTPMCPClientWithFactoryAndDatasource(t *testing.T, factory dsadapter.Fa
 func extractMCPServer(t *testing.T, srv *Server) *mcpgoserver.MCPServer {
 	t.Helper()
 	return buildMCPServer("test", srv.service)
+}
+
+func newTestMCPService(t *testing.T, factory dsadapter.Factory, seedDatasource bool) (*core.Service, *storepkg.Store) {
+	t.Helper()
+
+	ctx := context.Background()
+	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	secret, err := security.LoadOrCreateSecret(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatalf("load secret: %v", err)
+	}
+	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
+
+	if seedDatasource {
+		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
+		if err != nil {
+			t.Fatalf("encrypt datasource config: %v", err)
+		}
+		if err := st.SaveDatasource(ctx, &storepkg.Datasource{
+			Name:            "Primary",
+			Type:            "postgres",
+			Provider:        "postgres",
+			ConfigEncrypted: configCiphertext,
+		}); err != nil {
+			t.Fatalf("SaveDatasource: %v", err)
+		}
+	}
+
+	return service, st
 }
 
 func listToolNames(t *testing.T, ctx context.Context, mcpClient *client.Client) []string {
