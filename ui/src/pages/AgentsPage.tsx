@@ -158,30 +158,37 @@ export default function AgentsPage(): JSX.Element {
       <PageHeader
         title="Agents"
         description="Create named MCP agents with explicit raw-tool permissions, scoped approved-query access, and per-agent API keys."
-      />
-
-      <Card>
-        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle>Agent management</CardTitle>
-            <CardDescription>
-              Manage named agents, their API keys, and the queries each one can execute.
-            </CardDescription>
-          </div>
+        actions={
           <Button type="button" onClick={() => navigate('/agents/new')}>
             <Plus className="h-4 w-4" />
             New agent
           </Button>
+        }
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">Agent management</CardTitle>
+          <CardDescription>
+            {loading
+              ? 'Loading agents…'
+              : agents.length === 0
+                ? 'No agents yet.'
+                : `${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}.`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary/60 px-4 py-6 text-sm text-text-secondary">
-              Loading agents…
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary/60 px-4 py-6 text-sm text-text-secondary">
-              No agents yet. Click <span className="font-medium text-text-primary">+ New agent</span> to get started.
-            </div>
+          {loading ? null : agents.length === 0 ? (
+            <EmptyState
+              title="No agents yet"
+              body="Create a named MCP agent to mint an API key and scope the raw tools and approved queries it can use."
+              actions={
+                <Button type="button" onClick={() => navigate('/agents/new')}>
+                  <Plus className="h-4 w-4" />
+                  New agent
+                </Button>
+              }
+            />
           ) : (
             <AgentTable
               agents={agents}
