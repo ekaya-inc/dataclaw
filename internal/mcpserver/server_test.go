@@ -207,6 +207,48 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 }
 
+func TestHTTPHealthStaysAvailableWithoutDatasource(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), false)
+
+	observer, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:               "Observer",
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(observer): %v", err)
+	}
+
+	if got, want := listToolNamesWithHeader(t, ctx, mcpClient, observer.APIKey), []string{"health"}; !equalStrings(got, want) {
+		t.Fatalf("unexpected observer tools via header auth without datasource: got %v want %v", got, want)
+	}
+
+	payload := callToolJSONWithHeader(t, ctx, mcpClient, "health", nil, observer.APIKey)
+	if got := requireString(t, payload, "engine"); got != "healthy" {
+		t.Fatalf("expected healthy engine, got %q", got)
+	}
+	if got := requireString(t, payload, "version"); got != "test" {
+		t.Fatalf("expected version test, got %q", got)
+	}
+	datasource := asMap(t, payload["datasource"])
+	if got := requireString(t, datasource, "status"); got != "not_configured" {
+		t.Fatalf("expected datasource status not_configured, got %q", got)
+	}
+	if got := requireString(t, datasource, "error"); got != "no datasource configured" {
+		t.Fatalf("expected no datasource configured error, got %q", got)
+	}
+
+	observerAfterHealth, err := service.GetAgent(ctx, observer.ID)
+	if err != nil {
+		t.Fatalf("GetAgent(observer after health): %v", err)
+	}
+	if observerAfterHealth.LastUsedAt != nil {
+		t.Fatalf("expected health call not to update last_used_at, got %#v", observerAfterHealth.LastUsedAt)
+	}
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "list_queries", nil, observer.APIKey, "no datasource configured")
+}
+
 func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newHTTPMCPClient(t)
