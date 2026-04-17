@@ -19,7 +19,7 @@ describe('api service contracts', () => {
       { name: 'account_id', type: 'uuid', description: 'Account id', required: true, default: null },
     ];
 
-    await validateQuery('SELECT * FROM accounts WHERE id = {{account_id}}', parameters);
+    await validateQuery('SELECT * FROM accounts WHERE id = {{account_id}}', parameters, false);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] ?? [];
@@ -27,6 +27,7 @@ describe('api service contracts', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       sql_query: 'SELECT * FROM accounts WHERE id = {{account_id}}',
       parameters,
+      allows_modification: false,
     });
   });
 
@@ -35,7 +36,7 @@ describe('api service contracts', () => {
       jsonResponse({ success: true, data: { columns: [], rows: [], row_count: 0 } }),
     );
 
-    await testQuery('SELECT 1', []);
+    await testQuery('SELECT 1', [], false);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] ?? [];
@@ -43,6 +44,7 @@ describe('api service contracts', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       sql_query: 'SELECT 1',
       parameters: [],
+      allows_modification: false,
     });
   });
 

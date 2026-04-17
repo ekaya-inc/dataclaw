@@ -19,14 +19,22 @@ export interface QueryParameter {
   default?: unknown;
 }
 
+export interface OutputColumn {
+  name: string;
+  type: string;
+  description: string;
+}
+
 export interface SavedQuery {
   id: string;
   datasourceId?: string | undefined;
-  name: string;
-  description?: string | undefined;
+  naturalLanguagePrompt: string;
+  additionalContext: string;
   sql: string;
-  isEnabled: boolean;
+  allowsModification: boolean;
   parameters: QueryParameter[];
+  outputColumns: OutputColumn[];
+  constraints: string;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

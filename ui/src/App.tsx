@@ -2,10 +2,12 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 
 import { AppShell } from './components/AppShell';
+import { ToastProvider } from './components/ui/Toast';
 import { getStatus, listQueries } from './services/api';
 import type { RuntimeStatus } from './types/datasource';
 import DatasourcePage from './pages/DatasourcePage';
 import ApprovedQueriesPage from './pages/ApprovedQueriesPage';
+import QueryEditorPage from './pages/QueryEditorPage';
 import OpenClawPage from './pages/OpenClawPage';
 
 const AGENT_REVEALED_STORAGE_KEY = 'dataclaw:agent-revealed';
@@ -77,15 +79,19 @@ export default function App(): JSX.Element {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<AppShell status={status} completion={completion} outletContext={outletContext} />}>
-          <Route index element={<DatasourcePage />} />
-          <Route path="/datasource" element={<DatasourcePage />} />
-          <Route path="/queries" element={<ApprovedQueriesPage />} />
-          <Route path="/openclaw" element={<OpenClawPage />} />
-          <Route path="*" element={<Navigate to="/datasource" replace />} />
-        </Route>
-      </Routes>
+      <ToastProvider>
+        <Routes>
+          <Route element={<AppShell status={status} completion={completion} outletContext={outletContext} />}>
+            <Route index element={<DatasourcePage />} />
+            <Route path="/datasource" element={<DatasourcePage />} />
+            <Route path="/queries" element={<ApprovedQueriesPage />} />
+            <Route path="/queries/new" element={<QueryEditorPage />} />
+            <Route path="/queries/:id" element={<QueryEditorPage />} />
+            <Route path="/openclaw" element={<OpenClawPage />} />
+            <Route path="*" element={<Navigate to="/datasource" replace />} />
+          </Route>
+        </Routes>
+      </ToastProvider>
     </BrowserRouter>
   );
 }
