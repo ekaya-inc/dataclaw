@@ -23,6 +23,7 @@ func New(service *core.Service) *API { return &API{service: service} }
 
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
+	mux.HandleFunc("GET /api/mcp-events", a.handleListMCPEvents)
 	mux.HandleFunc("GET /api/datasource", a.handleGetDatasource)
 	mux.HandleFunc("GET /api/datasource/types", a.handleGetDatasourceTypes)
 	mux.HandleFunc("PUT /api/datasource", a.handlePutDatasource)

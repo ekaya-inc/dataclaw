@@ -9,6 +9,7 @@ import type {
   TestConnectionResult,
 } from '../types/datasource';
 import type { OutputColumn, QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
+import type { MCPToolEventFilters, MCPToolEventPage, MCPToolEventRecord, MCPToolEventType } from '../types/mcpEvent';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -204,6 +205,23 @@ function toExecutionResult(raw: unknown): QueryExecutionResult {
   };
 }
 
+function toMCPToolEvent(raw: unknown): MCPToolEventRecord {
+  const record = asRecord(raw);
+  return {
+    id: asString(pick(record, 'id')) ?? 'unknown',
+    agentId: asString(pick(record, 'agentId', 'agent_id')),
+    agentName: asString(pick(record, 'agentName', 'agent_name')) ?? '',
+    toolName: asString(pick(record, 'toolName', 'tool_name')) ?? '',
+    eventType: (asString(pick(record, 'eventType', 'event_type')) ?? 'tool_call') as MCPToolEventType,
+    wasSuccessful: asBoolean(pick(record, 'wasSuccessful', 'was_successful')) ?? false,
+    durationMs: asNumber(pick(record, 'durationMs', 'duration_ms')) ?? 0,
+    requestParams: asRecord(pick(record, 'requestParams', 'request_params')) ?? {},
+    resultSummary: asRecord(pick(record, 'resultSummary', 'result_summary')) ?? {},
+    errorMessage: asString(pick(record, 'errorMessage', 'error_message')) ?? '',
+    createdAt: asString(pick(record, 'createdAt', 'created_at')) ?? '',
+  };
+}
+
 function datasourcePayload(values: DatasourceFormValues): Record<string, unknown> {
   return {
     type: values.type,
@@ -232,6 +250,27 @@ function agentPayload(values: AgentFormValues): Record<string, unknown> {
     can_execute: values.canExecute,
     approved_query_scope: values.approvedQueryScope,
     approved_query_ids: values.approvedQueryScope === 'selected' ? values.approvedQueryIds : [],
+  };
+}
+
+export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<MCPToolEventPage> {
+  const params = new URLSearchParams();
+  if (filters.range) params.set('range', filters.range);
+  if (filters.eventType) params.set('event_type', filters.eventType);
+  if (filters.toolName?.trim()) params.set('tool_name', filters.toolName.trim());
+  if (filters.agentName?.trim()) params.set('agent_name', filters.agentName.trim());
+  if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+
+  const query = params.toString();
+  const data = await parseResponse<unknown>(await fetch(query ? `/api/mcp-events?${query}` : '/api/mcp-events'));
+  const record = asRecord(data);
+  const items = Array.isArray(record?.items) ? record.items : [];
+  return {
+    items: items.map(toMCPToolEvent),
+    total: asNumber(pick(record, 'total')) ?? 0,
+    limit: asNumber(pick(record, 'limit')) ?? (filters.limit ?? 50),
+    offset: asNumber(pick(record, 'offset')) ?? (filters.offset ?? 0),
   };
 }
 

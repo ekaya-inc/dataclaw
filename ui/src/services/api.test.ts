@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, testQuery, validateQuery } from './api';
+import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, listMCPEvents, testQuery, validateQuery } from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
@@ -64,6 +64,32 @@ describe('api service contracts', () => {
     });
   });
 
+
+  it('builds the mcp-events query string from dashboard filters', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({ success: true, data: { items: [], total: 0, limit: 25, offset: 50 } }),
+    );
+
+    await listMCPEvents({
+      range: '24h',
+      eventType: 'tool_error',
+      toolName: 'execute',
+      agentName: 'Marketing bot',
+      limit: 25,
+      offset: 50,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input] = fetchMock.mock.calls[0] ?? [];
+    const url = new URL(String(input), 'http://localhost');
+    expect(url.pathname).toBe('/api/mcp-events');
+    expect(url.searchParams.get('range')).toBe('24h');
+    expect(url.searchParams.get('event_type')).toBe('tool_error');
+    expect(url.searchParams.get('tool_name')).toBe('execute');
+    expect(url.searchParams.get('agent_name')).toBe('Marketing bot');
+    expect(url.searchParams.get('limit')).toBe('25');
+    expect(url.searchParams.get('offset')).toBe('50');
+  });
   it('creates agents with the selected approved-query scope payload', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(
       jsonResponse({
