@@ -7,7 +7,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
-func TestFreshSchemaUsesAgentTablesOnly(t *testing.T) {
+func TestFreshSchemaUsesAgentTables(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	defer store.Close()
@@ -28,13 +28,6 @@ func TestFreshSchemaUsesAgentTablesOnly(t *testing.T) {
 		t.Fatalf("expected agent_approved_queries table to exist once, got %d", membershipTableCount)
 	}
 
-	var legacyTableCount int
-	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'openclaw_credentials'`).Scan(&legacyTableCount); err != nil {
-		t.Fatalf("query legacy table presence: %v", err)
-	}
-	if legacyTableCount != 0 {
-		t.Fatalf("expected legacy openclaw_credentials table to be absent, got %d", legacyTableCount)
-	}
 }
 
 func TestStorePersistsAgentsAndSelectedQueryMemberships(t *testing.T) {

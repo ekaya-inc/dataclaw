@@ -55,7 +55,6 @@ export default function App(): JSX.Element {
             <Route path="/queries/new" element={<QueryEditorPage />} />
             <Route path="/queries/:id" element={<QueryEditorPage />} />
             <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/openclaw" element={<Navigate to="/agents" replace />} />
             <Route path="*" element={<Navigate to="/datasource" replace />} />
           </Route>
         </Routes>
