@@ -24,6 +24,7 @@ func New(service *core.Service) *API { return &API{service: service} }
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/datasource", a.handleGetDatasource)
+	mux.HandleFunc("GET /api/datasource/types", a.handleGetDatasourceTypes)
 	mux.HandleFunc("PUT /api/datasource", a.handlePutDatasource)
 	mux.HandleFunc("DELETE /api/datasource", a.handleDeleteDatasource)
 	mux.HandleFunc("POST /api/datasource/test", a.handleTestDatasource)
@@ -61,12 +62,13 @@ type datasourceRequest struct {
 }
 
 type queryRequest struct {
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	SQLQuery    string                  `json:"sql_query"`
-	SQL         string                  `json:"sql"`
-	Parameters  []models.QueryParameter `json:"parameters,omitempty"`
-	IsEnabled   *bool                   `json:"is_enabled,omitempty"`
+	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
+	AdditionalContext     string                  `json:"additional_context"`
+	SQLQuery              string                  `json:"sql_query"`
+	AllowsModification    bool                    `json:"allows_modification"`
+	Parameters            []models.QueryParameter `json:"parameters"`
+	OutputColumns         []models.OutputColumn   `json:"output_columns"`
+	Constraints           string                  `json:"constraints"`
 }
 
 type executeRequest struct {
@@ -75,16 +77,16 @@ type executeRequest struct {
 }
 
 type validateRequest struct {
-	SQLQuery   string                  `json:"sql_query"`
-	SQL        string                  `json:"sql"`
-	Parameters []models.QueryParameter `json:"parameters,omitempty"`
-	ReadOnly   bool                    `json:"read_only,omitempty"`
+	SQLQuery           string                  `json:"sql_query"`
+	Parameters         []models.QueryParameter `json:"parameters,omitempty"`
+	AllowsModification bool                    `json:"allows_modification"`
 }
 
 type queryTestRequest struct {
-	SQLQuery   string                  `json:"sql_query"`
-	Parameters []models.QueryParameter `json:"parameters,omitempty"`
-	Limit      int                     `json:"limit,omitempty"`
+	SQLQuery           string                  `json:"sql_query"`
+	Parameters         []models.QueryParameter `json:"parameters,omitempty"`
+	AllowsModification bool                    `json:"allows_modification"`
+	Limit              int                     `json:"limit,omitempty"`
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -97,7 +99,11 @@ func (a *API) handleGetDatasource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": a.flattenDatasource(ds)}})
+}
+
+func (a *API) handleGetDatasourceTypes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"types": a.service.DatasourceTypes()}})
 }
 
 func (a *API) handlePutDatasource(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +117,7 @@ func (a *API) handlePutDatasource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": flattenDatasource(ds)}})
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"datasource": a.flattenDatasource(ds)}})
 }
 
 func (a *API) handleDeleteDatasource(w http.ResponseWriter, r *http.Request) {
@@ -152,11 +158,7 @@ func (a *API) handleCreateQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	enabled := true
-	if req.IsEnabled != nil {
-		enabled = *req.IsEnabled
-	}
-	query, err := a.service.CreateQuery(r.Context(), &storepkg.ApprovedQuery{Name: req.Name, Description: req.Description, SQLQuery: querySQLFromRequest(req.SQLQuery, req.SQL), Parameters: req.Parameters, IsEnabled: enabled})
+	query, err := a.service.CreateQuery(r.Context(), approvedQueryFromRequest(req))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -170,8 +172,7 @@ func (a *API) handleTestQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	sqlQuery := req.SQLQuery
-	result, err := a.service.TestDraftQuery(r.Context(), sqlQuery, req.Parameters, req.Limit)
+	result, err := a.service.TestDraftQuery(r.Context(), req.SQLQuery, req.Parameters, req.AllowsModification, req.Limit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -185,7 +186,7 @@ func (a *API) handleValidateQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	normalized, err := a.service.ValidateQuerySQL(querySQLFromRequest(req.SQLQuery, req.SQL), req.Parameters, req.ReadOnly)
+	normalized, err := a.service.ValidateQuerySQL(req.SQLQuery, req.Parameters, req.AllowsModification)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, response{Error: err.Error()})
 		return
@@ -224,11 +225,7 @@ func (a *API) handleQueryByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 			return
 		}
-		enabled := true
-		if req.IsEnabled != nil {
-			enabled = *req.IsEnabled
-		}
-		q, err := a.service.UpdateQuery(r.Context(), id, &storepkg.ApprovedQuery{Name: req.Name, Description: req.Description, SQLQuery: querySQLFromRequest(req.SQLQuery, req.SQL), Parameters: req.Parameters, IsEnabled: enabled})
+		q, err := a.service.UpdateQuery(r.Context(), id, approvedQueryFromRequest(req))
 		if err != nil {
 			writeError(w, err)
 			return
@@ -349,14 +346,16 @@ func parseDatasourceRequest(req datasourceRequest) *storepkg.Datasource {
 	return &storepkg.Datasource{Name: name, Type: req.Type, Provider: req.Provider, Config: config}
 }
 
-func flattenDatasource(ds *storepkg.Datasource) map[string]any {
+func (a *API) flattenDatasource(ds *storepkg.Datasource) map[string]any {
 	if ds == nil {
 		return nil
 	}
+	typeInfo, _ := a.service.DatasourceTypeInfo(ds.Type)
 	out := map[string]any{
 		"id":           ds.ID,
 		"type":         ds.Type,
 		"provider":     ds.Provider,
+		"sql_dialect":  typeInfo.SQLDialect,
 		"display_name": ds.Name,
 		"name":         stringFromMap(ds.Config, "database", "name"),
 		"database":     stringFromMap(ds.Config, "database", "name"),
@@ -397,9 +396,22 @@ func firstValue(values map[string]any, keys ...string) any {
 	return nil
 }
 
-func querySQLFromRequest(primary, fallback string) string {
-	if primary != "" {
-		return primary
+func approvedQueryFromRequest(req queryRequest) *storepkg.ApprovedQuery {
+	parameters := req.Parameters
+	if parameters == nil {
+		parameters = []models.QueryParameter{}
 	}
-	return fallback
+	outputs := req.OutputColumns
+	if outputs == nil {
+		outputs = []models.OutputColumn{}
+	}
+	return &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: req.NaturalLanguagePrompt,
+		AdditionalContext:     req.AdditionalContext,
+		SQLQuery:              req.SQLQuery,
+		AllowsModification:    req.AllowsModification,
+		Parameters:            parameters,
+		OutputColumns:         outputs,
+		Constraints:           req.Constraints,
+	}
 }

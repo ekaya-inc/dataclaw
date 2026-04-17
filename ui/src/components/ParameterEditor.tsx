@@ -6,7 +6,17 @@ import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
 
-const PARAMETER_TYPES: ParameterType[] = ['string', 'integer', 'decimal', 'boolean', 'date', 'timestamp', 'uuid'];
+const PARAMETER_TYPES: ParameterType[] = ['string', 'integer', 'decimal', 'boolean', 'date', 'timestamp', 'uuid', 'string[]', 'integer[]'];
+
+function formatDefaultValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ');
+  }
+  return String(value);
+}
 
 export function ParameterEditor({ parameters, onChange }: { parameters: QueryParameter[]; onChange: (parameters: QueryParameter[]) => void }): JSX.Element {
   const updateParameter = (index: number, field: keyof QueryParameter, value: string | boolean | null): void => {
@@ -82,7 +92,7 @@ export function ParameterEditor({ parameters, onChange }: { parameters: QueryPar
                 <Label htmlFor={`parameter-default-${index}`}>Default</Label>
                 <Input
                   id={`parameter-default-${index}`}
-                  value={parameter.default ?? ''}
+                  value={formatDefaultValue(parameter.default)}
                   onChange={(event) => updateParameter(index, 'default', event.target.value || null)}
                   placeholder="optional"
                 />

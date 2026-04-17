@@ -1,9 +1,9 @@
 import { ArrowLeft, Pencil, Save, TestTube2, Unplug } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
-import { PROVIDERS } from '../constants';
+import { buildProviderOptions } from '../constants';
 import { DatasourceTypePicker } from '../components/DatasourceTypePicker';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBanner } from '../components/StatusBanner';
@@ -11,8 +11,8 @@ import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
-import { deleteDatasource, getDatasource, saveDatasource, testDatasource } from '../services/api';
-import type { DatasourceFormValues, DatasourceRecord, SSLMode } from '../types/datasource';
+import { deleteDatasource, getDatasource, getDatasourceTypes, saveDatasource, testDatasource } from '../services/api';
+import type { DatasourceAdapterInfo, DatasourceFormValues, DatasourceRecord, SSLMode } from '../types/datasource';
 import { parsePostgresUrl } from '../utils/connectionString';
 
 const DEFAULT_VALUES: DatasourceFormValues = {
@@ -62,6 +62,7 @@ const DISCONNECT_CONFIRMATION = 'disconnect datasource';
 
 export default function DatasourcePage(): JSX.Element {
   const { refresh, resetAgentRevealed } = useOutletContext<AppOutletContext>();
+  const [adapterTypes, setAdapterTypes] = useState<DatasourceAdapterInfo[]>([]);
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [formValues, setFormValues] = useState<DatasourceFormValues>(DEFAULT_VALUES);
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | 'deleting' | null>('loading');
@@ -74,6 +75,7 @@ export default function DatasourcePage(): JSX.Element {
   const [connString, setConnString] = useState('');
   const [connStringError, setConnStringError] = useState('');
   const connectionLocked = datasource !== null;
+  const providerOptions = useMemo(() => buildProviderOptions(adapterTypes), [adapterTypes]);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const disconnectInputRef = useRef<HTMLInputElement>(null);
 
@@ -82,7 +84,8 @@ export default function DatasourcePage(): JSX.Element {
   useEffect(() => {
     void (async () => {
       try {
-        const currentDatasource = await getDatasource();
+        const [currentDatasource, currentAdapterTypes] = await Promise.all([getDatasource(), getDatasourceTypes()]);
+        setAdapterTypes(currentAdapterTypes);
         setDatasource(currentDatasource);
         if (currentDatasource) {
           setFormValues(toFormValues(currentDatasource));
@@ -117,7 +120,7 @@ export default function DatasourcePage(): JSX.Element {
   };
 
   const handleProviderChange = (providerId: string): void => {
-    const provider = PROVIDERS.find((item) => item.id === providerId);
+    const provider = providerOptions.find((item) => item.id === providerId);
     if (!provider) return;
     setTestPassed(false);
     setFormValues((current) => ({
@@ -150,7 +153,7 @@ export default function DatasourcePage(): JSX.Element {
       setConnStringError('Invalid connection string. Expected: postgresql://user:password@host:port/database');
       return;
     }
-    const detected = parsed.providerId ? PROVIDERS.find((provider) => provider.id === parsed.providerId) : undefined;
+    const detected = parsed.providerId ? providerOptions.find((provider) => provider.id === parsed.providerId) : undefined;
     setTestPassed(false);
     setFormValues((current) => ({
       ...current,
@@ -254,7 +257,7 @@ export default function DatasourcePage(): JSX.Element {
         title="Datasource"
         description="Configure the datasource. The agent will be operating with the credentials you supply below so limit their access appropriately."
       />
-      {showPicker ? <DatasourceTypePicker onSelect={handlePickerSelect} /> : null}
+      {showPicker ? <DatasourceTypePicker onSelect={handlePickerSelect} providers={providerOptions} /> : null}
       {!showPicker ? (
       <Card>
         <CardContent className="space-y-6 pt-6">

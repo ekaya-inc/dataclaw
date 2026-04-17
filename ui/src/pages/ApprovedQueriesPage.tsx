@@ -1,43 +1,31 @@
-import { CheckCircle2, FlaskConical, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { CheckCircle2, Plus, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
-import { QUERY_TEMPLATE } from '../constants';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
-import { ParameterEditor } from '../components/ParameterEditor';
-import { QueryResultsTable } from '../components/QueryResultsTable';
-import { SqlEditor } from '../components/SqlEditor';
-import { StatusBanner } from '../components/StatusBanner';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { Label } from '../components/ui/Label';
-import { createQuery, deleteQuery, executeSavedQuery, getDatasource, listQueries, testQuery, updateQuery, validateQuery } from '../services/api';
+import { useToast } from '../components/ui/Toast';
+import { QUERY_TEMPLATE } from '../constants';
+import { createQuery, getDatasource, listQueries } from '../services/api';
 import type { DatasourceRecord } from '../types/datasource';
-import { datasourceTypeToDialect } from '../types/query';
-import type { QueryExecutionResult, QueryValidationResult, SavedQuery } from '../types/query';
+import type { SavedQuery } from '../types/query';
 
-const EMPTY_QUERY: Omit<SavedQuery, 'id'> = {
-  datasourceId: undefined,
-  name: '',
-  description: '',
-  sql: QUERY_TEMPLATE,
-  isEnabled: true,
-  parameters: [],
-};
+const SEED_QUERY_PROMPT = 'Connectivity check';
+const SEED_QUERY_CONTEXT = 'Verify the datasource is reachable by returning a simple boolean.';
 
 export default function ApprovedQueriesPage(): JSX.Element {
+  const navigate = useNavigate();
   const { refresh } = useOutletContext<AppOutletContext>();
+  const { toast } = useToast();
   const [datasource, setDatasource] = useState<DatasourceRecord | null>(null);
   const [queries, setQueries] = useState<SavedQuery[]>([]);
-  const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Omit<SavedQuery, 'id'>>(EMPTY_QUERY);
-  const [busy, setBusy] = useState<'loading' | 'saving' | 'validating' | 'testing' | 'executing' | 'deleting' | null>('loading');
-  const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'danger'; message: string } | null>(null);
-  const [validation, setValidation] = useState<QueryValidationResult | null>(null);
-  const [results, setResults] = useState<QueryExecutionResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     void (async () => {
@@ -45,142 +33,67 @@ export default function ApprovedQueriesPage(): JSX.Element {
         const [currentDatasource, currentQueries] = await Promise.all([getDatasource(), listQueries()]);
         setDatasource(currentDatasource);
         setQueries(currentQueries);
-        if (currentQueries[0]) {
-          setSelectedQueryId(currentQueries[0].id);
-          setDraft({ ...currentQueries[0], datasourceId: currentQueries[0].datasourceId });
-        }
       } catch (error) {
-        setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to load approved queries.' });
+        toast({
+          variant: 'error',
+          title: 'Failed to load approved queries',
+          description: error instanceof Error ? error.message : undefined,
+        });
       } finally {
-        setBusy(null);
+        setLoading(false);
       }
     })();
-  }, []);
+  }, [toast]);
 
-  const selectedQuery = useMemo(
-    () => queries.find((query) => query.id === selectedQueryId) ?? null,
-    [queries, selectedQueryId],
-  );
-  const selectedQueryHasRequiredParameters = selectedQuery?.parameters.some((parameter) => parameter.required) ?? false;
+  const filteredQueries = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return queries;
+    return queries.filter(
+      (query) =>
+        query.naturalLanguagePrompt.toLowerCase().includes(needle) ||
+        query.additionalContext.toLowerCase().includes(needle) ||
+        query.sql.toLowerCase().includes(needle),
+    );
+  }, [queries, searchTerm]);
 
-  const dialect = datasource ? datasourceTypeToDialect[datasource.type] : 'PostgreSQL';
-
-  const resetDraft = (nextQuery?: SavedQuery | null): void => {
-    if (!nextQuery) {
-      setSelectedQueryId(null);
-      setDraft({ ...EMPTY_QUERY, datasourceId: datasource?.id });
-      setValidation(null);
-      setResults(null);
-      return;
-    }
-
-    setSelectedQueryId(nextQuery.id);
-    setDraft({
-      datasourceId: nextQuery.datasourceId,
-      name: nextQuery.name,
-      description: nextQuery.description ?? '',
-      sql: nextQuery.sql,
-      isEnabled: nextQuery.isEnabled,
-      parameters: nextQuery.parameters,
-    });
-    setValidation(null);
-    setResults(null);
-  };
-
-  const persistDraft = async (): Promise<void> => {
-    setBusy('saving');
-    setFeedback(null);
+  const handleSeedQuery = async (): Promise<void> => {
+    setSeeding(true);
     try {
-      const payload = { ...draft, datasourceId: datasource?.id };
-      const saved = selectedQueryId ? await updateQuery(selectedQueryId, payload) : await createQuery(payload);
-      const nextQueries = selectedQueryId
-        ? queries.map((query) => (query.id === saved.id ? saved : query))
-        : [saved, ...queries];
-      setQueries(nextQueries);
-      resetDraft(saved);
-      setFeedback({ tone: 'success', message: selectedQueryId ? 'Approved query updated.' : 'Approved query created.' });
-      void refresh();
-    } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to save query.' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const removeSelectedQuery = async (): Promise<void> => {
-    if (!selectedQueryId) return;
-    setBusy('deleting');
-    setFeedback(null);
-    try {
-      await deleteQuery(selectedQueryId);
-      const remainingQueries = queries.filter((query) => query.id !== selectedQueryId);
-      setQueries(remainingQueries);
-      resetDraft(remainingQueries[0] ?? null);
-      setFeedback({ tone: 'success', message: 'Approved query deleted.' });
-      void refresh();
-    } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to delete query.' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const runValidation = async (): Promise<void> => {
-    setBusy('validating');
-    setFeedback(null);
-    try {
-      const nextValidation = await validateQuery(draft.sql, draft.parameters);
-      setValidation(nextValidation);
-      setFeedback({
-        tone: nextValidation.valid ? 'success' : 'danger',
-        message: nextValidation.message ?? (nextValidation.valid ? 'SQL validated.' : 'SQL validation failed.'),
+      const seeded = await createQuery({
+        datasourceId: datasource?.id,
+        naturalLanguagePrompt: SEED_QUERY_PROMPT,
+        additionalContext: SEED_QUERY_CONTEXT,
+        sql: QUERY_TEMPLATE,
+        allowsModification: false,
+        parameters: [],
+        outputColumns: [{ name: 'connected', type: 'boolean', description: 'True when the datasource responds.' }],
+        constraints: '',
       });
+      toast({ variant: 'success', title: 'Seeded connectivity check' });
+      void refresh();
+      navigate(`/queries/${seeded.id}`);
     } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Validation failed.' });
-      setValidation({ valid: false, message: error instanceof Error ? error.message : 'Validation failed.' });
+      toast({
+        variant: 'error',
+        title: 'Failed to seed connectivity check',
+        description: error instanceof Error ? error.message : undefined,
+      });
     } finally {
-      setBusy(null);
+      setSeeding(false);
     }
   };
 
-  const runDraftTest = async (): Promise<void> => {
-    setBusy('testing');
-    setFeedback(null);
-    try {
-      const execution = await testQuery(draft.sql, draft.parameters);
-      setResults(execution);
-      setFeedback({ tone: 'success', message: 'Draft query executed successfully.' });
-    } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Test query failed.' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const runSavedQuery = async (queryId: string): Promise<void> => {
-    setBusy('executing');
-    setFeedback(null);
-    try {
-      const execution = await executeSavedQuery(queryId);
-      setResults(execution);
-      setFeedback({ tone: 'success', message: 'Approved query executed.' });
-    } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Saved query execution failed.' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (!datasource && busy !== 'loading') {
+  if (!datasource && !loading) {
     return (
       <div className="space-y-6">
         <PageHeader
           title="Approved Queries"
-          description="Create the small catalog of SQL prompts OpenClaw should be allowed to use after your datasource is configured."
+          description="Create the catalog of SQL that Agents are allowed to run after your datasource is configured."
         />
         <EmptyState
           title="Start by adding a datasource"
-          body="DataClaw needs a datasource before it can validate or execute approved queries. Once connected, you can seed SELECT true AS connected or build a richer catalog."
+          body="DataClaw needs a datasource before it can validate or execute approved queries. Once connected, you can seed a connectivity check or build a richer catalog."
+          actions={<Button onClick={() => navigate('/datasource')}>Configure datasource</Button>}
         />
       </div>
     );
@@ -190,149 +103,93 @@ export default function ApprovedQueriesPage(): JSX.Element {
     <div className="space-y-6">
       <PageHeader
         title="Approved Queries"
-        description="Manage the exact SQL that OpenClaw is allowed to create, inspect, and run through the local MCP server. There are no pending-review queues in DataClaw v1—everything here is the approved set."
+        description="Manage the exact SQL that Agents are allowed to create, inspect, and run through the local MCP server."
         actions={
-          <Button type="button" variant="outline" onClick={() => resetDraft(null)}>
+          <Button type="button" onClick={() => navigate('/queries/new')}>
             <Plus className="h-4 w-4" />
             New query
           </Button>
         }
       />
-      {feedback ? <StatusBanner tone={feedback.tone} message={feedback.message} /> : null}
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xl">Approved catalog</CardTitle>
-            <CardDescription>
-              {queries.length === 0 ? 'No approved queries yet.' : `${queries.length} approved ${queries.length === 1 ? 'query' : 'queries'}.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {queries.length === 0 ? (
-              <EmptyState
-                title="No approved queries yet"
-                body="Seed a simple connectivity check now, or create a custom SQL query below."
-                actions={
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setDraft({ ...EMPTY_QUERY, datasourceId: datasource?.id, name: 'Connectivity check', sql: QUERY_TEMPLATE });
-                      setSelectedQueryId(null);
-                    }}
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    Use SELECT true AS connected
-                  </Button>
-                }
-              />
-            ) : (
-              queries.map((query) => (
-                <button
-                  key={query.id}
-                  className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
-                    selectedQueryId === query.id
-                      ? 'border-slate-950 bg-slate-950 text-white'
-                      : 'border-border-light bg-surface-primary hover:border-slate-400'
-                  }`}
-                  onClick={() => resetDraft(query)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{query.name}</div>
-                      <p className={`mt-1 text-sm ${selectedQueryId === query.id ? 'text-slate-300' : 'text-text-secondary'}`}>
-                        {query.description || 'No description yet.'}
-                      </p>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${query.isEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                      {query.isEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
-                  <code className={`mt-3 block truncate rounded-lg px-3 py-2 text-xs ${selectedQueryId === query.id ? 'bg-slate-900 text-slate-200' : 'bg-surface-secondary text-text-secondary'}`}>
-                    {query.sql}
-                  </code>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className={selectedQueryId === query.id ? 'text-slate-300' : 'text-text-tertiary'}>
-                      {query.parameters.length} parameters
-                    </span>
-                    <span className={selectedQueryId === query.id ? 'text-slate-300' : 'text-text-tertiary'}>
-                      Updated {query.updatedAt ?? 'recently'}
-                    </span>
-                  </div>
-                </button>
-              ))
-            )}
-          </CardContent>
-        </Card>
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl">{selectedQuery ? 'Edit approved query' : 'Create approved query'}</CardTitle>
-              <CardDescription>
-                Author SQL once, validate it, and keep the approved set lean. Schema autocomplete and pending-review flows are intentionally removed in DataClaw.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label htmlFor="query-name">Name</Label>
-                  <Input id="query-name" className="mt-2" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Connectivity check" />
-                </div>
-                <div>
-                  <Label htmlFor="query-description">Description</Label>
-                  <Input id="query-description" className="mt-2" value={draft.description ?? ''} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Explain when OpenClaw should use this query" />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-text-secondary">
-                <input type="checkbox" checked={draft.isEnabled} onChange={(event) => setDraft((current) => ({ ...current, isEnabled: event.target.checked }))} />
-                Enabled for OpenClaw
-              </label>
-              <div>
-                <Label htmlFor="query-sql">SQL</Label>
-                <div className="mt-2">
-                  <SqlEditor
-                    value={draft.sql}
-                    onChange={(value) => setDraft((current) => ({ ...current, sql: value }))}
-                    dialect={dialect}
-                    validationStatus={busy === 'validating' ? 'validating' : validation ? (validation.valid ? 'valid' : 'invalid') : 'idle'}
-                    validationError={validation?.valid === false ? validation.message : undefined}
-                  />
-                </div>
-              </div>
-              <ParameterEditor parameters={draft.parameters} onChange={(parameters) => setDraft((current) => ({ ...current, parameters }))} />
-              <div className="flex flex-wrap gap-3">
-                <Button type="button" onClick={() => void persistDraft()} disabled={busy !== null || !draft.name.trim() || !draft.sql.trim()}>
-                  <Save className="h-4 w-4" />
-                  {selectedQuery ? 'Save changes' : 'Create query'}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void runValidation()} disabled={busy !== null || !draft.sql.trim()}>
-                  <Pencil className="h-4 w-4" />
-                  Validate SQL
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void runDraftTest()} disabled={busy !== null || !draft.sql.trim()}>
-                  <FlaskConical className="h-4 w-4" />
-                  Test draft query
-                </Button>
-                {selectedQuery ? (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => void runSavedQuery(selectedQuery.id)} disabled={busy !== null || selectedQueryHasRequiredParameters}>
-                      <Play className="h-4 w-4" />
-                      Execute saved query
-                    </Button>
-                    <Button type="button" variant="destructive" onClick={() => void removeSelectedQuery()} disabled={busy !== null}>
-                      <Trash2 className="h-4 w-4" />
-                      Delete query
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-              {selectedQueryHasRequiredParameters ? (
-                <p className="text-sm text-text-secondary">Execute saved query is disabled here because this query requires parameter values. Run it through the API or MCP client with explicit parameters.</p>
-              ) : null}
-            </CardContent>
-          </Card>
-          {results ? <QueryResultsTable columns={results.columns} rows={results.rows} rowCount={results.rowCount} /> : null}
-        </div>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+        <Input
+          className="pl-10"
+          placeholder="Search prompts, context, or SQL…"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+        />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">Approved catalog</CardTitle>
+          <CardDescription>
+            {loading
+              ? 'Loading approved queries…'
+              : queries.length === 0
+                ? 'No approved queries yet.'
+                : `${queries.length} approved ${queries.length === 1 ? 'query' : 'queries'}.`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? null : queries.length === 0 ? (
+            <EmptyState
+              title="No approved queries yet"
+              body="Seed a simple connectivity check now, or create a custom SQL query below."
+              actions={
+                <Button type="button" onClick={() => void handleSeedQuery()} disabled={seeding}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  {seeding ? 'Seeding…' : 'Use SELECT true AS connected'}
+                </Button>
+              }
+            />
+          ) : filteredQueries.length === 0 ? (
+            <EmptyState title="No matches" body="Try a different search term to find an approved query." />
+          ) : (
+            <ul className="grid gap-3 md:grid-cols-2">
+              {filteredQueries.map((query) => (
+                <li key={query.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/queries/${query.id}`)}
+                    className="flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-border-light bg-surface-primary p-4 text-left transition hover:border-slate-400 hover:bg-surface-hover"
+                  >
+                    <div className="flex w-full items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold text-text-primary">
+                          {query.naturalLanguagePrompt || 'Untitled query'}
+                        </div>
+                        {query.additionalContext ? (
+                          <p className="mt-1 line-clamp-2 text-sm text-text-secondary">{query.additionalContext}</p>
+                        ) : null}
+                      </div>
+                      {query.allowsModification ? (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                          Mutating
+                        </span>
+                      ) : null}
+                    </div>
+                    <code className="block w-full truncate rounded-lg bg-surface-secondary px-3 py-2 text-xs text-text-secondary">
+                      {query.sql}
+                    </code>
+                    <div className="flex flex-wrap gap-3 text-xs text-text-tertiary">
+                      <span>
+                        {query.parameters.length} {query.parameters.length === 1 ? 'parameter' : 'parameters'}
+                      </span>
+                      <span>
+                        {query.outputColumns.length} {query.outputColumns.length === 1 ? 'output column' : 'output columns'}
+                      </span>
+                      <span>Updated {query.updatedAt ?? 'recently'}</span>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { DatasourceFormValues } from './types/datasource';
+import type { DatasourceAdapterInfo, DatasourceFormValues } from './types/datasource';
 
 export type ProviderOption = {
   id: string;
@@ -7,11 +7,11 @@ export type ProviderOption = {
   defaultPort: string;
   defaultSSL: DatasourceFormValues['sslMode'];
   helperText: string;
-  iconPath: string;
+  iconPath?: string;
   urlPattern?: RegExp;
 };
 
-export const PROVIDERS: ProviderOption[] = [
+const PROVIDER_PRESETS: ProviderOption[] = [
   {
     id: 'mssql',
     label: 'SQL Server',
@@ -72,8 +72,57 @@ export const PROVIDERS: ProviderOption[] = [
   },
 ];
 
+const ADAPTER_ICON_PATHS: Record<string, string> = {
+  mssql: '/icons/adapters/MSSQL.png',
+  postgres: '/icons/adapters/PostgreSQL.png',
+};
+
+const ADAPTER_DEFAULT_PORTS: Record<string, string> = {
+  mssql: '1433',
+  postgres: '5432',
+};
+
+const ADAPTER_DEFAULT_SSL: Record<string, DatasourceFormValues['sslMode']> = {
+  mssql: 'require',
+  postgres: 'require',
+};
+
+function adapterIconPath(adapter: DatasourceAdapterInfo): string | undefined {
+  const candidates = [adapter.icon, adapter.type]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+  for (const candidate of candidates) {
+    if (candidate in ADAPTER_ICON_PATHS) {
+      return ADAPTER_ICON_PATHS[candidate];
+    }
+  }
+  return undefined;
+}
+
+export function buildProviderOptions(adapterTypes: DatasourceAdapterInfo[]): ProviderOption[] {
+  const enabledAdapters = new Map(adapterTypes.map((adapter) => [adapter.type, adapter]));
+  const options = PROVIDER_PRESETS.filter((provider) => enabledAdapters.has(provider.adapter));
+  const existingIDs = new Set(options.map((provider) => provider.id));
+
+  for (const adapter of adapterTypes) {
+    if (existingIDs.has(adapter.type)) continue;
+    const iconPath = adapterIconPath(adapter);
+    options.push({
+      id: adapter.type,
+      label: adapter.displayName,
+      adapter: adapter.type,
+      defaultPort: ADAPTER_DEFAULT_PORTS[adapter.type] ?? '',
+      defaultSSL: ADAPTER_DEFAULT_SSL[adapter.type] ?? 'require',
+      helperText: adapter.description ?? `Connect to ${adapter.displayName}.`,
+      ...(iconPath ? { iconPath } : {}),
+    });
+  }
+
+  return options;
+}
+
 export function detectProviderFromUrl(url: string): ProviderOption | undefined {
-  return PROVIDERS.find((provider) => provider.urlPattern?.test(url));
+  return PROVIDER_PRESETS.find((provider) => provider.urlPattern?.test(url));
 }
 
 export const QUERY_TEMPLATE = 'SELECT true AS connected';

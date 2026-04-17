@@ -32,15 +32,17 @@ type Datasource struct {
 }
 
 type ApprovedQuery struct {
-	ID           string                  `json:"id"`
-	DatasourceID string                  `json:"datasource_id"`
-	Name         string                  `json:"name"`
-	Description  string                  `json:"description"`
-	SQLQuery     string                  `json:"sql_query"`
-	Parameters   []models.QueryParameter `json:"parameters,omitempty"`
-	IsEnabled    bool                    `json:"is_enabled"`
-	CreatedAt    time.Time               `json:"created_at"`
-	UpdatedAt    time.Time               `json:"updated_at"`
+	ID                    string                  `json:"id"`
+	DatasourceID          string                  `json:"datasource_id"`
+	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
+	AdditionalContext     string                  `json:"additional_context"`
+	SQLQuery              string                  `json:"sql_query"`
+	AllowsModification    bool                    `json:"allows_modification"`
+	Parameters            []models.QueryParameter `json:"parameters"`
+	OutputColumns         []models.OutputColumn   `json:"output_columns"`
+	Constraints           string                  `json:"constraints"`
+	CreatedAt             time.Time               `json:"created_at"`
+	UpdatedAt             time.Time               `json:"updated_at"`
 }
 
 type OpenClawCredential struct {
@@ -188,8 +190,10 @@ func (s *Store) DeleteDatasource(ctx context.Context) error {
 	return err
 }
 
+const approvedQueryColumns = `id, datasource_id, natural_language_prompt, additional_context, sql_query, allows_modification, parameters_json, output_columns_json, constraints, created_at, updated_at`
+
 func (s *Store) ListQueries(ctx context.Context) ([]*ApprovedQuery, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, datasource_id, name, description, sql_query, parameters_json, is_enabled, created_at, updated_at FROM approved_queries ORDER BY created_at ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+approvedQueryColumns+` FROM approved_queries ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +210,7 @@ func (s *Store) ListQueries(ctx context.Context) ([]*ApprovedQuery, error) {
 }
 
 func (s *Store) GetQuery(ctx context.Context, id string) (*ApprovedQuery, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, datasource_id, name, description, sql_query, parameters_json, is_enabled, created_at, updated_at FROM approved_queries WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+approvedQueryColumns+` FROM approved_queries WHERE id = ?`, id)
 	q, err := scanQuery(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -234,11 +238,20 @@ func (s *Store) upsertQuery(ctx context.Context, q *ApprovedQuery, create bool) 
 	if err != nil {
 		return err
 	}
-	if create {
-		_, err = s.db.ExecContext(ctx, `INSERT INTO approved_queries(id, datasource_id, name, description, sql_query, parameters_json, is_enabled, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, q.ID, q.DatasourceID, q.Name, q.Description, q.SQLQuery, string(params), boolToInt(q.IsEnabled), q.CreatedAt.Format(time.RFC3339), q.UpdatedAt.Format(time.RFC3339))
+	if q.OutputColumns == nil {
+		q.OutputColumns = []models.OutputColumn{}
+	}
+	outputs, err := json.Marshal(q.OutputColumns)
+	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE approved_queries SET datasource_id = ?, name = ?, description = ?, sql_query = ?, parameters_json = ?, is_enabled = ?, updated_at = ? WHERE id = ?`, q.DatasourceID, q.Name, q.Description, q.SQLQuery, string(params), boolToInt(q.IsEnabled), q.UpdatedAt.Format(time.RFC3339), q.ID)
+	if create {
+		_, err = s.db.ExecContext(ctx, `INSERT INTO approved_queries(id, datasource_id, natural_language_prompt, additional_context, sql_query, allows_modification, parameters_json, output_columns_json, constraints, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			q.ID, q.DatasourceID, q.NaturalLanguagePrompt, q.AdditionalContext, q.SQLQuery, boolToInt(q.AllowsModification), string(params), string(outputs), q.Constraints, q.CreatedAt.Format(time.RFC3339), q.UpdatedAt.Format(time.RFC3339))
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE approved_queries SET datasource_id = ?, natural_language_prompt = ?, additional_context = ?, sql_query = ?, allows_modification = ?, parameters_json = ?, output_columns_json = ?, constraints = ?, updated_at = ? WHERE id = ?`,
+		q.DatasourceID, q.NaturalLanguagePrompt, q.AdditionalContext, q.SQLQuery, boolToInt(q.AllowsModification), string(params), string(outputs), q.Constraints, q.UpdatedAt.Format(time.RFC3339), q.ID)
 	return err
 }
 
@@ -273,13 +286,20 @@ func (s *Store) SaveOpenClawCredential(ctx context.Context, encryptedKey string,
 
 func scanQuery(scanner interface{ Scan(dest ...any) error }) (*ApprovedQuery, error) {
 	var q ApprovedQuery
-	var paramsRaw, createdAt, updatedAt string
-	var enabled int
-	if err := scanner.Scan(&q.ID, &q.DatasourceID, &q.Name, &q.Description, &q.SQLQuery, &paramsRaw, &enabled, &createdAt, &updatedAt); err != nil {
+	var paramsRaw, outputsRaw, createdAt, updatedAt string
+	var allowsModification int
+	if err := scanner.Scan(&q.ID, &q.DatasourceID, &q.NaturalLanguagePrompt, &q.AdditionalContext, &q.SQLQuery, &allowsModification, &paramsRaw, &outputsRaw, &q.Constraints, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(paramsRaw), &q.Parameters)
-	q.IsEnabled = enabled == 1
+	if q.Parameters == nil {
+		q.Parameters = []models.QueryParameter{}
+	}
+	_ = json.Unmarshal([]byte(outputsRaw), &q.OutputColumns)
+	if q.OutputColumns == nil {
+		q.OutputColumns = []models.OutputColumn{}
+	}
+	q.AllowsModification = allowsModification == 1
 	q.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	q.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &q, nil

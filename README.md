@@ -13,6 +13,7 @@ DataClaw is a localhost-only server that makes it fast to connect OpenClaw to a 
   - `create_query`
   - `update_query`
   - `delete_query`
+  - `execute_query`
 - gives OpenClaw one API key and a copy-paste `openclaw mcp set ...` command
 
 ## UI

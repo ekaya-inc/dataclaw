@@ -1,6 +1,4 @@
-import type { DatasourceType } from './datasource';
-
-export type SqlDialect = 'PostgreSQL' | 'MSSQL';
+export type SqlDialect = 'PostgreSQL' | 'MSSQL' | string;
 
 export type ParameterType =
   | 'string'
@@ -9,24 +7,34 @@ export type ParameterType =
   | 'boolean'
   | 'date'
   | 'timestamp'
-  | 'uuid';
+  | 'uuid'
+  | 'string[]'
+  | 'integer[]';
 
 export interface QueryParameter {
   name: string;
   type: ParameterType;
   description: string;
   required: boolean;
-  default?: string | null;
+  default?: unknown;
+}
+
+export interface OutputColumn {
+  name: string;
+  type: string;
+  description: string;
 }
 
 export interface SavedQuery {
   id: string;
   datasourceId?: string | undefined;
-  name: string;
-  description?: string | undefined;
+  naturalLanguagePrompt: string;
+  additionalContext: string;
   sql: string;
-  isEnabled: boolean;
+  allowsModification: boolean;
   parameters: QueryParameter[];
+  outputColumns: OutputColumn[];
+  constraints: string;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }
@@ -43,7 +51,4 @@ export interface QueryValidationResult {
   warnings?: string[] | undefined;
 }
 
-export const datasourceTypeToDialect: Record<DatasourceType, SqlDialect> = {
-  postgres: 'PostgreSQL',
-  mssql: 'MSSQL',
-};
+export const DEFAULT_SQL_DIALECT: SqlDialect = 'PostgreSQL';

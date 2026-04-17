@@ -40,9 +40,8 @@ jobs:
         run: make check
 
       - name: Upload main binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dataclaw-${{ github.sha }}-linux-amd64
           path: bin/dataclaw
           if-no-files-found: error
-

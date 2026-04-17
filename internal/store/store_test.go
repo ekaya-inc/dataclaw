@@ -47,12 +47,12 @@ func TestStorePersistsSingleDatasourceAndQueries(t *testing.T) {
 	}
 
 	query := &ApprovedQuery{
-		DatasourceID: loadedDS.ID,
-		Name:         "Connectivity",
-		Description:  "Connectivity check",
-		SQLQuery:     "SELECT true AS connected",
-		Parameters:   []models.QueryParameter{},
-		IsEnabled:    true,
+		DatasourceID:          loadedDS.ID,
+		NaturalLanguagePrompt: "Connectivity check",
+		AdditionalContext:     "Probe for a live database connection.",
+		SQLQuery:              "SELECT true AS connected",
+		Parameters:            []models.QueryParameter{},
+		OutputColumns:         []models.OutputColumn{{Name: "connected", Type: "boolean"}},
 	}
 	if err := store.CreateQuery(ctx, query); err != nil {
 		t.Fatalf("create query: %v", err)
@@ -62,8 +62,11 @@ func TestStorePersistsSingleDatasourceAndQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list queries: %v", err)
 	}
-	if len(queries) != 1 || queries[0].Name != "Connectivity" {
+	if len(queries) != 1 || queries[0].NaturalLanguagePrompt != "Connectivity check" {
 		t.Fatalf("unexpected queries: %#v", queries)
+	}
+	if len(queries[0].OutputColumns) != 1 || queries[0].OutputColumns[0].Name != "connected" {
+		t.Fatalf("expected output columns to round-trip, got %#v", queries[0].OutputColumns)
 	}
 
 	if err := store.SaveOpenClawCredential(ctx, "encrypted-key", time.Now().UTC()); err != nil {
@@ -98,10 +101,9 @@ func TestSaveDatasourceUpdatePreservesApprovedQueries(t *testing.T) {
 	}
 
 	if err := store.CreateQuery(ctx, &ApprovedQuery{
-		DatasourceID: ds.ID,
-		Name:         "Connectivity",
-		SQLQuery:     "SELECT true AS connected",
-		IsEnabled:    true,
+		DatasourceID:          ds.ID,
+		NaturalLanguagePrompt: "Connectivity check",
+		SQLQuery:              "SELECT true AS connected",
 	}); err != nil {
 		t.Fatalf("create query: %v", err)
 	}

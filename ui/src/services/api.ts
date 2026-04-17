@@ -1,8 +1,8 @@
 import { QUERY_TEMPLATE } from '../constants';
 import type { ApiEnvelope } from '../types/api';
-import type { DatasourceFormValues, DatasourceRecord, RuntimeStatus, TestConnectionResult } from '../types/datasource';
+import type { DatasourceAdapterInfo, DatasourceFormValues, DatasourceRecord, RuntimeStatus, TestConnectionResult } from '../types/datasource';
 import type { OpenClawConfig } from '../types/openclaw';
-import type { QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
+import type { OutputColumn, QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -60,17 +60,35 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
+  const record = asRecord(raw);
+  const type = asString(pick(record, 'type'));
+  if (!record || !type) return null;
+  const capabilities = asRecord(record.capabilities);
+  return {
+    type,
+    displayName: asString(pick(record, 'displayName', 'display_name')) ?? type,
+    description: asString(pick(record, 'description')),
+    icon: asString(pick(record, 'icon')),
+    sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
+    capabilities: capabilities
+      ? {
+          supportsArrayParameters: asBoolean(pick(capabilities, 'supportsArrayParameters', 'supports_array_parameters')),
+        }
+      : undefined,
+  };
+}
+
 function toDatasourceRecord(raw: unknown): DatasourceRecord | null {
   const record = asRecord(raw);
-  if (!record) return null;
-
-  const typeValue = pick(record, 'type');
-  const type = typeValue === 'mssql' ? 'mssql' : 'postgres';
+  const type = asString(pick(record, 'type'));
+  if (!record || !type) return null;
 
   return {
     id: asString(pick(record, 'id', 'datasource_id')) ?? 'default',
     type,
     provider: asString(pick(record, 'provider')),
+    sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
     displayName: asString(pick(record, 'displayName', 'display_name', 'name')) ?? 'Datasource',
     database: asString(pick(record, 'database', 'name')) ?? '',
     host: asString(pick(record, 'host')) ?? '',
@@ -94,7 +112,19 @@ function toQueryParameter(raw: unknown): QueryParameter | null {
     type,
     description: asString(pick(record, 'description')) ?? '',
     required: asBoolean(pick(record, 'required')) ?? true,
-    default: asString(pick(record, 'default')) ?? null,
+    default: pick(record, 'default') ?? null,
+  };
+}
+
+function toOutputColumn(raw: unknown): OutputColumn | null {
+  const record = asRecord(raw);
+  if (!record) return null;
+  const name = asString(pick(record, 'name'));
+  if (!name) return null;
+  return {
+    name,
+    type: asString(pick(record, 'type')) ?? '',
+    description: asString(pick(record, 'description')) ?? '',
   };
 }
 
@@ -103,15 +133,20 @@ function toQuery(raw: unknown): SavedQuery {
   const parameters = Array.isArray(record.parameters)
     ? record.parameters.map(toQueryParameter).filter((parameter): parameter is QueryParameter => parameter !== null)
     : [];
+  const outputColumns = Array.isArray(record.output_columns)
+    ? record.output_columns.map(toOutputColumn).filter((column): column is OutputColumn => column !== null)
+    : [];
 
   return {
     id: asString(pick(record, 'id', 'query_id')) ?? crypto.randomUUID(),
     datasourceId: asString(pick(record, 'datasourceId', 'datasource_id')),
-    name: asString(pick(record, 'name', 'natural_language_prompt')) ?? 'Untitled query',
-    description: asString(pick(record, 'description', 'additional_context')),
-    sql: asString(pick(record, 'sql', 'sql_query')) ?? QUERY_TEMPLATE,
-    isEnabled: asBoolean(pick(record, 'isEnabled', 'is_enabled')) ?? true,
+    naturalLanguagePrompt: asString(pick(record, 'natural_language_prompt')) ?? '',
+    additionalContext: asString(pick(record, 'additional_context')) ?? '',
+    sql: asString(pick(record, 'sql_query')) ?? QUERY_TEMPLATE,
+    allowsModification: asBoolean(pick(record, 'allows_modification')) ?? false,
     parameters,
+    outputColumns,
+    constraints: asString(pick(record, 'constraints')) ?? '',
     createdAt: asString(pick(record, 'createdAt', 'created_at')),
     updatedAt: asString(pick(record, 'updatedAt', 'updated_at')),
   };
@@ -192,6 +227,13 @@ export async function getDatasource(): Promise<DatasourceRecord | null> {
   return toDatasourceRecord(datasource);
 }
 
+export async function getDatasourceTypes(): Promise<DatasourceAdapterInfo[]> {
+  const data = await parseResponse<unknown>(await fetch('/api/datasource/types'));
+  const record = asRecord(data);
+  const types = Array.isArray(record?.types) ? record.types : [];
+  return types.map(toDatasourceAdapterInfo).filter((type): type is DatasourceAdapterInfo => type !== null);
+}
+
 export async function saveDatasource(values: DatasourceFormValues): Promise<DatasourceRecord> {
   const data = await parseResponse<unknown>(
     await fetch('/api/datasource', {
@@ -243,18 +285,24 @@ export async function listQueries(): Promise<SavedQuery[]> {
   return queries.map(toQuery);
 }
 
+function approvedQueryPayload(query: Omit<SavedQuery, 'id'>): Record<string, unknown> {
+  return {
+    natural_language_prompt: query.naturalLanguagePrompt,
+    additional_context: query.additionalContext,
+    sql_query: query.sql,
+    allows_modification: query.allowsModification,
+    parameters: query.parameters,
+    output_columns: query.outputColumns,
+    constraints: query.constraints,
+  };
+}
+
 export async function createQuery(query: Omit<SavedQuery, 'id'>): Promise<SavedQuery> {
   const data = await parseResponse<unknown>(
     await fetch('/api/queries', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({
-        name: query.name,
-        description: query.description,
-        sql: query.sql,
-        is_enabled: query.isEnabled,
-        parameters: query.parameters,
-      }),
+      body: JSON.stringify(approvedQueryPayload(query)),
     }),
   );
   const record = asRecord(data);
@@ -266,13 +314,7 @@ export async function updateQuery(id: string, query: Omit<SavedQuery, 'id'>): Pr
     await fetch(`/api/queries/${id}`, {
       method: 'PUT',
       headers: JSON_HEADERS,
-      body: JSON.stringify({
-        name: query.name,
-        description: query.description,
-        sql: query.sql,
-        is_enabled: query.isEnabled,
-        parameters: query.parameters,
-      }),
+      body: JSON.stringify(approvedQueryPayload(query)),
     }),
   );
   const record = asRecord(data);
@@ -283,12 +325,12 @@ export async function deleteQuery(id: string): Promise<void> {
   await parseResponse<void>(await fetch(`/api/queries/${id}`, { method: 'DELETE' }));
 }
 
-export async function validateQuery(sql: string, parameters: QueryParameter[]): Promise<QueryValidationResult> {
+export async function validateQuery(sql: string, parameters: QueryParameter[], allowsModification: boolean): Promise<QueryValidationResult> {
   const data = await parseResponse<unknown>(
     await fetch('/api/queries/validate', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ sql_query: sql, parameters }),
+      body: JSON.stringify({ sql_query: sql, parameters, allows_modification: allowsModification }),
     }),
   );
   const record = asRecord(data);
@@ -302,24 +344,27 @@ export async function validateQuery(sql: string, parameters: QueryParameter[]): 
   };
 }
 
-export async function testQuery(sql: string, parameters: QueryParameter[]): Promise<QueryExecutionResult> {
+export async function testQuery(sql: string, parameters: QueryParameter[], allowsModification: boolean): Promise<QueryExecutionResult> {
   const data = await parseResponse<unknown>(
     await fetch('/api/queries/test', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ sql_query: sql, parameters }),
+      body: JSON.stringify({ sql_query: sql, parameters, allows_modification: allowsModification }),
     }),
   );
   const record = asRecord(data);
   return toExecutionResult(record && 'result' in record ? record.result : data);
 }
 
-export async function executeSavedQuery(id: string): Promise<QueryExecutionResult> {
+export async function executeSavedQuery(id: string, parameters?: Record<string, unknown>, limit = 100): Promise<QueryExecutionResult> {
   const data = await parseResponse<unknown>(
     await fetch(`/api/queries/${id}/execute`, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        ...(parameters && Object.keys(parameters).length > 0 ? { parameters } : {}),
+        limit,
+      }),
     }),
   );
   const record = asRecord(data);

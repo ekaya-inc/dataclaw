@@ -12,6 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
+	_ "github.com/ekaya-inc/dataclaw/internal/adapters/datasource/mssql"
+	_ "github.com/ekaya-inc/dataclaw/internal/adapters/datasource/postgres"
 	"github.com/ekaya-inc/dataclaw/internal/config"
 	"github.com/ekaya-inc/dataclaw/internal/core"
 	"github.com/ekaya-inc/dataclaw/internal/httpapi"
@@ -46,7 +49,7 @@ func Run(version string) error {
 		return err
 	}
 	baseURL := cfg.UIBaseURL(port)
-	service := core.New(store, secret, version, func() string { return baseURL })
+	service := core.New(store, secret, version, func() string { return baseURL }, dsadapter.NewFactory(dsadapter.DefaultRegistry()))
 	defer service.Close()
 	api := httpapi.New(service)
 	mcpSrv := mcpserver.New(version, service)

@@ -20,6 +20,7 @@ describe('App shell', () => {
     mockFetch({
       '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790' },
       '/api/datasource': { datasource: null },
+      '/api/datasource/types': { types: [{ type: 'postgres', display_name: 'PostgreSQL' }, { type: 'mssql', display_name: 'Microsoft SQL Server' }] },
       '/api/openclaw': { api_key: 'dc_live_123', masked_api_key: 'dc_live_••••' },
       '/api/queries': { queries: [] },
     });
