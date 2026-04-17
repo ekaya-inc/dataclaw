@@ -38,6 +38,11 @@ type approvedQueryResponse struct {
 }
 
 func New(version string, service *core.Service) *Server {
+	mcpServer := buildMCPServer(version, service)
+	return &Server{httpServer: server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true)), service: service}
+}
+
+func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 	hooks := &server.Hooks{}
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 		if result == nil {
@@ -47,11 +52,12 @@ func New(version string, service *core.Service) *Server {
 	})
 
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true), server.WithHooks(hooks))
+	registerHealthTool(mcpServer, version, service)
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
 	registerExecuteQueryTool(mcpServer, service)
-	return &Server{httpServer: server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true)), service: service}
+	return mcpServer
 }
 
 func (s *Server) Handler() http.Handler {
@@ -202,23 +208,18 @@ func filterToolsForContext(ctx context.Context, service *core.Service, tools []m
 	}
 	hasDatasource, err := service.HasDatasource(ctx)
 	if err != nil || !hasDatasource {
-		return []mcp.Tool{}
+		return filterToolsByName(tools, map[string]bool{"health": true})
 	}
 	allowed := allowedTools(agent)
-	filtered := make([]mcp.Tool, 0, len(tools))
-	for _, tool := range tools {
-		if allowed[tool.Name] {
-			filtered = append(filtered, tool)
-		}
-	}
-	return filtered
+	return filterToolsByName(tools, allowed)
 }
 
 func allowedTools(agent *storepkg.Agent) map[string]bool {
-	allowed := make(map[string]bool, 4)
+	allowed := make(map[string]bool, 5)
 	if agent == nil {
 		return allowed
 	}
+	allowed["health"] = true
 	if agent.CanQuery {
 		allowed["query"] = true
 	}
@@ -232,6 +233,16 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 		}
 	}
 	return allowed
+}
+
+func filterToolsByName(tools []mcp.Tool, allowed map[string]bool) []mcp.Tool {
+	filtered := make([]mcp.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if allowed[tool.Name] {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
 }
 
 func requireAgent(ctx context.Context) (*storepkg.Agent, error) {

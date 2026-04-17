@@ -54,12 +54,12 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	}
 
 	readerTools := listToolNames(t, withAuthorizedAgent(ctx, readerAgent), mcpClient)
-	if got, want := readerTools, []string{"execute_query", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"execute_query", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools: got %v want %v", got, want)
 	}
 
 	executorTools := listToolNames(t, withAuthorizedAgent(ctx, executorAgent), mcpClient)
-	if got, want := executorTools, []string{"execute"}; !equalStrings(got, want) {
+	if got, want := executorTools, []string{"execute", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected executor tools: got %v want %v", got, want)
 	}
 }
@@ -121,23 +121,23 @@ func TestDatasourceDeletionFailsClosedForToolDiscovery(t *testing.T) {
 	agentCtx := withAuthorizedAgent(ctx, agent)
 
 	before := listToolNames(t, agentCtx, mcpClient)
-	if len(before) != 4 {
-		t.Fatalf("expected 4 tools before datasource deletion, got %v", before)
+	if len(before) != 5 {
+		t.Fatalf("expected 5 tools before datasource deletion, got %v", before)
 	}
 	if err := service.DeleteDatasource(ctx); err != nil {
 		t.Fatalf("DeleteDatasource: %v", err)
 	}
 
 	after := listToolNames(t, agentCtx, mcpClient)
-	if len(after) != 0 {
-		t.Fatalf("expected tools/list to fail closed after datasource deletion, got %v", after)
+	if got, want := after, []string{"health"}; !equalStrings(got, want) {
+		t.Fatalf("expected health-only tools after datasource deletion, got %v want %v", got, want)
 	}
 	assertToolError(t, agentCtx, mcpClient, "list_queries", nil, "no datasource configured")
 }
 
 func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	ctx := context.Background()
-	mcpClient, service := newHTTPMCPClient(t)
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
 
 	queryA, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{NaturalLanguagePrompt: "List accounts", SQLQuery: "SELECT * FROM accounts"})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	readerTools := listToolNamesWithHeader(t, ctx, mcpClient, reader.APIKey)
-	if got, want := readerTools, []string{"execute_query", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"execute_query", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools via header auth: got %v want %v", got, want)
 	}
 	readerAfterList, err := service.GetAgent(ctx, reader.ID)
@@ -172,6 +172,14 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 	if readerAfterList.LastUsedAt != nil {
 		t.Fatalf("expected tools/list not to update last_used_at, got %#v", readerAfterList.LastUsedAt)
+	}
+	callToolJSONWithHeader(t, ctx, mcpClient, "health", nil, reader.APIKey)
+	readerAfterHealth, err := service.GetAgent(ctx, reader.ID)
+	if err != nil {
+		t.Fatalf("GetAgent(reader after health): %v", err)
+	}
+	if readerAfterHealth.LastUsedAt != nil {
+		t.Fatalf("expected health call not to update last_used_at, got %#v", readerAfterHealth.LastUsedAt)
 	}
 
 	payload := callToolJSONWithHeader(t, ctx, mcpClient, "list_queries", nil, reader.APIKey)
@@ -188,7 +196,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	writerTools := listToolNamesWithHeader(t, ctx, mcpClient, writer.APIKey)
-	if got, want := writerTools, []string{"execute"}; !equalStrings(got, want) {
+	if got, want := writerTools, []string{"execute", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected writer tools via header auth: got %v want %v", got, want)
 	}
 
@@ -216,7 +224,7 @@ func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	before := listToolNamesWithHeader(t, ctx, mcpClient, agent.APIKey)
-	if got, want := before, []string{"execute_query", "list_queries"}; !equalStrings(got, want) {
+	if got, want := before, []string{"execute_query", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected tools before membership cascade: got %v want %v", got, want)
 	}
 
@@ -225,12 +233,16 @@ func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 	}
 
 	after := listToolNamesWithHeader(t, ctx, mcpClient, agent.APIKey)
-	if got, want := after, []string{"list_queries"}; !equalStrings(got, want) {
+	if got, want := after, []string{"health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected tools after membership cascade: got %v want %v", got, want)
 	}
 }
 
 func newTestMCPClient(t *testing.T) (*client.Client, *core.Service) {
+	return newTestMCPClientWithFactoryAndDatasource(t, dsadapter.NewFactory(dsadapter.DefaultRegistry()), true)
+}
+
+func newTestMCPClientWithFactoryAndDatasource(t *testing.T, factory dsadapter.Factory, seedDatasource bool) (*client.Client, *core.Service) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -242,19 +254,21 @@ func newTestMCPClient(t *testing.T) (*client.Client, *core.Service) {
 	if err != nil {
 		t.Fatalf("load secret: %v", err)
 	}
-	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, dsadapter.NewFactory(dsadapter.DefaultRegistry()))
+	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 
-	configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
-	if err != nil {
-		t.Fatalf("encrypt datasource config: %v", err)
-	}
-	if err := st.SaveDatasource(ctx, &storepkg.Datasource{
-		Name:            "Primary",
-		Type:            "postgres",
-		Provider:        "postgres",
-		ConfigEncrypted: configCiphertext,
-	}); err != nil {
-		t.Fatalf("SaveDatasource: %v", err)
+	if seedDatasource {
+		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
+		if err != nil {
+			t.Fatalf("encrypt datasource config: %v", err)
+		}
+		if err := st.SaveDatasource(ctx, &storepkg.Datasource{
+			Name:            "Primary",
+			Type:            "postgres",
+			Provider:        "postgres",
+			ConfigEncrypted: configCiphertext,
+		}); err != nil {
+			t.Fatalf("SaveDatasource: %v", err)
+		}
 	}
 
 	mcpServer := New("test", service)
@@ -283,6 +297,10 @@ func newTestMCPClient(t *testing.T) (*client.Client, *core.Service) {
 }
 
 func newHTTPMCPClient(t *testing.T) (*client.Client, *core.Service) {
+	return newHTTPMCPClientWithFactoryAndDatasource(t, dsadapter.NewFactory(dsadapter.DefaultRegistry()), true)
+}
+
+func newHTTPMCPClientWithFactoryAndDatasource(t *testing.T, factory dsadapter.Factory, seedDatasource bool) (*client.Client, *core.Service) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -294,19 +312,21 @@ func newHTTPMCPClient(t *testing.T) (*client.Client, *core.Service) {
 	if err != nil {
 		t.Fatalf("load secret: %v", err)
 	}
-	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, dsadapter.NewFactory(dsadapter.DefaultRegistry()))
+	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 
-	configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
-	if err != nil {
-		t.Fatalf("encrypt datasource config: %v", err)
-	}
-	if err := st.SaveDatasource(ctx, &storepkg.Datasource{
-		Name:            "Primary",
-		Type:            "postgres",
-		Provider:        "postgres",
-		ConfigEncrypted: configCiphertext,
-	}); err != nil {
-		t.Fatalf("SaveDatasource: %v", err)
+	if seedDatasource {
+		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
+		if err != nil {
+			t.Fatalf("encrypt datasource config: %v", err)
+		}
+		if err := st.SaveDatasource(ctx, &storepkg.Datasource{
+			Name:            "Primary",
+			Type:            "postgres",
+			Provider:        "postgres",
+			ConfigEncrypted: configCiphertext,
+		}); err != nil {
+			t.Fatalf("SaveDatasource: %v", err)
+		}
 	}
 	bootstrapAgent, err := service.CreateAgent(ctx, core.AgentInput{Name: "Bootstrap", CanQuery: true})
 	if err != nil {
@@ -347,21 +367,7 @@ func newHTTPMCPClient(t *testing.T) (*client.Client, *core.Service) {
 
 func extractMCPServer(t *testing.T, srv *Server) *mcpgoserver.MCPServer {
 	t.Helper()
-
-	// Rebuild an in-process MCP server with the same registrations and hooks for direct testing.
-	hooks := &mcpgoserver.Hooks{}
-	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
-		if result == nil {
-			return
-		}
-		result.Tools = filterToolsForContext(ctx, srv.service, result.Tools)
-	})
-	mcpServer := mcpgoserver.NewMCPServer("dataclaw", "test", mcpgoserver.WithToolCapabilities(true), mcpgoserver.WithHooks(hooks))
-	registerQueryTool(mcpServer, srv.service)
-	registerExecuteTool(mcpServer, srv.service)
-	registerListQueriesTool(mcpServer, srv.service)
-	registerExecuteQueryTool(mcpServer, srv.service)
-	return mcpServer
+	return buildMCPServer("test", srv.service)
 }
 
 func listToolNames(t *testing.T, ctx context.Context, mcpClient *client.Client) []string {
