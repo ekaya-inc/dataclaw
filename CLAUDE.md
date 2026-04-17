@@ -16,12 +16,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `main.go` → `internal/app.Run` wires the whole process. Order matters:
 
 1. `internal/config` loads env vars (`DATACLAW_*`), normalizes `BindAddr` to `127.0.0.1` (loopback-only is a product constraint, not just a default).
-2. `internal/security.LoadOrCreateSecret` loads/creates the AES key at `DATACLAW_SECRET_PATH`; used to encrypt datasource configs and the OpenClaw API key before they go into SQLite.
-3. `internal/store.Open` opens SQLite via `modernc.org/sqlite` and applies `migrations/*.sql` (embedded via `migrations/embed.go`). Tables: `datasources`, `approved_queries`, `openclaw_credentials`, `app_settings`.
+2. `internal/security.LoadOrCreateSecret` loads/creates the AES key at `DATACLAW_SECRET_PATH`; used to encrypt datasource configs and the agent API key before they go into SQLite.
+3. `internal/store.Open` opens SQLite via `modernc.org/sqlite` and applies `migrations/*.sql` (embedded via `migrations/embed.go`). Tables: `datasources`, `approved_queries`, `agents`, `agent_approved_queries`, `app_settings`.
 4. `internal/runtime.ListenIncrement` binds the preferred port, incrementing up to 100 times if busy — the actual port isn't known until this returns.
 5. `internal/core.Service` is the single orchestrator — **all business logic goes through it**. `httpapi` and `mcpserver` are thin adapters; they must not touch `store` directly.
 6. `internal/httpapi` mounts `/api/*` routes on the shared `http.ServeMux`.
-7. `internal/mcpserver` mounts `/mcp` (streamable HTTP via `mark3labs/mcp-go`), bearer-token gated by `core.Service.ValidateOpenClawKey`. MCP tools: `query`, `list_queries`, `create_query`, `update_query`, `delete_query`, `execute_query`.
+7. `internal/mcpserver` mounts `/mcp` (streamable HTTP via `mark3labs/mcp-go`), bearer-token gated by per-agent authentication in `core.Service.AuthenticateAgent`. MCP tools: `query`, `execute`, `list_queries`, `execute_query`.
 8. `internal/uifs` embeds `ui/dist` via `go:embed`; `uifs.Load()` returns an `fs.FS` that normally reads the embed, but switches to `os.DirFS($DATACLAW_UI_DIR)` when that env var is set (dev mode). `app.registerUIRoutes` serves it with SPA fallback (unknown paths → `index.html`), explicitly skipping `/api/` and `/mcp`.
 
 The UI lives in `ui/` (React 18 + Vite + Tailwind + react-router + CodeMirror). It has **exactly three pages** — Datasource, Approved Queries, Agent — and no auth. Don't add a fourth page or an auth flow without an explicit product-level change. Built assets are checked into `internal/uifs/dist/` so the Go binary is self-contained; `make run` keeps them fresh.
@@ -37,4 +37,4 @@ Datasource support is PostgreSQL (`jackc/pgx/v5`) and SQL Server (`microsoft/go-
 - Localhost-only is a hard constraint. `normalizeBindAddr` throws away any non-loopback value — don't "fix" that without an explicit product change.
 - Datasource `Config` is encrypted at rest. Always call `Service.GetDatasource` / `requireDatasource` (which decrypt) rather than reading `store.GetDatasource` directly from handler code.
 - Prefer small, reversible diffs and reuse existing backend/UI patterns before introducing new abstractions (per `AGENTS.md`).
-- `Service.DeleteDatasource` rotates the OpenClaw key before deleting the datasource. This is load-bearing: it invalidates any agent credentials tied to the connection so agents can no longer query after disconnect. Approved queries cascade-delete via the FK on `approved_queries.datasource_id` (foreign_keys pragma is enabled in `store.Open`). Don't remove the key rotation without understanding this contract.
+- `Service.DeleteDatasource` now preserves agents while deleting the datasource. This is load-bearing: approved queries cascade-delete, selected query memberships collapse, and MCP discovery/execution must fail closed until a datasource is configured again.

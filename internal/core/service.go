@@ -3,14 +3,12 @@ package core
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
-	"time"
 
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
@@ -63,6 +61,7 @@ func (s *Service) Status() map[string]any {
 		port, _ = strconv.Atoi(parsed.Port())
 	}
 	ds, _ := s.store.GetDatasource(context.Background())
+	agentCount, _ := s.store.CountAgents(context.Background())
 	return map[string]any{
 		"name":                  "dataclaw",
 		"version":               s.version,
@@ -70,6 +69,7 @@ func (s *Service) Status() map[string]any {
 		"mcp_url":               baseURL + "/mcp",
 		"port":                  port,
 		"datasource_configured": ds != nil,
+		"agent_count":           agentCount,
 	}
 }
 
@@ -128,11 +128,8 @@ func (s *Service) UpsertDatasource(ctx context.Context, ds *storepkg.Datasource)
 }
 
 func (s *Service) DeleteDatasource(ctx context.Context) error {
-	// Rotate the agent API key so previously-configured agents lose access.
-	if _, err := s.RotateOpenClawKey(ctx); err != nil {
-		return err
-	}
 	// Approved queries cascade-delete via the FK on approved_queries.datasource_id.
+	// Agents remain so permissions/config survive datasource resets, but MCP tools will fail closed until a datasource is restored.
 	if err := s.store.DeleteDatasource(ctx); err != nil {
 		return err
 	}
@@ -290,57 +287,6 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 		return executor.ExecuteMutatingQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
 	}
 	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
-}
-
-func (s *Service) EnsureOpenClawKey(ctx context.Context) (*storepkg.OpenClawCredential, error) {
-	cred, err := s.store.GetOpenClawCredential(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if cred != nil {
-		plain, err := security.DecryptString(s.secret, cred.APIKey)
-		if err != nil {
-			return nil, err
-		}
-		cred.APIKey = plain
-		return cred, nil
-	}
-	plain, encrypted, err := generateAPIKey(s.secret)
-	if err != nil {
-		return nil, err
-	}
-	createdAt := time.Now().UTC()
-	if err := s.store.SaveOpenClawCredential(ctx, encrypted, createdAt); err != nil {
-		return nil, err
-	}
-	return &storepkg.OpenClawCredential{APIKey: plain, CreatedAt: createdAt, UpdatedAt: createdAt}, nil
-}
-
-func (s *Service) RotateOpenClawKey(ctx context.Context) (*storepkg.OpenClawCredential, error) {
-	plain, encrypted, err := generateAPIKey(s.secret)
-	if err != nil {
-		return nil, err
-	}
-	createdAt := time.Now().UTC()
-	if err := s.store.SaveOpenClawCredential(ctx, encrypted, createdAt); err != nil {
-		return nil, err
-	}
-	return &storepkg.OpenClawCredential{APIKey: plain, CreatedAt: createdAt, UpdatedAt: createdAt}, nil
-}
-
-func (s *Service) ValidateOpenClawKey(ctx context.Context, key string) (bool, error) {
-	cred, err := s.store.GetOpenClawCredential(ctx)
-	if err != nil {
-		return false, err
-	}
-	if cred == nil {
-		return false, nil
-	}
-	plain, err := security.DecryptString(s.secret, cred.APIKey)
-	if err != nil {
-		return false, err
-	}
-	return subtle.ConstantTimeCompare([]byte(plain), []byte(key)) == 1, nil
 }
 
 func (s *Service) requireDatasource(ctx context.Context) (*storepkg.Datasource, error) {

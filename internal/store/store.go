@@ -45,12 +45,6 @@ type ApprovedQuery struct {
 	UpdatedAt             time.Time               `json:"updated_at"`
 }
 
-type OpenClawCredential struct {
-	APIKey    string    `json:"api_key"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 type Store struct {
 	db *sql.DB
 }
@@ -257,30 +251,6 @@ func (s *Store) upsertQuery(ctx context.Context, q *ApprovedQuery, create bool) 
 
 func (s *Store) DeleteQuery(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM approved_queries WHERE id = ?`, id)
-	return err
-}
-
-func (s *Store) GetOpenClawCredential(ctx context.Context) (*OpenClawCredential, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT api_key_encrypted, created_at, updated_at FROM openclaw_credentials WHERE id = 1`)
-	var cred OpenClawCredential
-	var createdAt, updatedAt string
-	if err := row.Scan(&cred.APIKey, &createdAt, &updatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	cred.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	cred.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &cred, nil
-}
-
-func (s *Store) SaveOpenClawCredential(ctx context.Context, encryptedKey string, createdAt time.Time) error {
-	now := time.Now().UTC()
-	if createdAt.IsZero() {
-		createdAt = now
-	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO openclaw_credentials(id, api_key_encrypted, created_at, updated_at) VALUES(1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET api_key_encrypted=excluded.api_key_encrypted, updated_at=excluded.updated_at`, encryptedKey, createdAt.Format(time.RFC3339), now.Format(time.RFC3339))
 	return err
 }
 

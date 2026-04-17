@@ -30,12 +30,29 @@ CREATE TABLE IF NOT EXISTS approved_queries (
 
 CREATE INDEX IF NOT EXISTS idx_approved_queries_datasource ON approved_queries(datasource_id);
 
-CREATE TABLE IF NOT EXISTS openclaw_credentials (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+CREATE TABLE IF NOT EXISTS agents (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
   api_key_encrypted TEXT NOT NULL,
+  can_query INTEGER NOT NULL DEFAULT 0,
+  can_execute INTEGER NOT NULL DEFAULT 0,
+  approved_query_scope TEXT NOT NULL DEFAULT 'none' CHECK (approved_query_scope IN ('none', 'all', 'selected')),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  last_used_at TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name_lower ON agents(LOWER(name));
+
+CREATE TABLE IF NOT EXISTS agent_approved_queries (
+  agent_id TEXT NOT NULL,
+  query_id TEXT NOT NULL,
+  PRIMARY KEY(agent_id, query_id),
+  FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY(query_id) REFERENCES approved_queries(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_approved_queries_query_id ON agent_approved_queries(query_id);
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

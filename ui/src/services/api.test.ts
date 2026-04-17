@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { executeSavedQuery, getDatasource, getDatasourceTypes, getOpenClaw, testQuery, validateQuery } from './api';
+import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, testQuery, validateQuery } from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
@@ -64,24 +64,43 @@ describe('api service contracts', () => {
     });
   });
 
-  it('uses the server-provided OpenClaw install command', async () => {
+  it('creates agents with the selected approved-query scope payload', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(
       jsonResponse({
         success: true,
         data: {
-          api_key: 'dclw-live-secret',
-          mcp_url: 'http://127.0.0.1:18790/mcp',
-          openclaw_cli:
-            'openclaw mcp set dataclaw \'{"url":"http://127.0.0.1:18790/mcp","headers":{"Authorization":"Bearer ${DATACLAW_API_KEY}"}}\'',
+          agent: {
+            id: 'agent_1',
+            name: 'Warehouse analyst',
+            masked_api_key: 'dclw-••••',
+            api_key: 'dclw-live-secret',
+            can_query: true,
+            can_execute: false,
+            approved_query_scope: 'selected',
+            approved_query_ids: ['query_1'],
+          },
         },
       }),
     );
 
-    const config = await getOpenClaw({ baseUrl: 'http://127.0.0.1:18790', port: 18790, datasourceConfigured: true });
+    const created = await createAgent({
+      name: 'Warehouse analyst',
+      canQuery: true,
+      canExecute: false,
+      approvedQueryScope: 'selected',
+      approvedQueryIds: ['query_1'],
+    });
 
-    expect(config.installCommand).toContain('${DATACLAW_API_KEY}');
-    expect(config.installCommand).not.toContain('dclw-live-secret');
-    expect(config.endpointUrl).toBe('http://127.0.0.1:18790/mcp');
+    expect(created.apiKey).toBe('dclw-live-secret');
+    const [, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      name: 'Warehouse analyst',
+      can_query: true,
+      can_execute: false,
+      approved_query_scope: 'selected',
+      approved_query_ids: ['query_1'],
+    });
   });
 
   it('preserves datasource types from the server without coercing unknown adapters', async () => {

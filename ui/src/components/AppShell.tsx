@@ -1,6 +1,6 @@
-import { Cable, CheckCircle2, DatabaseZap, FileCheck2, Menu } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Menu } from 'lucide-react';
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
 import type { RuntimeStatus } from '../types/datasource';
@@ -21,7 +21,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
-  { to: '/openclaw', label: 'Agent', icon: Cable, completionKey: 'agent' },
+  { to: '/agents', label: 'Agents', icon: Bot, completionKey: 'agent' },
 ];
 
 interface AppShellProps {
@@ -43,15 +43,15 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
           )}
         >
           <div className="flex items-center justify-between">
-            <div>
+            <Link className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300" to="/" onClick={() => setMobileNavOpen(false)}>
               <h1 className="text-3xl font-bold tracking-tight text-slate-50">DataClaw</h1>
-            </div>
+            </Link>
             <button className="rounded-lg border border-slate-700 px-3 py-2 lg:hidden" onClick={() => setMobileNavOpen(false)}>
               Close
             </button>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-300">
-            The fastest way to connect Agents to Data
+            Connect local agents to your data with explicit, trackable access controls.
           </p>
           <nav className="mt-8 space-y-2">
             {NAV_ITEMS.map((item) => {

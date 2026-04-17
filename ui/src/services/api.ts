@@ -1,7 +1,13 @@
 import { QUERY_TEMPLATE } from '../constants';
 import type { ApiEnvelope } from '../types/api';
-import type { DatasourceAdapterInfo, DatasourceFormValues, DatasourceRecord, RuntimeStatus, TestConnectionResult } from '../types/datasource';
-import type { OpenClawConfig } from '../types/openclaw';
+import type { AgentFormValues, AgentRecord } from '../types/agent';
+import type {
+  DatasourceAdapterInfo,
+  DatasourceFormValues,
+  DatasourceRecord,
+  RuntimeStatus,
+  TestConnectionResult,
+} from '../types/datasource';
 import type { OutputColumn, QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
 
 const JSON_HEADERS = {
@@ -37,10 +43,6 @@ function pick(record: JsonRecord | null, ...keys: string[]): unknown {
     if (key in record) return record[key];
   }
   return undefined;
-}
-
-function recordField(record: JsonRecord | null, key: string): JsonRecord | null {
-  return asRecord(record?.[key]);
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -82,68 +84,76 @@ function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
 function toDatasourceRecord(raw: unknown): DatasourceRecord | null {
   const record = asRecord(raw);
   const type = asString(pick(record, 'type'));
+  const config = asRecord(pick(record, 'config'));
   if (!record || !type) return null;
-
+  const host = asString(pick(record, 'host')) ?? asString(pick(config, 'host')) ?? '';
+  const database = asString(pick(record, 'database', 'name')) ?? asString(pick(config, 'database', 'name')) ?? '';
+  const username = asString(pick(record, 'username', 'user')) ?? asString(pick(config, 'user'));
+  const password = asString(pick(record, 'password')) ?? asString(pick(config, 'password'));
+  const sslMode = (asString(pick(record, 'sslMode', 'ssl_mode')) ?? asString(pick(config, 'ssl_mode'))) as DatasourceRecord['sslMode'];
+  const options = asRecord(pick(record, 'options')) ?? asRecord(pick(config, 'options'));
+  const provider = asString(pick(record, 'provider')) ?? type;
   return {
-    id: asString(pick(record, 'id', 'datasource_id')) ?? 'default',
+    id: asString(pick(record, 'id')) ?? 'default',
     type,
-    provider: asString(pick(record, 'provider')),
+    provider,
     sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
-    displayName: asString(pick(record, 'displayName', 'display_name', 'name')) ?? 'Datasource',
-    database: asString(pick(record, 'database', 'name')) ?? '',
-    host: asString(pick(record, 'host')) ?? '',
-    port: asNumber(pick(record, 'port')) ?? 0,
-    username: asString(pick(record, 'username', 'user')),
-    password: asString(pick(record, 'password')),
-    sslMode: asString(pick(record, 'sslMode', 'ssl_mode')) as DatasourceRecord['sslMode'],
-    options: recordField(record, 'options') ?? recordField(record, 'extra') ?? undefined,
+    displayName: (asString(pick(record, 'displayName', 'display_name')) ?? asString(pick(record, 'name')) ?? database) || provider,
+    database,
+    host,
+    port: asNumber(pick(record, 'port')) ?? asNumber(pick(config, 'port')) ?? 0,
+    username,
+    password,
+    sslMode,
+    options: options ?? undefined,
     createdAt: asString(pick(record, 'createdAt', 'created_at')),
     updatedAt: asString(pick(record, 'updatedAt', 'updated_at')),
   };
 }
 
-function toQueryParameter(raw: unknown): QueryParameter | null {
-  const record = asRecord(raw);
-  if (!record) return null;
-  const type = asString(pick(record, 'type')) as QueryParameter['type'] | undefined;
-  if (!type) return null;
-  return {
-    name: asString(pick(record, 'name')) ?? '',
-    type,
-    description: asString(pick(record, 'description')) ?? '',
-    required: asBoolean(pick(record, 'required')) ?? true,
-    default: pick(record, 'default') ?? null,
-  };
-}
-
-function toOutputColumn(raw: unknown): OutputColumn | null {
-  const record = asRecord(raw);
-  if (!record) return null;
-  const name = asString(pick(record, 'name'));
-  if (!name) return null;
-  return {
-    name,
-    type: asString(pick(record, 'type')) ?? '',
-    description: asString(pick(record, 'description')) ?? '',
-  };
-}
-
 function toQuery(raw: unknown): SavedQuery {
-  const record = asRecord(raw) ?? {};
-  const parameters = Array.isArray(record.parameters)
-    ? record.parameters.map(toQueryParameter).filter((parameter): parameter is QueryParameter => parameter !== null)
-    : [];
-  const outputColumns = Array.isArray(record.output_columns)
-    ? record.output_columns.map(toOutputColumn).filter((column): column is OutputColumn => column !== null)
-    : [];
+  const record = asRecord(raw);
+  const parameterValues = Array.isArray(record?.parameters) ? record.parameters : [];
+  const parameters = parameterValues
+        .map((parameter) => {
+          const parameterRecord = asRecord(parameter);
+          const name = asString(pick(parameterRecord, 'name'));
+          const type = asString(pick(parameterRecord, 'type')) as QueryParameter['type'] | undefined;
+          if (!name || !type) return null;
+          const next: QueryParameter = {
+            name,
+            type,
+            description: asString(pick(parameterRecord, 'description')) ?? '',
+            required: asBoolean(pick(parameterRecord, 'required')) ?? true,
+          };
+          const defaultValue = pick(parameterRecord, 'default');
+          if (defaultValue !== undefined) {
+            next.default = defaultValue;
+          }
+          return next;
+        })
+        .filter((parameter): parameter is QueryParameter => parameter !== null);
+  const outputColumnValues = Array.isArray(record?.output_columns) ? record.output_columns : Array.isArray(record?.outputColumns) ? record.outputColumns : [];
+  const outputColumns = outputColumnValues
+        .map((column) => {
+          const columnRecord = asRecord(column);
+          const name = asString(pick(columnRecord, 'name'));
+          if (!name) return null;
+          return {
+            name,
+            type: asString(pick(columnRecord, 'type')) ?? 'text',
+            description: asString(pick(columnRecord, 'description')) ?? '',
+          };
+        })
+        .filter((column): column is OutputColumn => column !== null);
 
   return {
-    id: asString(pick(record, 'id', 'query_id')) ?? crypto.randomUUID(),
+    id: asString(pick(record, 'id', 'query_id')) ?? 'unknown',
     datasourceId: asString(pick(record, 'datasourceId', 'datasource_id')),
-    naturalLanguagePrompt: asString(pick(record, 'natural_language_prompt')) ?? '',
-    additionalContext: asString(pick(record, 'additional_context')) ?? '',
-    sql: asString(pick(record, 'sql_query')) ?? QUERY_TEMPLATE,
-    allowsModification: asBoolean(pick(record, 'allows_modification')) ?? false,
+    naturalLanguagePrompt: asString(pick(record, 'naturalLanguagePrompt', 'natural_language_prompt')) ?? '',
+    additionalContext: asString(pick(record, 'additionalContext', 'additional_context')) ?? '',
+    sql: asString(pick(record, 'sql', 'sql_query')) ?? QUERY_TEMPLATE,
+    allowsModification: asBoolean(pick(record, 'allowsModification', 'allows_modification')) ?? false,
     parameters,
     outputColumns,
     constraints: asString(pick(record, 'constraints')) ?? '',
@@ -152,16 +162,22 @@ function toQuery(raw: unknown): SavedQuery {
   };
 }
 
-function toOpenClawConfig(raw: unknown, runtime: RuntimeStatus | null): OpenClawConfig {
+function toAgentRecord(raw: unknown): AgentRecord {
   const record = asRecord(raw);
   return {
-    apiKey: asString(pick(record, 'apiKey', 'api_key')) ?? '',
-    maskedApiKey: asString(pick(record, 'maskedApiKey', 'masked_api_key')),
-    endpointUrl:
-      asString(pick(record, 'endpointUrl', 'endpoint_url', 'mcp_url')) ?? (runtime?.baseUrl ? `${runtime.baseUrl}/mcp` : undefined),
-    transport: asString(pick(record, 'transport')) ?? 'streamable-http',
-    installCommand: asString(pick(record, 'installCommand', 'install_command', 'openclaw_cli')),
-    generatedAt: asString(pick(record, 'generatedAt', 'generated_at')),
+    id: asString(pick(record, 'id')) ?? 'unknown',
+    name: asString(pick(record, 'name')) ?? '',
+    maskedApiKey: asString(pick(record, 'maskedApiKey', 'masked_api_key')) ?? '',
+    apiKey: asString(pick(record, 'apiKey', 'api_key')),
+    canQuery: asBoolean(pick(record, 'canQuery', 'can_query')) ?? false,
+    canExecute: asBoolean(pick(record, 'canExecute', 'can_execute')) ?? false,
+    approvedQueryScope: (asString(pick(record, 'approvedQueryScope', 'approved_query_scope')) ?? 'none') as AgentRecord['approvedQueryScope'],
+    approvedQueryIds: Array.isArray(pick(record, 'approvedQueryIds', 'approved_query_ids'))
+      ? (pick(record, 'approvedQueryIds', 'approved_query_ids') as unknown[]).filter((value): value is string => typeof value === 'string')
+      : [],
+    createdAt: asString(pick(record, 'createdAt', 'created_at')),
+    updatedAt: asString(pick(record, 'updatedAt', 'updated_at')),
+    lastUsedAt: asString(pick(record, 'lastUsedAt', 'last_used_at')),
   };
 }
 
@@ -209,14 +225,26 @@ function datasourcePayload(values: DatasourceFormValues): Record<string, unknown
   };
 }
 
+function agentPayload(values: AgentFormValues): Record<string, unknown> {
+  return {
+    name: values.name,
+    can_query: values.canQuery,
+    can_execute: values.canExecute,
+    approved_query_scope: values.approvedQueryScope,
+    approved_query_ids: values.approvedQueryScope === 'selected' ? values.approvedQueryIds : [],
+  };
+}
+
 export async function getStatus(): Promise<RuntimeStatus | null> {
   const data = await parseResponse<unknown>(await fetch('/api/status'));
   const record = asRecord(data);
   return {
     version: asString(pick(record, 'version')),
     baseUrl: asString(pick(record, 'baseUrl', 'base_url', 'serverUrl', 'server_url')),
+    mcpUrl: asString(pick(record, 'mcpUrl', 'mcp_url')),
     port: asNumber(pick(record, 'port')),
     datasourceConfigured: asBoolean(pick(record, 'datasourceConfigured', 'datasource_configured')),
+    agentCount: asNumber(pick(record, 'agentCount', 'agent_count')),
   };
 }
 
@@ -371,20 +399,67 @@ export async function executeSavedQuery(id: string, parameters?: Record<string, 
   return toExecutionResult(record && 'result' in record ? record.result : data);
 }
 
-export async function getOpenClaw(runtime: RuntimeStatus | null): Promise<OpenClawConfig> {
-  const data = await parseResponse<unknown>(await fetch('/api/openclaw'));
+export async function listAgents(): Promise<AgentRecord[]> {
+  const data = await parseResponse<unknown>(await fetch('/api/agents'));
   const record = asRecord(data);
-  return toOpenClawConfig(record && 'openclaw' in record ? record.openclaw : data, runtime);
+  const agents = Array.isArray(record?.agents) ? record.agents : [];
+  return agents.map(toAgentRecord);
 }
 
-export async function rotateOpenClawKey(runtime: RuntimeStatus | null): Promise<OpenClawConfig> {
+export async function getAgent(id: string): Promise<AgentRecord> {
+  const data = await parseResponse<unknown>(await fetch(`/api/agents/${id}`));
+  const record = asRecord(data);
+  return toAgentRecord(record && 'agent' in record ? record.agent : data);
+}
+
+export async function createAgent(values: AgentFormValues): Promise<AgentRecord> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/openclaw/rotate-key', {
+    await fetch('/api/agents', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(agentPayload(values)),
+    }),
+  );
+  const record = asRecord(data);
+  return toAgentRecord(record && 'agent' in record ? record.agent : data);
+}
+
+export async function updateAgent(id: string, values: AgentFormValues): Promise<AgentRecord> {
+  const data = await parseResponse<unknown>(
+    await fetch(`/api/agents/${id}`, {
+      method: 'PUT',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(agentPayload(values)),
+    }),
+  );
+  const record = asRecord(data);
+  return toAgentRecord(record && 'agent' in record ? record.agent : data);
+}
+
+export async function deleteAgent(id: string): Promise<void> {
+  await parseResponse<void>(await fetch(`/api/agents/${id}`, { method: 'DELETE' }));
+}
+
+export async function revealAgentKey(id: string): Promise<AgentRecord> {
+  const data = await parseResponse<unknown>(
+    await fetch(`/api/agents/${id}/reveal-key`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({}),
     }),
   );
   const record = asRecord(data);
-  return toOpenClawConfig(record && 'openclaw' in record ? record.openclaw : data, runtime);
+  return toAgentRecord(record && 'agent' in record ? record.agent : data);
+}
+
+export async function rotateAgentKey(id: string): Promise<AgentRecord> {
+  const data = await parseResponse<unknown>(
+    await fetch(`/api/agents/${id}/rotate-key`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({}),
+    }),
+  );
+  const record = asRecord(data);
+  return toAgentRecord(record && 'agent' in record ? record.agent : data);
 }
