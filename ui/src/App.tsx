@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { AppShell } from './components/AppShell';
 import { ToastProvider } from './components/ui/Toast';
+import HomePage from './pages/HomePage';
 import DatasourcePage from './pages/DatasourcePage';
 import ApprovedQueriesPage from './pages/ApprovedQueriesPage';
 import AgentDetailPage from './pages/AgentDetailPage';
@@ -18,6 +19,7 @@ export interface AppOutletContext {
 
 export default function App(): JSX.Element {
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [queryCount, setQueryCount] = useState(0);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -28,6 +30,8 @@ export default function App(): JSX.Element {
     } catch {
       setStatus(null);
       setQueryCount(0);
+    } finally {
+      setStatusLoaded(true);
     }
   }, []);
 
@@ -51,7 +55,7 @@ export default function App(): JSX.Element {
       <ToastProvider>
         <Routes>
           <Route element={<AppShell status={status} completion={completion} outletContext={outletContext} />}>
-            <Route index element={<DatasourcePage />} />
+            <Route index element={<HomePage datasourceConfigured={status?.datasourceConfigured} statusLoaded={statusLoaded} />} />
             <Route path="/datasource" element={<DatasourcePage />} />
             <Route path="/queries" element={<ApprovedQueriesPage />} />
             <Route path="/queries/new" element={<QueryEditorPage />} />

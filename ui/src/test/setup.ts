@@ -8,16 +8,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  Object.defineProperty(window, 'location', {
-    configurable: true,
-    value: {
-      href: 'http://localhost:5173/',
-      origin: 'http://localhost:5173',
-      pathname: '/',
-      search: '',
-      hash: '',
-    },
-  });
+  window.history.replaceState({}, '', '/');
 
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
