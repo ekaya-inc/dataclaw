@@ -170,6 +170,29 @@ export default function DatasourcePage(): JSX.Element {
     setConnStringError('');
   };
 
+  const applyConnectionString = (value: string): boolean => {
+    const parsed = parsePostgresUrl(value.trim());
+    if (!parsed) {
+      return false;
+    }
+    const detected = parsed.providerId ? providerOptions.find((provider) => provider.id === parsed.providerId) : undefined;
+    setTestPassed(false);
+    setFormValues((current) => ({
+      ...current,
+      type: 'postgres',
+      provider: detected?.id ?? current.provider,
+      host: parsed.host,
+      port: String(parsed.port),
+      database: parsed.database,
+      username: parsed.user,
+      password: parsed.password,
+      sslMode: parsed.sslMode,
+    }));
+    setConnString('');
+    setConnStringError('');
+    return true;
+  };
+
   const handleTest = async (): Promise<void> => {
     setBusy('testing');
     setFeedback(null);
@@ -197,7 +220,7 @@ export default function DatasourcePage(): JSX.Element {
         tone: 'success',
         message: 'Datasource saved. DataClaw will use this datasource for raw queries and approved queries.',
       });
-      void refresh();
+      await refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to save datasource.' });
     } finally {
@@ -216,7 +239,7 @@ export default function DatasourcePage(): JSX.Element {
       setDatasource(savedDatasource);
       setFormValues(toFormValues(savedDatasource));
       setFeedback({ tone: 'success', message: 'Display name updated.' });
-      void refresh();
+      await refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to update display name.' });
     } finally {
@@ -241,7 +264,7 @@ export default function DatasourcePage(): JSX.Element {
         tone: 'success',
         message: 'Datasource disconnected. Saved queries were cleared. Agents stay configured, but their MCP tools remain unavailable until you connect a datasource again.',
       });
-      void refresh();
+      await refresh();
     } catch (error) {
       setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : 'Failed to disconnect datasource.' });
     } finally {
@@ -328,6 +351,15 @@ export default function DatasourcePage(): JSX.Element {
                     if (event.key === 'Enter' && connString.trim()) {
                       event.preventDefault();
                       handleParseConnectionString();
+                    }
+                  }}
+                  onPaste={(event) => {
+                    const pastedValue = event.clipboardData.getData('text');
+                    if (!pastedValue.trim()) {
+                      return;
+                    }
+                    if (applyConnectionString(pastedValue)) {
+                      event.preventDefault();
                     }
                   }}
                   autoComplete="off"

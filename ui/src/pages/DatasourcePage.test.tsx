@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -90,6 +90,33 @@ describe('DatasourcePage', () => {
 
     await userEvent.click(saveButton);
     await waitFor(() => expect(screen.getByText(/datasource saved/i)).toBeInTheDocument());
+  });
+
+  it('auto-parses a pasted connection string', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/datasource/types') return datasourceTypesResponse();
+      if (url === '/api/datasource') return response({ datasource: null });
+      throw new Error(`Unhandled request: ${String(url)}`);
+    });
+
+    render(<DatasourcePage />);
+    await pickPostgres();
+
+    const connStringInput = await screen.findByLabelText(/quick setup: paste a connection string/i);
+    fireEvent.paste(connStringInput, {
+      clipboardData: {
+        getData: () => 'postgresql://analyst:secret@db.example.com:5433/warehouse?sslmode=disable',
+      },
+    });
+
+    await waitFor(() => expect(screen.getByLabelText(/host/i)).toHaveValue('db.example.com'));
+    expect(screen.getByLabelText(/database name/i)).toHaveValue('warehouse');
+    expect(screen.getByLabelText(/port/i)).toHaveValue('5433');
+    expect(screen.getByLabelText(/username/i)).toHaveValue('analyst');
+    expect(screen.getByLabelText(/password/i)).toHaveValue('secret');
+    expect(screen.getByLabelText(/ssl mode/i)).toHaveValue('disable');
+    expect(connStringInput).toHaveValue('');
   });
 
   it('resets the save gate when a connection field changes after a successful test', async () => {
