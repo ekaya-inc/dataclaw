@@ -3,7 +3,6 @@ export type ApprovedQueryScope = 'none' | 'all' | 'selected';
 export interface AgentRecord {
   id: string;
   name: string;
-  installAlias: string;
   maskedApiKey: string;
   apiKey?: string | undefined;
   canQuery: boolean;

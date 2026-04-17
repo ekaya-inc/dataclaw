@@ -5,6 +5,8 @@ import { AppShell } from './components/AppShell';
 import { ToastProvider } from './components/ui/Toast';
 import DatasourcePage from './pages/DatasourcePage';
 import ApprovedQueriesPage from './pages/ApprovedQueriesPage';
+import AgentDetailPage from './pages/AgentDetailPage';
+import AgentEditorPage from './pages/AgentEditorPage';
 import AgentsPage from './pages/AgentsPage';
 import QueryEditorPage from './pages/QueryEditorPage';
 import { getStatus, listQueries } from './services/api';
@@ -55,6 +57,9 @@ export default function App(): JSX.Element {
             <Route path="/queries/new" element={<QueryEditorPage />} />
             <Route path="/queries/:id" element={<QueryEditorPage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/agents/new" element={<AgentEditorPage />} />
+            <Route path="/agents/:id" element={<AgentDetailPage />} />
+            <Route path="/agents/:id/edit" element={<AgentEditorPage />} />
             <Route path="*" element={<Navigate to="/datasource" replace />} />
           </Route>
         </Routes>

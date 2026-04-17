@@ -167,7 +167,6 @@ function toAgentRecord(raw: unknown): AgentRecord {
   return {
     id: asString(pick(record, 'id')) ?? 'unknown',
     name: asString(pick(record, 'name')) ?? '',
-    installAlias: asString(pick(record, 'installAlias', 'install_alias')) ?? '',
     maskedApiKey: asString(pick(record, 'maskedApiKey', 'masked_api_key')) ?? '',
     apiKey: asString(pick(record, 'apiKey', 'api_key')),
     canQuery: asBoolean(pick(record, 'canQuery', 'can_query')) ?? false,

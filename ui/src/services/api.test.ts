@@ -72,7 +72,6 @@ describe('api service contracts', () => {
           agent: {
             id: 'agent_1',
             name: 'Warehouse analyst',
-            install_alias: 'warehouse-analyst-123456',
             masked_api_key: 'dclw-••••',
             api_key: 'dclw-live-secret',
             can_query: true,
