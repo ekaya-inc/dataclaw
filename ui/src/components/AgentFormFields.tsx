@@ -1,5 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Check, ChevronUp, Sparkles } from 'lucide-react';
 
+import { ApprovedQueryManagerHelp } from './ApprovedQueryManagerHelp';
+import { DangerousExecuteDialog } from './DangerousExecuteDialog';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
@@ -7,6 +11,8 @@ import { toMCPKey } from '../lib/mcpSlug';
 import type { AgentFormValues, AgentRecord, ApprovedQueryScope } from '../types/agent';
 import type { SavedQuery } from '../types/query';
 import { cn } from '../utils/cn';
+
+const APPROVED_QUERY_MANAGER_HELP_PANEL_ID = 'approved-query-manager-help';
 
 export const EMPTY_AGENT_FORM: AgentFormValues = {
   name: '',
@@ -24,15 +30,15 @@ export function agentFormFromRecord(agent: AgentRecord): AgentFormValues {
     canQuery: canManageApprovedQueries ? true : agent.canQuery,
     canExecute: agent.canExecute,
     canManageApprovedQueries,
-    approvedQueryScope: agent.approvedQueryScope,
-    approvedQueryIds: [...agent.approvedQueryIds],
+    approvedQueryScope: canManageApprovedQueries ? 'all' : agent.approvedQueryScope,
+    approvedQueryIds: canManageApprovedQueries ? [] : [...agent.approvedQueryIds],
   };
 }
 
-const SCOPE_OPTIONS: ReadonlyArray<{ value: ApprovedQueryScope; label: string; description: string }> = [
-  { value: 'none', label: 'No approved queries', description: 'Hide approved-query tools for this agent.' },
-  { value: 'all', label: 'All approved queries', description: 'Expose every current approved query.' },
-  { value: 'selected', label: 'Selected approved queries', description: 'Only expose the queries checked below.' },
+const SCOPE_OPTIONS: ReadonlyArray<{ value: ApprovedQueryScope; label: string }> = [
+  { value: 'none', label: 'No approved queries' },
+  { value: 'all', label: 'All approved queries' },
+  { value: 'selected', label: 'Selected approved queries' },
 ];
 
 interface AgentFormFieldsProps {
@@ -44,6 +50,8 @@ interface AgentFormFieldsProps {
 
 export function AgentFormFields({ form, onChange, queries, nameReadOnly = false }: AgentFormFieldsProps): JSX.Element {
   const [showManagerHelp, setShowManagerHelp] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [executeDialogOpen, setExecuteDialogOpen] = useState(false);
   const managerEnabled = Boolean(form.canManageApprovedQueries);
 
   const setField = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]): void => {
@@ -60,13 +68,22 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
     });
   };
 
-  const setScope = (scope: ApprovedQueryScope): void => {
+  const scopeHasPanel = (scope: ApprovedQueryScope): boolean => scope === 'selected' || scope === 'all';
+
+  const handleScopeClick = (scope: ApprovedQueryScope): void => {
+    if (scopeHasPanel(scope) && form.approvedQueryScope === scope) {
+      setPanelOpen((open) => !open);
+      return;
+    }
+    setPanelOpen(true);
     onChange({
       ...form,
       approvedQueryScope: scope,
       approvedQueryIds: scope === 'selected' ? form.approvedQueryIds : [],
     });
   };
+
+  const panelVisible = scopeHasPanel(form.approvedQueryScope) && panelOpen;
 
   const slugPreview = toMCPKey(form.name || 'agent');
 
@@ -100,9 +117,10 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
             disabled={managerEnabled}
           />
           <div>
-            <div className="font-medium text-text-primary">Allow raw query</div>
+            <div className="font-medium text-text-primary">Allow agent to query entire database</div>
             <p className="mt-0.5 text-xs">
               Expose the <code className="rounded bg-surface-primary px-1 py-0.5">query</code> tool for ad-hoc read-only SQL.
+              This query will have access to anything the datasource credentials allow including any tables/columns and schema.
               {managerEnabled ? ' Required while approved-query management is enabled.' : ''}
             </p>
           </div>
@@ -112,96 +130,136 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border-border-medium"
             checked={form.canExecute}
-            onChange={(event) => setField('canExecute', event.target.checked)}
+            onChange={(event) => {
+              if (event.target.checked) {
+                setExecuteDialogOpen(true);
+                return;
+              }
+              setField('canExecute', false);
+            }}
           />
           <div>
-            <div className="font-medium text-text-primary">Allow raw execute</div>
+            <div className="font-medium text-text-primary">Allow agent full write access to the database</div>
             <p className="mt-0.5 text-xs">
-              Expose the dangerous <code className="rounded bg-surface-primary px-1 py-0.5">execute</code> tool for ad-hoc DDL/DML.
+              Expose the <code className="rounded bg-surface-primary px-1 py-0.5">execute</code> tool which gives full
+              permissions granted by the datasource credentials — potentially including{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">create</code>,{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">alter</code>, and{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">drop database</code> as well as{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">insert</code>,{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">update</code>, and{' '}
+              <code className="rounded bg-surface-primary px-1 py-0.5">delete</code> rows of data.
             </p>
           </div>
         </label>
-        <div className="flex items-start gap-3 rounded-xl border border-border-light bg-surface-secondary p-3 text-sm text-text-secondary">
-          <input
-            id="agent-manage-approved-queries"
-            type="checkbox"
-            className="mt-1 h-4 w-4 rounded border-border-medium"
-            checked={managerEnabled}
-            onChange={(event) =>
-              onChange({
-                ...form,
-                canManageApprovedQueries: event.target.checked,
-                canQuery: event.target.checked ? true : form.canQuery,
-              })
-            }
+        {executeDialogOpen ? (
+          <DangerousExecuteDialog
+            onCancel={() => setExecuteDialogOpen(false)}
+            onConfirm={() => {
+              setExecuteDialogOpen(false);
+              setField('canExecute', true);
+            }}
           />
-          <div className="min-w-0 flex-1">
-            <label htmlFor="agent-manage-approved-queries" className="font-medium text-text-primary">
-              Allow agent to manage approved queries
-            </label>
-            <p className="mt-0.5 text-xs">
-              Expose tools that allow this agent to manage approved queries for other agents to use{' '}
-              <button
-                type="button"
-                className="font-medium text-text-primary underline underline-offset-2"
-                aria-expanded={showManagerHelp}
-                onClick={() => setShowManagerHelp((current) => !current)}
-              >
-                learn more
-              </button>
-              .
-            </p>
-            {showManagerHelp ? (
-              <p className="mt-2 rounded-lg border border-border-light bg-surface-primary px-3 py-2 text-xs text-text-secondary">
-                This lets the agent do the hard work of maintaining approved queries based on agents’ needs.
+        ) : null}
+        <div className="space-y-3 rounded-xl border border-border-light bg-surface-secondary p-3 text-sm text-text-secondary">
+          <div className="flex items-start gap-3">
+            <input
+              id="agent-manage-approved-queries"
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-border-medium"
+              checked={managerEnabled}
+              onChange={(event) => {
+                const enabling = event.target.checked;
+                if (enabling) {
+                  setPanelOpen(true);
+                }
+                onChange({
+                  ...form,
+                  canManageApprovedQueries: enabling,
+                  canQuery: enabling ? true : form.canQuery,
+                  approvedQueryScope: enabling ? 'all' : form.approvedQueryScope,
+                  approvedQueryIds: enabling ? [] : form.approvedQueryIds,
+                });
+              }}
+            />
+            <div className="min-w-0 flex-1">
+              <label htmlFor="agent-manage-approved-queries" className="font-medium text-text-primary">
+                Allow agent to manage approved queries
+              </label>
+              <p className="mt-0.5 text-xs">
+                Expose tools that let this agent curate approved queries — schema discovery, prototyping, and full
+                metadata — so other agents can call them via{' '}
+                <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-[11px] text-text-primary">execute_query</code>.
               </p>
-            ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={showManagerHelp}
+              aria-controls={APPROVED_QUERY_MANAGER_HELP_PANEL_ID}
+              onClick={() => setShowManagerHelp((current) => !current)}
+              className="border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 hover:text-violet-800"
+            >
+              {showManagerHelp ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-violet-500" />
+              )}
+              Learn more
+            </Button>
           </div>
+          {showManagerHelp ? <ApprovedQueryManagerHelp panelId={APPROVED_QUERY_MANAGER_HELP_PANEL_ID} /> : null}
         </div>
       </div>
 
       <div className="space-y-2">
         <Label>Approved queries</Label>
-        <div className="grid gap-2">
-          {SCOPE_OPTIONS.map((option) => {
-            const disabled = option.value === 'selected' && queries.length === 0;
+        <div
+          className={cn(
+            'flex border border-border-light overflow-hidden',
+            panelVisible ? 'rounded-t-xl' : 'rounded-xl',
+          )}
+        >
+          {SCOPE_OPTIONS.map((option, index) => {
+            const lockedByManager = managerEnabled && option.value !== 'all';
+            const disabled = lockedByManager || (option.value === 'selected' && queries.length === 0);
             const active = form.approvedQueryScope === option.value;
+            const expanded = scopeHasPanel(option.value) ? active && panelOpen : undefined;
             return (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setScope(option.value)}
+                role="radio"
+                aria-checked={active}
+                aria-expanded={expanded}
+                onClick={() => handleScopeClick(option.value)}
                 disabled={disabled}
                 className={cn(
-                  'flex items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors',
+                  'flex flex-1 items-center justify-center gap-2 px-4 py-3 text-sm transition-colors',
                   active
-                    ? 'border-slate-950 bg-slate-950 text-white'
-                    : 'border-border-light bg-surface-secondary text-text-primary hover:bg-surface-hover',
+                    ? 'bg-surface-secondary text-text-primary'
+                    : 'bg-surface-primary text-text-primary hover:bg-surface-secondary/50',
+                  index > 0 ? 'border-l border-border-light' : '',
                   disabled ? 'cursor-not-allowed opacity-50' : '',
                 )}
               >
-                <span
-                  className={cn(
-                    'mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border',
-                    active ? 'border-white bg-white' : 'border-border-medium bg-surface-primary',
-                  )}
-                  aria-hidden
-                >
-                  {active ? <span className="h-2 w-2 rounded-full bg-slate-950" /> : null}
-                </span>
-                <span>
-                  <span className="block font-medium">{option.label}</span>
-                  <span className={cn('mt-0.5 block text-xs', active ? 'text-slate-200' : 'text-text-secondary')}>
-                    {option.description}
-                  </span>
-                </span>
+                {active ? <Check className="h-4 w-4 text-emerald-600" aria-hidden /> : null}
+                <span className="font-medium">{option.label}</span>
               </button>
             );
           })}
         </div>
 
-        {form.approvedQueryScope === 'selected' ? (
-          <div className="rounded-xl border border-border-light bg-surface-secondary p-3">
+        {panelVisible && form.approvedQueryScope === 'selected' ? (
+          <div className="rounded-b-xl border border-t-0 border-border-light bg-surface-secondary p-4">
+            <p className="mb-3 text-sm text-text-secondary">
+              This agent will only have access to the queries you check below. Manage the catalog on the{' '}
+              <Link to="/queries" className="font-medium text-text-primary underline underline-offset-2">
+                Approved queries
+              </Link>{' '}
+              page.
+            </p>
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs text-text-secondary">Select at least one query for this agent.</div>
               <div className="flex gap-2">
@@ -232,26 +290,61 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
                 {queries.map((query) => (
                   <label
                     key={query.id}
-                    className="flex items-start gap-3 rounded-lg border border-border-light bg-surface-primary p-2 text-sm"
+                    className="flex items-center gap-3 rounded-lg border border-border-light bg-surface-primary p-2 text-sm"
                   >
                     <input
                       type="checkbox"
-                      className="mt-1 h-4 w-4 rounded border-border-medium"
+                      className="h-4 w-4 rounded border-border-medium"
                       checked={form.approvedQueryIds.includes(query.id)}
                       onChange={() => toggleApproved(query.id)}
                     />
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className="block truncate font-medium text-text-primary"
-                        title={query.naturalLanguagePrompt}
-                      >
-                        {query.naturalLanguagePrompt || 'Untitled query'}
-                      </span>
-                      <span className="block truncate text-xs text-text-tertiary" title={query.sql}>
-                        {query.sql}
-                      </span>
+                    <span
+                      className="min-w-0 flex-1 truncate font-medium text-text-primary"
+                      title={query.naturalLanguagePrompt}
+                    >
+                      {query.naturalLanguagePrompt || 'Untitled query'}
                     </span>
                   </label>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {panelVisible && form.approvedQueryScope === 'all' ? (
+          <div className="rounded-b-xl border border-t-0 border-border-light bg-surface-secondary p-4">
+            <p className="mb-3 text-sm text-text-secondary">
+              This agent will have access to all approved queries (even ones added in the future).
+              {managerEnabled ? ' Required while approved-query management is enabled.' : ''} Manage the catalog on the{' '}
+              <Link to="/queries" className="font-medium text-text-primary underline underline-offset-2">
+                Approved queries
+              </Link>{' '}
+              page.
+            </p>
+            {queries.length === 0 ? (
+              <p className="text-sm text-text-secondary">No approved queries available yet.</p>
+            ) : (
+              <div className="max-h-60 space-y-1.5 overflow-y-auto">
+                {queries.map((query) => (
+                  <div
+                    key={query.id}
+                    className="flex items-center gap-3 rounded-lg border border-border-light bg-surface-primary p-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border-medium"
+                      checked
+                      disabled
+                      readOnly
+                      aria-label={`${query.naturalLanguagePrompt || 'Untitled query'} (always included)`}
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate font-medium text-text-primary"
+                      title={query.naturalLanguagePrompt}
+                    >
+                      {query.naturalLanguagePrompt || 'Untitled query'}
+                    </span>
+                  </div>
                 ))}
               </div>
             )}

@@ -79,7 +79,7 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
             })}
           </nav>
         </aside>
-        <div className="flex min-h-screen flex-1 flex-col lg:ml-0">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:ml-0">
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
             <div className="mb-4 lg:hidden">
               <button className="inline-flex items-center gap-2 rounded-lg border border-border-light px-3 py-2 text-sm" onClick={() => setMobileNavOpen(true)}>

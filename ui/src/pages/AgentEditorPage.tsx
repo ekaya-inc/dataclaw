@@ -125,7 +125,7 @@ export default function AgentEditorPage(): JSX.Element {
           <CardDescription>
             {mode === 'create'
               ? 'The name becomes the MCP server key. Tool permissions and approved-query scope are enforced on every request.'
-              : 'Name is immutable. Changing permissions takes effect immediately for this agent.'}
+              : 'Name is immutable. Changing permissions takes effect immediately for this agent but MCP clients will need to be restarted.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

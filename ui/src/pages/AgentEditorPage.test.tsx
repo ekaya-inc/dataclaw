@@ -129,7 +129,7 @@ describe('AgentEditorPage', () => {
     renderAt('/agents/new');
 
     const nameInput = await screen.findByLabelText(/^name$/i);
-    const rawQueryCheckbox = screen.getByRole('checkbox', { name: /allow raw query/i });
+    const rawQueryCheckbox = screen.getByRole('checkbox', { name: /allow agent to query entire database/i });
     const managerCheckbox = screen.getByRole('checkbox', { name: /allow agent to manage approved queries/i });
 
     await userEvent.click(rawQueryCheckbox);
@@ -137,12 +137,20 @@ describe('AgentEditorPage', () => {
 
     const learnMoreButton = screen.getByRole('button', { name: /learn more/i });
     await userEvent.click(learnMoreButton);
-    expect(screen.getByText(/hard work of maintaining approved queries/i)).toBeInTheDocument();
+    expect(screen.getByText(/let an agent build the catalog for you/i)).toBeInTheDocument();
+    expect(screen.getByText(/example conversation/i)).toBeInTheDocument();
 
     await userEvent.click(managerCheckbox);
     expect(managerCheckbox).toBeChecked();
     expect(rawQueryCheckbox).toBeChecked();
     expect(rawQueryCheckbox).toBeDisabled();
+
+    const noneRadio = screen.getByRole('radio', { name: /no approved queries/i });
+    const allRadio = screen.getByRole('radio', { name: /all approved queries/i });
+    const selectedRadio = screen.getByRole('radio', { name: /selected approved queries/i });
+    expect(allRadio).toHaveAttribute('aria-checked', 'true');
+    expect(noneRadio).toBeDisabled();
+    expect(selectedRadio).toBeDisabled();
 
     await userEvent.type(nameInput, 'Manager bot');
     await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
@@ -153,7 +161,7 @@ describe('AgentEditorPage', () => {
       can_query: true,
       can_execute: false,
       can_manage_approved_queries: true,
-      approved_query_scope: 'none',
+      approved_query_scope: 'all',
       approved_query_ids: [],
     });
   });
@@ -199,8 +207,16 @@ describe('AgentEditorPage', () => {
     await waitFor(() => expect(nameInput).toHaveValue('Warehouse analyst'));
     expect(nameInput).toHaveAttribute('readonly');
 
-    const executeCheckbox = screen.getByRole('checkbox', { name: /allow raw execute/i });
+    const executeCheckbox = screen.getByRole('checkbox', { name: /allow agent full write access to the database/i });
     await userEvent.click(executeCheckbox);
+
+    const phraseInput = await screen.findByLabelText(/type enable dangerous execute to confirm/i);
+    const confirmButton = screen.getByRole('button', { name: /^enable dangerous execute$/i });
+    expect(confirmButton).toBeDisabled();
+    await userEvent.type(phraseInput, 'enable dangerous execute');
+    expect(confirmButton).toBeEnabled();
+    await userEvent.click(confirmButton);
+    expect(executeCheckbox).toBeChecked();
 
     const saveButton = screen.getByRole('button', { name: /save changes/i });
     await userEvent.click(saveButton);
