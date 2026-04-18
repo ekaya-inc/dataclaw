@@ -1,10 +1,14 @@
-import { Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronUp, HelpCircle, Plus, Trash2 } from 'lucide-react';
 
 import type { ParameterType, QueryParameter } from '../types/query';
 
+import { ParameterHelp } from './ParameterHelp';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
+
+const PARAMETER_HELP_PANEL_ID = 'parameter-help-panel';
 
 const PARAMETER_TYPES: ParameterType[] = ['string', 'integer', 'decimal', 'boolean', 'date', 'timestamp', 'uuid', 'string[]', 'integer[]'];
 
@@ -19,6 +23,8 @@ function formatDefaultValue(value: unknown): string {
 }
 
 export function ParameterEditor({ parameters, onChange }: { parameters: QueryParameter[]; onChange: (parameters: QueryParameter[]) => void }): JSX.Element {
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+
   const updateParameter = (index: number, field: keyof QueryParameter, value: string | boolean | null): void => {
     onChange(
       parameters.map((parameter, currentIndex) =>
@@ -34,21 +40,35 @@ export function ParameterEditor({ parameters, onChange }: { parameters: QueryPar
           <h3 className="text-sm font-semibold text-text-primary">Parameters</h3>
           <p className="text-sm text-text-secondary">Placeholders for approved queries. Required parameters must be supplied by callers.</p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            onChange([
-              ...parameters,
-              { name: '', type: 'string', description: '', required: true, default: null },
-            ])
-          }
-        >
-          <Plus className="h-4 w-4" />
-          Add parameter
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-expanded={isHelpOpen}
+            aria-controls={PARAMETER_HELP_PANEL_ID}
+            onClick={() => setIsHelpOpen((open) => !open)}
+          >
+            {isHelpOpen ? <ChevronUp className="h-4 w-4" /> : <HelpCircle className="h-4 w-4" />}
+            Learn more
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              onChange([
+                ...parameters,
+                { name: '', type: 'string', description: '', required: true, default: null },
+              ])
+            }
+          >
+            <Plus className="h-4 w-4" />
+            Add parameter
+          </Button>
+        </div>
       </div>
+      {isHelpOpen ? <ParameterHelp panelId={PARAMETER_HELP_PANEL_ID} /> : null}
       {parameters.length === 0 ? (
         <p className="text-sm text-text-secondary">No parameters defined.</p>
       ) : (
