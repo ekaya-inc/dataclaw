@@ -106,9 +106,16 @@ export function ParameterEditor({ parameters, onChange }: { parameters: QueryPar
                   />
                   Required
                 </label>
-                <Button type="button" variant="ghost" size="sm" onClick={() => onChange(parameters.filter((_, currentIndex) => currentIndex !== index))}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-9 p-0"
+                  title="Remove"
+                  aria-label="Remove parameter"
+                  onClick={() => onChange(parameters.filter((_, currentIndex) => currentIndex !== index))}
+                >
                   <Trash2 className="h-4 w-4" />
-                  Remove
                 </Button>
               </div>
             </div>
