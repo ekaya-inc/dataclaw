@@ -269,6 +269,49 @@ func TestExecuteRawStatementUsesAdapterExecuteForDDL(t *testing.T) {
 	}
 }
 
+func TestExecuteRawStatementAllowsProceduralDDL(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	var gotQuery string
+	factory.newExecutor = func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+		if dsType != "postgres" {
+			t.Fatalf("expected postgres adapter, got %q", dsType)
+		}
+		return fakeQueryExecutor{
+			execute: func(_ context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+				gotQuery = sqlQuery
+				return &ExecuteResult{}, nil
+			},
+		}, nil
+	}
+
+	sqlQuery := `CREATE OR REPLACE FUNCTION scratch_execute()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+	RETURN 1;
+END;
+$fn$;`
+
+	if _, err := service.ExecuteRawStatement(context.Background(), sqlQuery, 75); err != nil {
+		t.Fatalf("ExecuteRawStatement: %v", err)
+	}
+	if gotQuery != `CREATE OR REPLACE FUNCTION scratch_execute()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+	RETURN 1;
+END;
+$fn$` {
+		t.Fatalf("expected procedural DDL to be preserved, got %q", gotQuery)
+	}
+}
+
 func TestExecuteRawStatementRejectsMultipleStatements(t *testing.T) {
 	factory := newFakeAdapterFactory()
 	service := newTestServiceWithFactory(t, factory)

@@ -90,6 +90,44 @@ func TestValidateAndNormalize_ValidQueries(t *testing.T) {
 			input:    "INSERT INTO users (name) VALUES ('John');",
 			expected: "INSERT INTO users (name) VALUES ('John')",
 		},
+		{
+			name: "postgres function with dollar-quoted body",
+			input: `
+CREATE OR REPLACE FUNCTION increment_counter()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  RETURN 1;
+END;
+$fn$;
+`,
+			expected: `CREATE OR REPLACE FUNCTION increment_counter()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  RETURN 1;
+END;
+$fn$`,
+		},
+		{
+			name: "sql server procedure body with semicolons",
+			input: `
+CREATE PROCEDURE dbo.SyncAccounts
+AS
+BEGIN
+  SET NOCOUNT ON;
+  SELECT 1;
+END;
+`,
+			expected: `CREATE PROCEDURE dbo.SyncAccounts
+AS
+BEGIN
+  SET NOCOUNT ON;
+  SELECT 1;
+END`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,6 +175,15 @@ func TestValidateAndNormalize_MultipleStatements(t *testing.T) {
 		{
 			name:  "semicolon mid-statement",
 			input: "SELECT 1; SELECT 2; SELECT 3;",
+		},
+		{
+			name: "sql server procedure with stray statement before body",
+			input: `
+CREATE PROCEDURE dbo.BadProc
+; DROP TABLE audit_log
+AS
+SELECT 1
+`,
 		},
 	}
 
@@ -192,6 +239,16 @@ func TestHasSemicolonOutsideStrings(t *testing.T) {
 		{
 			name:     "backslash escaped quote",
 			input:    `SELECT 'test\';more'`,
+			expected: false,
+		},
+		{
+			name:     "semicolon inside line comment",
+			input:    "SELECT 1 -- ignore;\nSELECT 2",
+			expected: false,
+		},
+		{
+			name:     "semicolon inside dollar-quoted body",
+			input:    "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql",
 			expected: false,
 		},
 	}

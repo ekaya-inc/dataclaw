@@ -89,6 +89,9 @@ func TestIsOutputStatementDetectsOutputClause(t *testing.T) {
 	if !isOutputStatement("INSERT INTO scratch_execute (id) OUTPUT inserted.id VALUES (1)") {
 		t.Fatal("expected OUTPUT clause to be detected")
 	}
+	if isOutputStatement("INSERT INTO scratch_execute (id) OUTPUT inserted.id INTO @audit VALUES (1)") {
+		t.Fatal("expected OUTPUT INTO clause to use non-returning execution")
+	}
 	if isOutputStatement("CREATE TABLE scratch_execute (id integer)") {
 		t.Fatal("expected DDL not to be treated as output-returning")
 	}
@@ -218,6 +221,22 @@ func TestExecuteUsesExecForNonReturningStatements(t *testing.T) {
 	}
 	if result.RowCount != 0 || result.RowsAffected != 3 {
 		t.Fatalf("unexpected non-returning result: %#v", result)
+	}
+}
+
+func TestExecuteUsesExecForOutputIntoStatements(t *testing.T) {
+	state := &executeDriverState{rowsAffected: 2}
+	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
+
+	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) OUTPUT inserted.id INTO @audit VALUES (11)", 25)
+	if err != nil {
+		t.Fatalf("Execute OUTPUT INTO: %v", err)
+	}
+	if len(state.execSQLs) != 1 || len(state.querySQLs) != 0 {
+		t.Fatalf("expected ExecContext-only path, got queries=%v execs=%v", state.querySQLs, state.execSQLs)
+	}
+	if result.RowCount != 0 || result.RowsAffected != 2 {
+		t.Fatalf("unexpected OUTPUT INTO result: %#v", result)
 	}
 }
 
