@@ -75,13 +75,6 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
   };
 
   useEffect(() => {
-    if (!statusLoaded || datasourceConfigured) {
-      return;
-    }
-    navigate('/datasource', { replace: true });
-  }, [datasourceConfigured, navigate, statusLoaded]);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
       const nextFilter = toolNameInput.trim();
       setToolNameFilter((current) => {
@@ -151,14 +144,26 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
   }
 
   if (!datasourceConfigured) {
-    return null;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Dashboard"
+          description="Monitor MCP tool activity by agent, review recent successes and failures, and inspect request details."
+        />
+        <EmptyState
+          title="Start by adding a datasource"
+          body="DataClaw needs a datasource before it can track MCP tool activity. Once connected, agent traffic will appear here."
+          actions={<Button onClick={() => navigate('/datasource')}>Configure datasource</Button>}
+        />
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Monitor MCP tool activity by agent, review recent successes and failures, and inspect request details without leaving the homepage."
+        description="Monitor MCP tool activity by agent, review recent successes and failures, and inspect request details."
         actions={
           <Button type="button" variant="outline" onClick={() => { beginReload(false); setRefreshKey((current) => current + 1); }} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : undefined)} />

@@ -22,10 +22,10 @@ afterEach(() => {
 });
 
 describe('App shell', () => {
-  it('redirects / to /datasource when no datasource is connected', async () => {
+  it('shows the dashboard empty state on / when no datasource is connected', async () => {
     window.history.pushState({}, '', '/');
     mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: false },
+      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 2, datasource_configured: false },
       '/api/datasource': { datasource: null },
       '/api/datasource/types': { types: [{ type: 'postgres', display_name: 'PostgreSQL' }, { type: 'mssql', display_name: 'Microsoft SQL Server' }] },
       '/api/queries': { queries: [] },
@@ -33,17 +33,16 @@ describe('App shell', () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: /datasource/i })).toBeInTheDocument();
-    });
-    await waitFor(() => expect(screen.getByText(/choose a datasource type to connect/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument());
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
 
-    expect(screen.getByRole('link', { name: /^approved queries$/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /^agents$/i })).toBeInTheDocument();
-    expect(screen.queryByText(/schema/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/ontology/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/local api/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/connect local agents to your data safely and securely/i)).toBeInTheDocument();
+    expect(screen.getByText(/start by adding a datasource/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /configure datasource/i })).toBeInTheDocument();
+
+    const agentsLink = screen.getByRole('link', { name: /^agents$/i });
+    expect(agentsLink.querySelector('[aria-label="Completed"]')).toBeNull();
+    const queriesLink = screen.getByRole('link', { name: /^approved queries$/i });
+    expect(queriesLink.querySelector('[aria-label="Completed"]')).toBeNull();
   });
 
   it('renders the dashboard on / when a datasource is connected', async () => {
