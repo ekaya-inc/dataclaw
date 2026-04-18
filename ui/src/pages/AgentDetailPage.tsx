@@ -80,7 +80,7 @@ function ToolsPills({ agent }: { agent: AgentRecord }): JSX.Element {
         <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-red-700">execute</span>
       ) : null}
       {agent.canManageApprovedQueries ? (
-        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-700">manage approved queries</span>
+        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-700">Manage Approved Queries</span>
       ) : null}
       <span
         className={cn(

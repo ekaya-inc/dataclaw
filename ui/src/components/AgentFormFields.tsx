@@ -204,7 +204,7 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
             />
             <div className="min-w-0 flex-1">
               <label htmlFor="agent-manage-approved-queries" className="font-medium text-text-primary">
-                Allow agent to manage approved queries
+                Allow agent to Manage Approved Queries
               </label>
               <p className="mt-0.5 text-xs">
                 Expose tools that let this agent curate approved queries — schema discovery, prototyping, and full
@@ -276,7 +276,7 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
             <p className="mb-3 text-sm text-text-secondary">
               This agent will only have access to the queries you check below. Manage the catalog on the{' '}
               <Link to="/queries" className="font-medium text-text-primary underline underline-offset-2">
-                Approved queries
+                Approved Queries
               </Link>{' '}
               page.
             </p>
@@ -337,7 +337,7 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
               This agent will have access to all approved queries (even ones added in the future).
               {managerEnabled ? ' Required while approved-query management is enabled.' : ''} Manage the catalog on the{' '}
               <Link to="/queries" className="font-medium text-text-primary underline underline-offset-2">
-                Approved queries
+                Approved Queries
               </Link>{' '}
               page.
             </p>
