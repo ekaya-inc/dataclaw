@@ -98,7 +98,7 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 		}}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, false, 25)
+	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, map[string]any{"min_total": 42.5}, false, 25)
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -108,8 +108,8 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 	if len(gotParams) != 1 || gotParams[0].Name != "min_total" {
 		t.Fatalf("expected query parameter definitions, got %#v", gotParams)
 	}
-	if gotValues != nil {
-		t.Fatalf("expected nil execution values for draft test, got %#v", gotValues)
+	if gotValues["min_total"] != 42.5 {
+		t.Fatalf("expected caller-supplied min_total to flow through, got %#v", gotValues)
 	}
 	if gotLimit != 25 {
 		t.Fatalf("expected limit 25, got %d", gotLimit)
@@ -224,7 +224,7 @@ func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
 		}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, true, 400)
+	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000"}, true, 400)
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}

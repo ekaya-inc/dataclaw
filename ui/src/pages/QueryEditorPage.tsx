@@ -5,6 +5,7 @@ import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import type { AppOutletContext } from '../App';
 import { OutputColumnEditor } from '../components/OutputColumnEditor';
 import { ParameterEditor } from '../components/ParameterEditor';
+import { ParameterInputDialog } from '../components/ParameterInputDialog';
 import { SqlEditor } from '../components/SqlEditor';
 import { PageHeader } from '../components/PageHeader';
 import { QueryResultsTable } from '../components/QueryResultsTable';
@@ -15,6 +16,7 @@ import { Label } from '../components/ui/Label';
 import { useToast } from '../components/ui/Toast';
 import { QUERY_TEMPLATE } from '../constants';
 import { useSqlValidation } from '../hooks/useSqlValidation';
+import { useStoredParameterValues } from '../hooks/useStoredParameterValues';
 import { createQuery, getDatasource, getQuery, testQuery, updateQuery } from '../services/api';
 import type { DatasourceRecord } from '../types/datasource';
 import { DEFAULT_SQL_DIALECT } from '../types/query';
@@ -68,6 +70,9 @@ export default function QueryEditorPage(): JSX.Element {
   const [loading, setLoading] = useState(mode === 'edit');
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | null>(mode === 'edit' ? 'loading' : null);
   const [results, setResults] = useState<QueryExecutionResult | null>(null);
+  const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
+  const storageKey = `dataclaw.queryParams.editor.${id ?? 'new'}`;
+  const [storedValues, setStoredValues] = useStoredParameterValues(storageKey);
 
   const validation = useSqlValidation({
     sql: draft.sql,
@@ -148,7 +153,7 @@ export default function QueryEditorPage(): JSX.Element {
     }
   };
 
-  const runDraftTest = async (): Promise<void> => {
+  const runDraftTest = async (values: Record<string, unknown>): Promise<void> => {
     if (!draft.sql.trim()) {
       toast({ variant: 'error', title: 'Add SQL before testing' });
       return;
@@ -156,9 +161,10 @@ export default function QueryEditorPage(): JSX.Element {
 
     setBusy('testing');
     try {
-      const execution = await testQuery(draft.sql, draft.parameters, draft.allowsModification);
+      const execution = await testQuery(draft.sql, draft.parameters, draft.allowsModification, values);
       setResults(execution);
       toast({ variant: 'success', title: 'Draft query executed' });
+      setParameterDialogOpen(false);
     } catch (error) {
       toast({
         variant: 'error',
@@ -168,6 +174,23 @@ export default function QueryEditorPage(): JSX.Element {
     } finally {
       setBusy(null);
     }
+  };
+
+  const handleTestDraftClick = (): void => {
+    if (!draft.sql.trim()) {
+      toast({ variant: 'error', title: 'Add SQL before testing' });
+      return;
+    }
+    if (draft.parameters.length === 0) {
+      void runDraftTest({});
+      return;
+    }
+    setParameterDialogOpen(true);
+  };
+
+  const handleDialogSubmit = (values: Record<string, unknown>): void => {
+    setStoredValues(values);
+    void runDraftTest(values);
   };
 
   const handleCancel = (): void => {
@@ -297,7 +320,7 @@ export default function QueryEditorPage(): JSX.Element {
                 <Button type="button" variant="outline" onClick={handleCancel} disabled={busy !== null}>
                   Cancel
                 </Button>
-                <Button type="button" variant="outline" onClick={() => void runDraftTest()} disabled={loading || busy !== null || !draft.sql.trim()}>
+                <Button type="button" variant="outline" onClick={handleTestDraftClick} disabled={loading || busy !== null || !draft.sql.trim()}>
                   <FlaskConical className="h-4 w-4" />
                   Test draft query
                 </Button>
@@ -312,6 +335,18 @@ export default function QueryEditorPage(): JSX.Element {
       </Card>
 
       {results ? <QueryResultsTable columns={results.columns} rows={results.rows} rowCount={results.rowCount} /> : null}
+
+      <ParameterInputDialog
+        open={parameterDialogOpen}
+        onOpenChange={setParameterDialogOpen}
+        parameters={draft.parameters}
+        initialValues={storedValues}
+        title="Test draft query"
+        description="Enter values for this draft's parameters. Defaults are used when present."
+        submitLabel="Run test"
+        submitting={busy === 'testing'}
+        onSubmit={handleDialogSubmit}
+      />
     </div>
   );
 }

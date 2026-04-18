@@ -421,12 +421,21 @@ export async function validateQuery(sql: string, parameters: QueryParameter[], a
   };
 }
 
-export async function testQuery(sql: string, parameters: QueryParameter[], allowsModification: boolean): Promise<QueryExecutionResult> {
+export async function testQuery(
+  sql: string,
+  parameters: QueryParameter[],
+  allowsModification: boolean,
+  values?: Record<string, unknown>,
+): Promise<QueryExecutionResult> {
+  const body: Record<string, unknown> = { sql_query: sql, parameters, allows_modification: allowsModification };
+  if (values && Object.keys(values).length > 0) {
+    body.parameter_values = values;
+  }
   const data = await parseResponse<unknown>(
     await fetch('/api/queries/test', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ sql_query: sql, parameters, allows_modification: allowsModification }),
+      body: JSON.stringify(body),
     }),
   );
   const record = asRecord(data);
