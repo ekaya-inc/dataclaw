@@ -27,6 +27,8 @@ func trackedToolHandler(service *core.Service, toolName string, run func(context
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		queryName, sqlText := resolveToolAudit(ctx, service, toolName, req)
+
 		result, callErr := run(ctx, agent, req)
 		finishedAt := time.Now().UTC()
 		event := &storepkg.MCPToolEvent{
@@ -35,6 +37,8 @@ func trackedToolHandler(service *core.Service, toolName string, run func(context
 			ToolName:      toolName,
 			DurationMs:    int(time.Since(startedAt).Milliseconds()),
 			RequestParams: summarizeToolRequest(toolName, req),
+			QueryName:     queryName,
+			SQLText:       sqlText,
 			CreatedAt:     finishedAt,
 		}
 
@@ -59,6 +63,64 @@ func trackedToolHandler(service *core.Service, toolName string, run func(context
 		}
 		return mcp.NewToolResultText(string(body)), nil
 	}
+}
+
+func resolveToolAudit(ctx context.Context, service *core.Service, toolName string, req mcp.CallToolRequest) (queryName string, sqlText string) {
+	args, _ := req.Params.Arguments.(map[string]any)
+	switch toolName {
+	case "query", "execute":
+		if sqlQuery, ok := args["sql"].(string); ok {
+			sqlText = strings.TrimSpace(sqlQuery)
+		}
+	case "create_query":
+		if prompt, ok := args["natural_language_prompt"].(string); ok {
+			queryName = strings.TrimSpace(prompt)
+		}
+		if sqlQuery, ok := args["sql_query"].(string); ok {
+			sqlText = strings.TrimSpace(sqlQuery)
+		}
+	case "update_query":
+		if prompt, ok := args["natural_language_prompt"].(string); ok {
+			queryName = strings.TrimSpace(prompt)
+		}
+		if sqlQuery, ok := args["sql_query"].(string); ok {
+			sqlText = strings.TrimSpace(sqlQuery)
+		}
+		if queryName == "" || sqlText == "" {
+			if existingName, existingSQL, ok := lookupStoredQuery(ctx, service, args["query_id"]); ok {
+				if queryName == "" {
+					queryName = existingName
+				}
+				if sqlText == "" {
+					sqlText = existingSQL
+				}
+			}
+		}
+	case "execute_query", "delete_query":
+		if existingName, existingSQL, ok := lookupStoredQuery(ctx, service, args["query_id"]); ok {
+			queryName = existingName
+			if toolName == "execute_query" {
+				sqlText = existingSQL
+			}
+		}
+	}
+	return queryName, sqlText
+}
+
+func lookupStoredQuery(ctx context.Context, service *core.Service, raw any) (string, string, bool) {
+	id, ok := raw.(string)
+	if !ok {
+		return "", "", false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", "", false
+	}
+	q, err := service.GetQuery(ctx, id)
+	if err != nil || q == nil {
+		return "", "", false
+	}
+	return strings.TrimSpace(q.NaturalLanguagePrompt), strings.TrimSpace(q.SQLQuery), true
 }
 
 func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]any {
@@ -236,7 +298,7 @@ func summarizeManagedQueryRecord(record map[string]any) map[string]any {
 	if constraints, ok := record["constraints"].(string); ok && strings.TrimSpace(constraints) != "" {
 		summary["has_constraints"] = true
 	}
-	if datasourceID, ok := record["datasource_id"].(string); ok && strings.TrimSpace(datasourceID) != "" {
+	if queryID, ok := record["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
 		summary["datasource_present"] = true
 	}
 	return summary

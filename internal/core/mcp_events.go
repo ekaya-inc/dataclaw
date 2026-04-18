@@ -37,3 +37,7 @@ func (s *Service) RecordAgentToolEvent(ctx context.Context, event *storepkg.MCPT
 func (s *Service) ListMCPToolEvents(ctx context.Context, options storepkg.ListMCPToolEventOptions) (*storepkg.MCPToolEventPage, error) {
 	return s.store.ListMCPToolEvents(ctx, options)
 }
+
+func (s *Service) GetMCPToolEvent(ctx context.Context, id string) (*storepkg.MCPToolEvent, error) {
+	return s.store.GetMCPToolEvent(ctx, id)
+}

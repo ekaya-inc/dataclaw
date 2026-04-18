@@ -12,14 +12,20 @@ import (
 )
 
 type fakeMCPAdapterFactory struct {
-	supported map[string]bool
-	newTester func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
-	newQuery  func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
-	typeInfo  map[string]dsadapter.AdapterInfo
+	supported       map[string]bool
+	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newQuery        func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+	typeInfo        map[string]dsadapter.AdapterInfo
 }
 
 type fakeMCPConnectionTester struct {
 	test func(context.Context) error
+}
+
+type fakeMCPDatasourceIntrospector struct {
+	info *dsadapter.DatasourceInfo
+	err  error
 }
 
 type fakeMCPQueryExecutor struct{}
@@ -29,6 +35,18 @@ func newFakeMCPAdapterFactory() *fakeMCPAdapterFactory {
 		supported: map[string]bool{"postgres": true},
 		newTester: func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
 			return fakeMCPConnectionTester{}, nil
+		},
+		newIntrospector: func(_ context.Context, _ string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+			database, _ := config["database"].(string)
+			user, _ := config["user"].(string)
+			return fakeMCPDatasourceIntrospector{
+				info: &dsadapter.DatasourceInfo{
+					DatabaseName: database,
+					SchemaName:   "public",
+					CurrentUser:  user,
+					Version:      "PostgreSQL 16.0",
+				},
+			}, nil
 		},
 		newQuery: func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
 			return fakeMCPQueryExecutor{}, nil
@@ -55,6 +73,13 @@ func (f *fakeMCPAdapterFactory) NewQueryExecutor(ctx context.Context, dsType str
 		return nil, errors.New("unsupported datasource type: " + dsType)
 	}
 	return f.newQuery(ctx, dsType, config)
+}
+
+func (f *fakeMCPAdapterFactory) NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	return f.newIntrospector(ctx, dsType, config)
 }
 
 func (f *fakeMCPAdapterFactory) ConfigFingerprint(dsType string, config map[string]any) (string, error) {
@@ -92,6 +117,18 @@ func (f fakeMCPConnectionTester) TestConnection(ctx context.Context) error {
 
 func (f fakeMCPConnectionTester) Close() error { return nil }
 
+func (f fakeMCPDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsadapter.DatasourceInfo, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.info == nil {
+		return &dsadapter.DatasourceInfo{}, nil
+	}
+	return f.info, nil
+}
+
+func (f fakeMCPDatasourceIntrospector) Close() error { return nil }
+
 func (fakeMCPQueryExecutor) Query(context.Context, string, int) (*dsadapter.QueryResult, error) {
 	return &dsadapter.QueryResult{
 		Columns:  []dsadapter.QueryColumn{{Name: "table_name", Type: "text"}},
@@ -127,7 +164,7 @@ func (fakeMCPQueryExecutor) Execute(context.Context, string, int) (*dsadapter.Ex
 
 func (fakeMCPQueryExecutor) Close() error { return nil }
 
-func TestZeroPermissionAgentGetsHealthOnly(t *testing.T) {
+func TestZeroPermissionAgentGetsHealthAndDatasourceInformationWhenConfigured(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newTestMCPClient(t)
 
@@ -140,7 +177,7 @@ func TestZeroPermissionAgentGetsHealthOnly(t *testing.T) {
 		t.Fatalf("AuthenticateAgent: %v", err)
 	}
 
-	if got, want := listToolNames(t, withAuthorizedAgent(ctx, agent), mcpClient), []string{"health"}; !equalStrings(got, want) {
+	if got, want := listToolNames(t, withAuthorizedAgent(ctx, agent), mcpClient), []string{"get_datasource_information", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected zero-permission tool list: got %v want %v", got, want)
 	}
 }
@@ -293,4 +330,5 @@ func TestHealthToolCallDoesNotUpdateLastUsedAt(t *testing.T) {
 
 var _ dsadapter.Factory = (*fakeMCPAdapterFactory)(nil)
 var _ dsadapter.ConnectionTester = fakeMCPConnectionTester{}
+var _ dsadapter.DatasourceIntrospector = fakeMCPDatasourceIntrospector{}
 var _ dsadapter.QueryExecutor = fakeMCPQueryExecutor{}

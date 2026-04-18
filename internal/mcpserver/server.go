@@ -25,7 +25,6 @@ type authorizedAgentKey struct{}
 
 type approvedQueryResponse struct {
 	QueryID               string                  `json:"query_id"`
-	DatasourceID          string                  `json:"datasource_id,omitempty"`
 	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
 	AdditionalContext     string                  `json:"additional_context,omitempty"`
 	SQLQuery              string                  `json:"sql_query"`
@@ -56,16 +55,18 @@ func New(version string, service *core.Service) *Server {
 }
 
 func buildMCPServer(version string, service *core.Service) *server.MCPServer {
+	descriptionCache := newDatasourceInfoDescriptionCache()
 	hooks := &server.Hooks{}
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 		if result == nil {
 			return
 		}
-		result.Tools = filterToolsForContext(ctx, service, result.Tools)
+		result.Tools = enrichDatasourceInformationToolDescriptions(ctx, service, descriptionCache, filterToolsForContext(ctx, service, result.Tools))
 	})
 
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true), server.WithHooks(hooks))
 	registerHealthTool(mcpServer, version, service)
+	registerDatasourceInformationTool(mcpServer, service)
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
@@ -107,6 +108,10 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithDescription("Execute read-only SQL SELECT statements against the configured datasource when the authenticated agent has raw query access."),
 		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL SELECT statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanQuery {
@@ -126,6 +131,10 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithDescription("Execute ad-hoc DDL or DML against the configured datasource when the authenticated agent has raw execute access."),
 		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "execute", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanExecute {
@@ -141,7 +150,13 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 }
 
 func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
-	tool := mcp.NewTool("list_queries", mcp.WithDescription("List approved queries available to or manageable by the authenticated agent."))
+	tool := mcp.NewTool("list_queries",
+		mcp.WithDescription("List approved queries available to or manageable by the authenticated agent."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+	)
 	srv.AddTool(tool, trackedToolHandler(service, "list_queries", func(ctx context.Context, agent *storepkg.Agent, _ mcp.CallToolRequest) (any, error) {
 		queries, err := service.ListQueriesForAgent(ctx, agent)
 		if err != nil {
@@ -161,6 +176,10 @@ func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Optional documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "create_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		input, err := parseQueryToolRequest(req)
@@ -186,6 +205,10 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithArray("parameters", mcp.Description("Full replacement parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Full replacement documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "update_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		queryID, err := req.RequireString("query_id")
@@ -208,6 +231,10 @@ func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("delete_query",
 		mcp.WithDescription("Delete an approved query when the authenticated agent can manage approved queries."),
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Approved query ID to delete.")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "delete_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		queryID, err := req.RequireString("query_id")
@@ -227,6 +254,10 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
 		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "execute_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		queryID, err := req.RequireString("query_id")
@@ -262,6 +293,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 		return allowed
 	}
 	allowed["health"] = true
+	allowed[datasourceInformationToolName] = true
 	if agent.CanQuery {
 		allowed["query"] = true
 	}
@@ -345,7 +377,6 @@ func normalizeApprovedQueries(queries []*storepkg.ApprovedQuery) []approvedQuery
 func normalizeApprovedQuery(query *storepkg.ApprovedQuery) approvedQueryResponse {
 	return approvedQueryResponse{
 		QueryID:               query.ID,
-		DatasourceID:          query.DatasourceID,
 		NaturalLanguagePrompt: query.NaturalLanguagePrompt,
 		AdditionalContext:     query.AdditionalContext,
 		SQLQuery:              query.SQLQuery,

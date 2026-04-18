@@ -86,9 +86,25 @@ describe('HomePage', () => {
     expect(screen.getByText(/tracked mcp tool calls will appear here/i)).toBeInTheDocument();
   });
 
-  it('expands a row to show request, result, and error details', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      jsonResponse({
+  it('expands a row to fetch and display request, result, query name, SQL, and error details', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url.startsWith('/api/mcp-events/evt_2')) {
+        return jsonResponse({
+          success: true,
+          data: {
+            event: {
+              id: 'evt_2',
+              request_params: { query_id: 'query_1' },
+              result_summary: { row_count: 0 },
+              error_message: 'permission denied',
+              query_name: 'Top accounts',
+              sql_text: 'SELECT account_id FROM accounts',
+            },
+          },
+        });
+      }
+      return jsonResponse({
         success: true,
         data: {
           items: [
@@ -100,26 +116,26 @@ describe('HomePage', () => {
               event_type: 'tool_error',
               was_successful: false,
               duration_ms: 28,
-              request_params: { query_id: 'query_1' },
-              result_summary: { row_count: 0 },
-              error_message: 'permission denied',
+              has_details: true,
             },
           ],
           total: 1,
           limit: 50,
           offset: 0,
         },
-      }),
-    );
+      });
+    });
 
     renderHomePage();
 
     await waitFor(() => expect(screen.getByText('Marketing bot')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: /expand details for execute_query/i }));
 
+    await waitFor(() => expect(screen.getByText('Top accounts')).toBeInTheDocument());
     expect(screen.getByText(/request summary/i)).toBeInTheDocument();
     expect(screen.getByText(/result summary/i)).toBeInTheDocument();
     expect(screen.getByText(/permission denied/i)).toBeInTheDocument();
+    expect(screen.getByText(/SELECT account_id FROM accounts/i)).toBeInTheDocument();
     expect(screen.getAllByText(/query_1/i).length).toBeGreaterThan(0);
   });
 

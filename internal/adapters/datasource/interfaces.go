@@ -11,6 +11,19 @@ type ConnectionTester interface {
 	Close() error
 }
 
+type DatasourceInfo struct {
+	DatabaseName string         `json:"database_name,omitempty"`
+	SchemaName   string         `json:"schema_name,omitempty"`
+	CurrentUser  string         `json:"current_user,omitempty"`
+	Version      string         `json:"version,omitempty"`
+	Extra        map[string]any `json:"extra,omitempty"`
+}
+
+type DatasourceIntrospector interface {
+	GetDatasourceInfo(ctx context.Context) (*DatasourceInfo, error)
+	Close() error
+}
+
 type QueryExecutor interface {
 	Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error)
 	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
@@ -33,14 +46,16 @@ type AdapterInfo struct {
 }
 
 type Registration struct {
-	Info                    AdapterInfo
-	ConnectionTesterFactory func(ctx context.Context, config map[string]any) (ConnectionTester, error)
-	QueryExecutorFactory    func(ctx context.Context, config map[string]any) (QueryExecutor, error)
-	ConfigFingerprint       func(config map[string]any) (string, error)
+	Info                          AdapterInfo
+	ConnectionTesterFactory       func(ctx context.Context, config map[string]any) (ConnectionTester, error)
+	DatasourceIntrospectorFactory func(ctx context.Context, config map[string]any) (DatasourceIntrospector, error)
+	QueryExecutorFactory          func(ctx context.Context, config map[string]any) (QueryExecutor, error)
+	ConfigFingerprint             func(config map[string]any) (string, error)
 }
 
 type Factory interface {
 	NewConnectionTester(ctx context.Context, dsType string, config map[string]any) (ConnectionTester, error)
+	NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (DatasourceIntrospector, error)
 	NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (QueryExecutor, error)
 	ConfigFingerprint(dsType string, config map[string]any) (string, error)
 	ListTypes() []AdapterInfo

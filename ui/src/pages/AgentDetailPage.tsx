@@ -23,7 +23,7 @@ import type { AgentRecord } from '../types/agent';
 import type { RuntimeStatus } from '../types/datasource';
 import { cn } from '../utils/cn';
 
-const DELETE_CONFIRM_TEXT = 'delete agent';
+const DELETE_CONFIRM_TEXT = 'delete access point';
 
 function endpointUrl(runtime: RuntimeStatus | null): string {
   return runtime?.mcpUrl ?? `http://127.0.0.1:${runtime?.port ?? 18790}/mcp`;
@@ -80,7 +80,7 @@ function ToolsPills({ agent }: { agent: AgentRecord }): JSX.Element {
         <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-red-700">execute</span>
       ) : null}
       {agent.canManageApprovedQueries ? (
-        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-700">manage approved queries</span>
+        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-700">Manage Approved Queries</span>
       ) : null}
       <span
         className={cn(
@@ -136,7 +136,7 @@ export default function AgentDetailPage(): JSX.Element {
     } catch (error) {
       toast({
         title: 'Failed to load',
-        description: error instanceof Error ? error.message : 'Failed to load agent.',
+        description: error instanceof Error ? error.message : 'Failed to load access point.',
         variant: 'error',
       });
       navigate('/agents');
@@ -215,12 +215,12 @@ export default function AgentDetailPage(): JSX.Element {
     try {
       await deleteAgent(agent.id);
       await refresh();
-      toast({ title: 'Agent deleted', description: `${agent.name} removed.`, variant: 'success' });
+      toast({ title: 'Access point deleted', description: `${agent.name} removed.`, variant: 'success' });
       navigate('/agents');
     } catch (error) {
       toast({
         title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Failed to delete agent.',
+        description: error instanceof Error ? error.message : 'Failed to delete access point.',
         variant: 'error',
       });
       setDeleting(false);
@@ -233,11 +233,11 @@ export default function AgentDetailPage(): JSX.Element {
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/agents')}>
             <ArrowLeft className="h-4 w-4" />
-            Back to agents
+            Back to Agent Access
           </Button>
         </div>
         <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary/60 px-4 py-6 text-sm text-text-secondary">
-          Loading agent…
+          Loading access point…
         </div>
       </div>
     );
@@ -255,13 +255,13 @@ export default function AgentDetailPage(): JSX.Element {
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/agents')}>
           <ArrowLeft className="h-4 w-4" />
-          Back to agents
+          Back to Agent Access
         </Button>
       </div>
 
       <PageHeader
         title={agent.name}
-        description="Connection details and API key for this agent."
+        description="Connection details and API key for this access point."
         actions={
           <>
             <Button
@@ -421,7 +421,7 @@ function DeleteAgentDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? null : onCancel())}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete agent</DialogTitle>
+          <DialogTitle>Delete access point</DialogTitle>
           <DialogDescription>
             This permanently removes <span className="font-medium text-text-primary">{agentName}</span> and revokes its
             API key.
@@ -446,7 +446,7 @@ function DeleteAgentDialog({
             Cancel
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm} disabled={!canDelete}>
-            {deleting ? 'Deleting…' : 'Delete agent'}
+            {deleting ? 'Deleting…' : 'Delete access point'}
           </Button>
         </DialogFooter>
       </DialogContent>

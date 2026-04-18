@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS mcp_tool_events (
   request_params_json TEXT NOT NULL DEFAULT '{}',
   result_summary_json TEXT NOT NULL DEFAULT '{}',
   error_message TEXT NOT NULL DEFAULT '',
+  query_name TEXT NOT NULL DEFAULT '',
+  sql_text TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE SET NULL
 );

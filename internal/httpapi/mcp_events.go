@@ -30,6 +30,24 @@ func (a *API) handleListMCPEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{Success: true, Data: page})
 }
 
+func (a *API) handleGetMCPEvent(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/mcp-events/"), "/"))
+	if id == "" {
+		writeJSON(w, http.StatusNotFound, response{Error: "event id required"})
+		return
+	}
+	event, err := a.service.GetMCPToolEvent(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if event == nil {
+		writeJSON(w, http.StatusNotFound, response{Error: "event not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"event": event}})
+}
+
 func parseMCPToolEventOptions(r *http.Request) (storepkg.ListMCPToolEventOptions, error) {
 	query := r.URL.Query()
 	limit, err := parseBoundedInt(query.Get("limit"), defaultMCPEventsLimit, maxMCPEventsLimit)

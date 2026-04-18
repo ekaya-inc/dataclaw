@@ -50,37 +50,43 @@ const DATASOURCE_PAYLOAD = {
 };
 
 describe('ApprovedQueriesPage', () => {
-  it('seeds a connectivity check and navigates to the editor', async () => {
+  it('seeds a single example query and lists it on the page', async () => {
+    let postCount = 0;
+    const seeded: Array<Record<string, unknown>> = [];
     vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/datasource') return response(DATASOURCE_PAYLOAD);
       if (url === '/api/status') return response({ version: 'test', port: 18790, datasource_configured: true });
-      if (url === '/api/queries' && !init?.method) return response({ queries: [] });
+      if (url === '/api/queries' && !init?.method) return response({ queries: seeded });
       if (url === '/api/queries' && init?.method === 'POST') {
-        return response({
-          query: {
-            query_id: 'query_seed',
-            datasource_id: 'ds_1',
-            natural_language_prompt: 'Connectivity check',
-            additional_context: 'Verify the datasource is reachable by returning a simple boolean.',
-            sql_query: 'SELECT true AS connected',
-            allows_modification: false,
-            parameters: [],
-            output_columns: [{ name: 'connected', type: 'boolean', description: '' }],
-            constraints: '',
-          },
-        });
+        postCount += 1;
+        const body = typeof init.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+        const saved = {
+          query_id: `query_seed_${postCount}`,
+          datasource_id: 'ds_1',
+          natural_language_prompt: body.natural_language_prompt,
+          additional_context: body.additional_context,
+          sql_query: body.sql_query,
+          allows_modification: false,
+          parameters: body.parameters ?? [],
+          output_columns: body.output_columns ?? [],
+          constraints: '',
+        };
+        seeded.push(saved);
+        return response({ query: saved });
       }
       throw new Error(`Unhandled request: ${String(url)}`);
     });
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /use select true as connected/i })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: /seed with an example query/i })).toBeEnabled());
 
-    await userEvent.click(screen.getByRole('button', { name: /use select true as connected/i }));
+    await userEvent.click(screen.getByRole('button', { name: /seed with an example query/i }));
 
-    await waitFor(() => expect(screen.getByText(/detail page for route/i)).toBeInTheDocument());
+    await waitFor(() => expect(postCount).toBe(1));
+    await waitFor(() => expect(screen.getByText(/connectivity check/i)).toBeInTheDocument());
+    expect(screen.queryByText(/detail page for route/i)).not.toBeInTheDocument();
   });
 
   it('filters the list by the search input', async () => {

@@ -45,6 +45,101 @@ func TestTestDatasourceUsesAdapterFactory(t *testing.T) {
 	}
 }
 
+func TestGetDatasourceInformationUsesAdapterIntrospector(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	var gotType string
+	var gotConfig map[string]any
+	factory.newIntrospector = func(_ context.Context, dsType string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+		gotType = dsType
+		gotConfig = config
+		return fakeDatasourceIntrospector{
+			info: &dsadapter.DatasourceInfo{
+				DatabaseName: "warehouse",
+				SchemaName:   "public",
+				CurrentUser:  "analyst",
+				Version:      "PostgreSQL 16.0",
+			},
+		}, nil
+	}
+
+	info, err := service.GetDatasourceInformation(context.Background())
+	if err != nil {
+		t.Fatalf("GetDatasourceInformation: %v", err)
+	}
+	if gotType != "postgres" {
+		t.Fatalf("expected postgres adapter, got %q", gotType)
+	}
+	if gotConfig["database"] != "warehouse" {
+		t.Fatalf("expected datasource config to reach introspector, got %#v", gotConfig)
+	}
+	if info.Name != "Primary" || info.Type != "postgres" || info.SQLDialect != "PostgreSQL" {
+		t.Fatalf("expected composed datasource metadata, got %#v", info)
+	}
+	if info.DatabaseName != "warehouse" || info.SchemaName != "public" || info.CurrentUser != "analyst" || info.Version != "PostgreSQL 16.0" {
+		t.Fatalf("expected runtime datasource info, got %#v", info)
+	}
+}
+
+func TestGetDatasourceInformationFailsWithoutDatasource(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+
+	if _, err := service.GetDatasourceInformation(context.Background()); !errors.Is(err, ErrNoDatasourceConfigured) {
+		t.Fatalf("expected ErrNoDatasourceConfigured, got %v", err)
+	}
+}
+
+func TestGetDatasourceInformationReturnsPartialMetadataWhenIntrospectionFails(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	factory.newIntrospector = func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error) {
+		return fakeDatasourceIntrospector{err: errors.New("metadata unavailable")}, nil
+	}
+
+	info, err := service.GetDatasourceInformation(context.Background())
+	if err == nil || err.Error() != "metadata unavailable" {
+		t.Fatalf("expected metadata unavailable error, got %v", err)
+	}
+	if info == nil {
+		t.Fatal("expected partial datasource information on introspection error")
+	}
+	if info.Name != "Primary" || info.Type != "postgres" || info.SQLDialect != "PostgreSQL" {
+		t.Fatalf("expected partial metadata to preserve datasource identity, got %#v", info)
+	}
+	if info.DatabaseName != "" || info.CurrentUser != "" || info.Version != "" {
+		t.Fatalf("expected runtime fields to stay empty on introspection failure, got %#v", info)
+	}
+}
+
+func TestGetDatasourceInformationReturnsPartialMetadataWhenIntrospectorCreationFails(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	factory.newIntrospector = func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error) {
+		return nil, errors.New("unsupported metadata query")
+	}
+
+	info, err := service.GetDatasourceInformation(context.Background())
+	if err == nil || err.Error() != "unsupported metadata query" {
+		t.Fatalf("expected unsupported metadata query error, got %v", err)
+	}
+	if info == nil {
+		t.Fatal("expected partial datasource information on introspector creation error")
+	}
+	if info.Name != "Primary" || info.Type != "postgres" || info.SQLDialect != "PostgreSQL" {
+		t.Fatalf("expected partial metadata to preserve datasource identity, got %#v", info)
+	}
+}
+
 func TestTestRawQueryUsesAdapterExecutor(t *testing.T) {
 	factory := newFakeAdapterFactory()
 	service := newTestServiceWithFactory(t, factory)

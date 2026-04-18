@@ -46,7 +46,7 @@ export default function AgentEditorPage(): JSX.Element {
         if (cancelled) return;
         toast({
           title: 'Failed to load',
-          description: error instanceof Error ? error.message : 'Failed to load agent.',
+          description: error instanceof Error ? error.message : 'Failed to load access point.',
           variant: 'error',
         });
         navigate('/agents');
@@ -59,7 +59,7 @@ export default function AgentEditorPage(): JSX.Element {
     };
   }, [id, mode, navigate, toast]);
 
-  const submitLabel = mode === 'create' ? (busy ? 'Creating…' : 'Create agent') : busy ? 'Saving…' : 'Save changes';
+  const submitLabel = mode === 'create' ? (busy ? 'Creating…' : 'Create access point') : busy ? 'Saving…' : 'Save changes';
   const canSubmit = isAgentFormSubmittable(form) && !busy && !loading;
 
   const handleSubmit = async (): Promise<void> => {
@@ -70,7 +70,7 @@ export default function AgentEditorPage(): JSX.Element {
         const created = await createAgent({ ...form, name: form.name.trim() });
         await Promise.all([refresh(), Promise.resolve()]);
         toast({
-          title: 'Agent created',
+          title: 'Access point created',
           description: `${created.name} is ready — copy the API key before leaving this page.`,
           variant: 'success',
         });
@@ -80,12 +80,12 @@ export default function AgentEditorPage(): JSX.Element {
       if (!id) return;
       const saved = await updateAgent(id, form);
       await refresh();
-      toast({ title: 'Agent updated', description: `${saved.name} access updated.`, variant: 'success' });
+      toast({ title: 'Access point updated', description: `${saved.name} access updated.`, variant: 'success' });
       navigate(`/agents/${saved.id}`);
     } catch (error) {
       toast({
         title: mode === 'create' ? 'Create failed' : 'Update failed',
-        description: error instanceof Error ? error.message : 'Failed to save agent.',
+        description: error instanceof Error ? error.message : 'Failed to save access point.',
         variant: 'error',
       });
     } finally {
@@ -106,26 +106,26 @@ export default function AgentEditorPage(): JSX.Element {
       <div>
         <Button variant="ghost" size="sm" onClick={handleCancel}>
           <ArrowLeft className="h-4 w-4" />
-          {mode === 'edit' ? 'Back to agent' : 'Back to agents'}
+          {mode === 'edit' ? 'Back to access point' : 'Back to Agent Access'}
         </Button>
       </div>
 
       <PageHeader
-        title={mode === 'create' ? 'New agent' : 'Edit agent'}
+        title={mode === 'create' ? 'New Access Point' : 'Edit Access Point'}
         description={
           mode === 'create'
-            ? 'Create a named agent, choose its tool permissions, and scope its approved-query access.'
-            : 'Update tool permissions and approved-query access for this agent.'
+            ? 'Create a named access point, choose its tool permissions, and scope its approved-query access.'
+            : 'Update tool permissions and approved-query access for this access point.'
         }
       />
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Agent details</CardTitle>
+          <CardTitle className="text-xl">Access point details</CardTitle>
           <CardDescription>
             {mode === 'create'
               ? 'The name becomes the MCP server key. Tool permissions and approved-query scope are enforced on every request.'
-              : 'Name is immutable. Changing permissions takes effect immediately for this agent but MCP clients will need to be restarted.'}
+              : 'Name is immutable. Changing permissions takes effect immediately for this access point but MCP clients will need to be restarted.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

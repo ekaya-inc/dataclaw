@@ -40,6 +40,7 @@ func TestListMCPToolEventsSupportsFiltersPaginationAndSnapshots(t *testing.T) {
 		DurationMs:    12,
 		RequestParams: map[string]any{"sql": "SELECT * FROM campaigns"},
 		ResultSummary: map[string]any{"row_count": 3},
+		SQLText:       "SELECT * FROM campaigns",
 		CreatedAt:     recordedAt,
 	}, &recordedAt); err != nil {
 		t.Fatalf("RecordMCPToolEvent(query): %v", err)
@@ -68,6 +69,8 @@ func TestListMCPToolEventsSupportsFiltersPaginationAndSnapshots(t *testing.T) {
 		RequestParams: map[string]any{"query_id": "query_1"},
 		ResultSummary: map[string]any{},
 		ErrorMessage:  "permission denied",
+		QueryName:     "Top campaigns",
+		SQLText:       "SELECT id FROM campaigns",
 		CreatedAt:     base.Add(3 * time.Minute),
 	}, nil); err != nil {
 		t.Fatalf("RecordMCPToolEvent(execute_query): %v", err)
@@ -137,6 +140,48 @@ func TestListMCPToolEventsSupportsFiltersPaginationAndSnapshots(t *testing.T) {
 	if rangePage.Total != 2 {
 		t.Fatalf("expected 2 ranged events, got %d", rangePage.Total)
 	}
+
+	executeSummary := findSummaryByID(t, page.Items, "evt_execute")
+	if !executeSummary.HasDetails {
+		t.Fatalf("expected evt_execute summary to report has_details=true")
+	}
+	listSummary := findSummaryByID(t, page.Items, "evt_list")
+	if !listSummary.HasDetails {
+		t.Fatalf("expected evt_list summary to report has_details=true (result summary populated)")
+	}
+
+	fullExecute, err := store.GetMCPToolEvent(ctx, "evt_execute")
+	if err != nil || fullExecute == nil {
+		t.Fatalf("GetMCPToolEvent(evt_execute): %v, %v", fullExecute, err)
+	}
+	if fullExecute.ErrorMessage != "permission denied" {
+		t.Fatalf("expected permission denied, got %#v", fullExecute.ErrorMessage)
+	}
+	if fullExecute.QueryName != "Top campaigns" || fullExecute.SQLText != "SELECT id FROM campaigns" {
+		t.Fatalf("expected query_name/sql_text round-trip, got %#v / %#v", fullExecute.QueryName, fullExecute.SQLText)
+	}
+	if got := fullExecute.RequestParams["query_id"]; got != "query_1" {
+		t.Fatalf("expected query_id=query_1, got %#v", got)
+	}
+
+	missing, err := store.GetMCPToolEvent(ctx, "does-not-exist")
+	if err != nil {
+		t.Fatalf("GetMCPToolEvent(missing): %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil for missing event, got %#v", missing)
+	}
+}
+
+func findSummaryByID(t *testing.T, items []*MCPToolEventSummary, id string) *MCPToolEventSummary {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == id {
+			return item
+		}
+	}
+	t.Fatalf("expected summary %q, got %#v", id, items)
+	return nil
 }
 
 func assertSchemaObjectCount(t *testing.T, ctx context.Context, store *Store, objectType, name string, want int) {

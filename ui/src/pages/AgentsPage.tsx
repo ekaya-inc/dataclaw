@@ -23,7 +23,7 @@ import type { AgentRecord } from '../types/agent';
 import type { RuntimeStatus } from '../types/datasource';
 import { cn } from '../utils/cn';
 
-const DELETE_CONFIRM_TEXT = 'delete agent';
+const DELETE_CONFIRM_TEXT = 'delete access point';
 
 function formatDate(value?: string): string {
   if (!value) return '—';
@@ -96,7 +96,7 @@ export default function AgentsPage(): JSX.Element {
     } catch (error) {
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to load agents.',
+        description: error instanceof Error ? error.message : 'Failed to load access points.',
         variant: 'error',
       });
     } finally {
@@ -125,11 +125,11 @@ export default function AgentsPage(): JSX.Element {
       await deleteAgent(deleteTarget.id);
       closeDeleteDialog();
       await Promise.all([load(), refresh()]);
-      toast({ title: 'Agent deleted', description: `${deleteTarget.name} removed.`, variant: 'success' });
+      toast({ title: 'Access point deleted', description: `${deleteTarget.name} removed.`, variant: 'success' });
     } catch (error) {
       toast({
         title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Failed to delete agent.',
+        description: error instanceof Error ? error.message : 'Failed to delete access point.',
         variant: 'error',
       });
     } finally {
@@ -141,12 +141,12 @@ export default function AgentsPage(): JSX.Element {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Agents"
-          description="Create named MCP agents with explicit raw-tool permissions, scoped approved-query access, and per-agent API keys."
+          title="Agent Access"
+          description="Create access points that give agents scoped raw-tool permissions, approved-query access, and their own API keys."
         />
         <EmptyState
           title="Start by adding a datasource"
-          body="DataClaw needs a datasource before Agents can run queries or expose approved-query tools. Once connected, you can mint named MCP agents and scope their access."
+          body="DataClaw needs a datasource before agents can run queries or expose approved-query tools. Once connected, you can create access points and scope what each agent can do."
           actions={<Button onClick={() => navigate('/datasource')}>Configure datasource</Button>}
         />
       </div>
@@ -156,36 +156,36 @@ export default function AgentsPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Agents"
-        description="Create named MCP agents with explicit raw-tool permissions, scoped approved-query access, and per-agent API keys."
+        title="Agent Access"
+        description="Create access points that give agents scoped raw-tool permissions, approved-query access, and their own API keys."
         actions={
           <Button type="button" onClick={() => navigate('/agents/new')}>
             <Plus className="h-4 w-4" />
-            New agent
+            New Access Point
           </Button>
         }
       />
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Agent management</CardTitle>
+          <CardTitle className="text-xl">Access Points</CardTitle>
           <CardDescription>
             {loading
-              ? 'Loading agents…'
+              ? 'Loading access points…'
               : agents.length === 0
-                ? 'No agents yet.'
-                : `${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}.`}
+                ? 'No access points yet.'
+                : `${agents.length} ${agents.length === 1 ? 'access point' : 'access points'}.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? null : agents.length === 0 ? (
             <EmptyState
-              title="No agents yet"
-              body="Create a named MCP agent to mint an API key and scope the raw tools and approved queries it can use."
+              title="No access points yet"
+              body="Create an access point to mint an API key and scope the raw tools and approved queries an agent can use."
               actions={
                 <Button type="button" onClick={() => navigate('/agents/new')}>
                   <Plus className="h-4 w-4" />
-                  New agent
+                  New Access Point
                 </Button>
               }
             />
@@ -312,10 +312,10 @@ function DeleteAgentDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? null : onCancel())}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete agent</DialogTitle>
+          <DialogTitle>Delete access point</DialogTitle>
           <DialogDescription>
             This permanently removes{' '}
-            {agent ? <span className="font-medium text-text-primary">{agent.name}</span> : 'the agent'} and revokes its
+            {agent ? <span className="font-medium text-text-primary">{agent.name}</span> : 'the access point'} and revokes its
             API key.
           </DialogDescription>
         </DialogHeader>
@@ -338,7 +338,7 @@ function DeleteAgentDialog({
             Cancel
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm} disabled={!canDelete}>
-            {deleting ? 'Deleting…' : 'Delete agent'}
+            {deleting ? 'Deleting…' : 'Delete access point'}
           </Button>
         </DialogFooter>
       </DialogContent>

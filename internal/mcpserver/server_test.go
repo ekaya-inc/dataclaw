@@ -55,12 +55,12 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	}
 
 	readerTools := listToolNames(t, withAuthorizedAgent(ctx, readerAgent), mcpClient)
-	if got, want := readerTools, []string{"execute_query", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools: got %v want %v", got, want)
 	}
 
 	executorTools := listToolNames(t, withAuthorizedAgent(ctx, executorAgent), mcpClient)
-	if got, want := executorTools, []string{"execute", "health"}; !equalStrings(got, want) {
+	if got, want := executorTools, []string{"execute", "get_datasource_information", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected executor tools: got %v want %v", got, want)
 	}
 }
@@ -107,6 +107,54 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	}
 	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "CAST({{created_after}} AS TIMESTAMP)") {
 		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
+	}
+}
+
+func TestToolAnnotationsMatchBehavior(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+		CanQuery:                 true,
+		CanExecute:               true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		readOnly    bool
+		destructive bool
+		idempotent  bool
+		openWorld   bool
+	}{
+		{name: "query", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "execute", readOnly: false, destructive: true, idempotent: false, openWorld: false},
+		{name: "list_queries", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "create_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
+		{name: "update_query", readOnly: false, destructive: false, idempotent: true, openWorld: false},
+		{name: "delete_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
+		{name: "execute_query", readOnly: false, destructive: true, idempotent: false, openWorld: false},
+		{name: "get_datasource_information", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "health", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+	}
+
+	for _, tt := range tests {
+		tool := requireToolByName(t, (*result).Tools, tt.name)
+		assertToolAnnotations(t, tool, tt.readOnly, tt.destructive, tt.idempotent, tt.openWorld)
 	}
 }
 
@@ -167,8 +215,8 @@ func TestDatasourceDeletionFailsClosedForToolDiscovery(t *testing.T) {
 	agentCtx := withAuthorizedAgent(ctx, agent)
 
 	before := listToolNames(t, agentCtx, mcpClient)
-	if len(before) != 5 {
-		t.Fatalf("expected 5 tools before datasource deletion, got %v", before)
+	if len(before) != 6 {
+		t.Fatalf("expected 6 tools before datasource deletion, got %v", before)
 	}
 	if err := service.DeleteDatasource(ctx); err != nil {
 		t.Fatalf("DeleteDatasource: %v", err)
@@ -209,7 +257,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	readerTools := listToolNamesWithHeader(t, ctx, mcpClient, reader.APIKey)
-	if got, want := readerTools, []string{"execute_query", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools via header auth: got %v want %v", got, want)
 	}
 	readerAfterList, err := service.GetAgent(ctx, reader.ID)
@@ -242,7 +290,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	writerTools := listToolNamesWithHeader(t, ctx, mcpClient, writer.APIKey)
-	if got, want := writerTools, []string{"execute", "health"}; !equalStrings(got, want) {
+	if got, want := writerTools, []string{"execute", "get_datasource_information", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected writer tools via header auth: got %v want %v", got, want)
 	}
 
@@ -293,7 +341,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
-	if got, want := managerTools, []string{"create_query", "delete_query", "execute_query", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+	if got, want := managerTools, []string{"create_query", "delete_query", "execute_query", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
 	}
 
@@ -316,6 +364,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 		"constraints": "Only for account catalog reads.",
 	}, manager.APIKey)
 	createdQuery := asMap(t, createdPayload["query"])
+	assertNoDatasourceID(t, createdQuery)
 	queryID := requireString(t, createdQuery, "query_id")
 
 	listedPayload := callToolJSONWithHeader(t, ctx, mcpClient, "list_queries", nil, manager.APIKey)
@@ -339,6 +388,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 		},
 	}, manager.APIKey)
 	updatedQuery := asMap(t, updatedPayload["query"])
+	assertNoDatasourceID(t, updatedQuery)
 	if got := requireString(t, updatedQuery, "query_id"); got != queryID {
 		t.Fatalf("expected updated query_id %q, got %q", queryID, got)
 	}
@@ -374,7 +424,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	consumerTools := listToolNamesWithHeader(t, ctx, mcpClient, consumer.APIKey)
-	if got, want := consumerTools, []string{"execute_query", "health", "list_queries"}; !equalStrings(got, want) {
+	if got, want := consumerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected consumer tools via header auth: got %v want %v", got, want)
 	}
 
@@ -448,7 +498,7 @@ func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	before := listToolNamesWithHeader(t, ctx, mcpClient, agent.APIKey)
-	if got, want := before, []string{"execute_query", "health", "list_queries"}; !equalStrings(got, want) {
+	if got, want := before, []string{"execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected tools before membership cascade: got %v want %v", got, want)
 	}
 
@@ -457,7 +507,7 @@ func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 	}
 
 	after := listToolNamesWithHeader(t, ctx, mcpClient, agent.APIKey)
-	if got, want := after, []string{"health", "list_queries"}; !equalStrings(got, want) {
+	if got, want := after, []string{"get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected tools after membership cascade: got %v want %v", got, want)
 	}
 }
@@ -619,6 +669,23 @@ func requireToolByName(t *testing.T, tools []mcp.Tool, name string) mcp.Tool {
 	return mcp.Tool{}
 }
 
+func assertToolAnnotations(t *testing.T, tool mcp.Tool, readOnly, destructive, idempotent, openWorld bool) {
+	t.Helper()
+
+	if tool.Annotations.ReadOnlyHint == nil || *tool.Annotations.ReadOnlyHint != readOnly {
+		t.Fatalf("tool %q readOnlyHint: got %#v want %v", tool.Name, tool.Annotations.ReadOnlyHint, readOnly)
+	}
+	if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint != destructive {
+		t.Fatalf("tool %q destructiveHint: got %#v want %v", tool.Name, tool.Annotations.DestructiveHint, destructive)
+	}
+	if tool.Annotations.IdempotentHint == nil || *tool.Annotations.IdempotentHint != idempotent {
+		t.Fatalf("tool %q idempotentHint: got %#v want %v", tool.Name, tool.Annotations.IdempotentHint, idempotent)
+	}
+	if tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint != openWorld {
+		t.Fatalf("tool %q openWorldHint: got %#v want %v", tool.Name, tool.Annotations.OpenWorldHint, openWorld)
+	}
+}
+
 func callToolJSON(t *testing.T, ctx context.Context, mcpClient *client.Client, tool string, args map[string]any) map[string]any {
 	t.Helper()
 
@@ -686,6 +753,14 @@ func assertQueryFields(t *testing.T, query map[string]any, expectedID, expectedS
 	}
 	if got := requireString(t, query, "sql_query"); got != expectedSQL {
 		t.Fatalf("expected sql_query %q, got %q", expectedSQL, got)
+	}
+	assertNoDatasourceID(t, query)
+}
+
+func assertNoDatasourceID(t *testing.T, query map[string]any) {
+	t.Helper()
+	if _, ok := query["datasource_id"]; ok {
+		t.Fatalf("expected MCP query payload to omit datasource_id, got %#v", query)
 	}
 }
 

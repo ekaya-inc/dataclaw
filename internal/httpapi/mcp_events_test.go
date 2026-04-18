@@ -86,6 +86,66 @@ func TestListMCPEventsReturnsPaginatedFilteredResults(t *testing.T) {
 	if item["tool_name"] != "execute_query" {
 		t.Fatalf("expected execute_query, got %#v", item["tool_name"])
 	}
+	if _, leaks := item["request_params"]; leaks {
+		t.Fatalf("expected list response to omit request_params, got %#v", item)
+	}
+	if _, leaks := item["error_message"]; leaks {
+		t.Fatalf("expected list response to omit error_message, got %#v", item)
+	}
+	if got := item["has_details"]; got != true {
+		t.Fatalf("expected has_details=true for event with error message, got %#v", got)
+	}
+}
+
+func TestGetMCPEventReturnsFullDetails(t *testing.T) {
+	api := newTestAPI(t)
+	ctx := t.Context()
+
+	agent, err := api.service.CreateAgent(ctx, core.AgentInput{Name: "Marketing bot"})
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	agentID := agent.ID
+
+	seedMCPEvent(t, api, &storepkg.MCPToolEvent{
+		ID:            "evt_full",
+		AgentID:       stringPtrHTTP(agentID),
+		AgentName:     "Marketing bot",
+		ToolName:      "execute_query",
+		EventType:     storepkg.MCPToolEventTypeCall,
+		WasSuccessful: true,
+		DurationMs:    12,
+		RequestParams: map[string]any{"query_id": "query_1"},
+		ResultSummary: map[string]any{"row_count": 2},
+		QueryName:     "Top accounts",
+		SQLText:       "SELECT account_id FROM accounts",
+		CreatedAt:     time.Now().UTC(),
+	})
+
+	rec := performJSONRequest(t, api, http.MethodGet, "/api/mcp-events/evt_full", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	data := decodeData(t, rec)
+	event, ok := data["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected event payload, got %#v", data)
+	}
+	if event["query_name"] != "Top accounts" {
+		t.Fatalf("expected query_name round-trip, got %#v", event["query_name"])
+	}
+	if event["sql_text"] != "SELECT account_id FROM accounts" {
+		t.Fatalf("expected sql_text round-trip, got %#v", event["sql_text"])
+	}
+	requestParams, ok := event["request_params"].(map[string]any)
+	if !ok || requestParams["query_id"] != "query_1" {
+		t.Fatalf("expected request_params to round-trip, got %#v", event["request_params"])
+	}
+
+	missing := performJSONRequest(t, api, http.MethodGet, "/api/mcp-events/does-not-exist", nil)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing event, got %d", missing.Code)
+	}
 }
 
 func TestListMCPEventsReturnsStableEmptyPayload(t *testing.T) {

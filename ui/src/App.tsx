@@ -43,10 +43,11 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
+  const datasourceConfigured = Boolean(status?.datasourceConfigured);
   const completion = {
-    datasource: Boolean(status?.datasourceConfigured),
-    queries: queryCount > 0,
-    agent: (status?.agentCount ?? 0) > 0,
+    datasource: datasourceConfigured,
+    queries: datasourceConfigured && queryCount > 0,
+    agent: datasourceConfigured && (status?.agentCount ?? 0) > 0,
   };
 
   const outletContext: AppOutletContext = { refresh };

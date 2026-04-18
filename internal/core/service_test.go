@@ -15,15 +15,21 @@ import (
 )
 
 type fakeAdapterFactory struct {
-	supported   map[string]bool
-	newTester   func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
-	newExecutor func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
-	fingerprint func(string, map[string]any) (string, error)
-	typeInfo    map[string]dsadapter.AdapterInfo
+	supported       map[string]bool
+	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newExecutor     func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+	fingerprint     func(string, map[string]any) (string, error)
+	typeInfo        map[string]dsadapter.AdapterInfo
 }
 
 type fakeConnectionTester struct {
 	test func(context.Context) error
+}
+
+type fakeDatasourceIntrospector struct {
+	info *dsadapter.DatasourceInfo
+	err  error
 }
 
 type fakeQueryExecutor struct {
@@ -41,6 +47,18 @@ func newFakeAdapterFactory() *fakeAdapterFactory {
 		},
 		newTester: func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
 			return fakeConnectionTester{}, nil
+		},
+		newIntrospector: func(_ context.Context, _ string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+			database, _ := config["database"].(string)
+			user, _ := config["user"].(string)
+			return fakeDatasourceIntrospector{
+				info: &dsadapter.DatasourceInfo{
+					DatabaseName: database,
+					SchemaName:   "public",
+					CurrentUser:  user,
+					Version:      "PostgreSQL 16.0",
+				},
+			}, nil
 		},
 		newExecutor: func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
 			return nil, errors.New("unexpected query execution in test")
@@ -83,6 +101,13 @@ func (f *fakeAdapterFactory) NewQueryExecutor(ctx context.Context, dsType string
 	return f.newExecutor(ctx, dsType, config)
 }
 
+func (f *fakeAdapterFactory) NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	return f.newIntrospector(ctx, dsType, config)
+}
+
 func (f *fakeAdapterFactory) ConfigFingerprint(dsType string, config map[string]any) (string, error) {
 	if !f.SupportsType(dsType) {
 		return "", errors.New("unsupported datasource type: " + dsType)
@@ -117,6 +142,18 @@ func (f fakeConnectionTester) TestConnection(ctx context.Context) error {
 }
 
 func (f fakeConnectionTester) Close() error { return nil }
+
+func (f fakeDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsadapter.DatasourceInfo, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.info == nil {
+		return &dsadapter.DatasourceInfo{}, nil
+	}
+	return f.info, nil
+}
+
+func (f fakeDatasourceIntrospector) Close() error { return nil }
 
 func (f fakeQueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
 	if f.query != nil {

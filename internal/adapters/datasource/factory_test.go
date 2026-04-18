@@ -10,10 +10,17 @@ import (
 
 type testConnectionTester struct{}
 
+type testDatasourceIntrospector struct{}
+
 type testQueryExecutor struct{}
 
 func (testConnectionTester) TestConnection(context.Context) error { return nil }
 func (testConnectionTester) Close() error                         { return nil }
+
+func (testDatasourceIntrospector) GetDatasourceInfo(context.Context) (*DatasourceInfo, error) {
+	return &DatasourceInfo{DatabaseName: "warehouse"}, nil
+}
+func (testDatasourceIntrospector) Close() error { return nil }
 
 func (testQueryExecutor) Query(context.Context, string, int) (*QueryResult, error) {
 	return &QueryResult{}, nil
@@ -36,6 +43,9 @@ func TestFactoryResolvesRegisteredAdapters(t *testing.T) {
 		ConnectionTesterFactory: func(context.Context, map[string]any) (ConnectionTester, error) {
 			return testConnectionTester{}, nil
 		},
+		DatasourceIntrospectorFactory: func(context.Context, map[string]any) (DatasourceIntrospector, error) {
+			return testDatasourceIntrospector{}, nil
+		},
 		QueryExecutorFactory: func(context.Context, map[string]any) (QueryExecutor, error) {
 			return testQueryExecutor{}, nil
 		},
@@ -48,6 +58,14 @@ func TestFactoryResolvesRegisteredAdapters(t *testing.T) {
 	}
 	if _, ok := tester.(testConnectionTester); !ok {
 		t.Fatalf("unexpected tester type: %T", tester)
+	}
+
+	introspector, err := factory.NewDatasourceIntrospector(context.Background(), "example", nil)
+	if err != nil {
+		t.Fatalf("NewDatasourceIntrospector: %v", err)
+	}
+	if _, ok := introspector.(testDatasourceIntrospector); !ok {
+		t.Fatalf("unexpected introspector type: %T", introspector)
 	}
 
 	executor, err := factory.NewQueryExecutor(context.Background(), "example", nil)
@@ -65,6 +83,10 @@ func TestFactoryRejectsUnsupportedType(t *testing.T) {
 	_, err := factory.NewConnectionTester(context.Background(), "missing", nil)
 	if err == nil || !strings.Contains(err.Error(), "unsupported datasource type") {
 		t.Fatalf("expected unsupported type error, got %v", err)
+	}
+	_, err = factory.NewDatasourceIntrospector(context.Background(), "missing", nil)
+	if err == nil || !strings.Contains(err.Error(), "unsupported datasource type") {
+		t.Fatalf("expected unsupported type error for introspector, got %v", err)
 	}
 	if factory.SupportsType("missing") {
 		t.Fatal("expected missing adapter type to be unsupported")
