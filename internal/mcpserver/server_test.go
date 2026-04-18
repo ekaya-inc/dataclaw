@@ -110,6 +110,53 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	}
 }
 
+func TestToolAnnotationsMatchBehavior(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+		CanQuery:                 true,
+		CanExecute:               true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		readOnly    bool
+		destructive bool
+		idempotent  bool
+		openWorld   bool
+	}{
+		{name: "query", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "execute", readOnly: false, destructive: true, idempotent: false, openWorld: false},
+		{name: "list_queries", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "create_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
+		{name: "update_query", readOnly: false, destructive: false, idempotent: true, openWorld: false},
+		{name: "delete_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
+		{name: "execute_query", readOnly: false, destructive: true, idempotent: false, openWorld: false},
+		{name: "health", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+	}
+
+	for _, tt := range tests {
+		tool := requireToolByName(t, (*result).Tools, tt.name)
+		assertToolAnnotations(t, tool, tt.readOnly, tt.destructive, tt.idempotent, tt.openWorld)
+	}
+}
+
 func TestSelectedScopeFiltersListQueriesAndBlocksUnauthorizedExecute(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newTestMCPClient(t)
@@ -617,6 +664,23 @@ func requireToolByName(t *testing.T, tools []mcp.Tool, name string) mcp.Tool {
 	}
 	t.Fatalf("tool %q not found in %#v", name, tools)
 	return mcp.Tool{}
+}
+
+func assertToolAnnotations(t *testing.T, tool mcp.Tool, readOnly, destructive, idempotent, openWorld bool) {
+	t.Helper()
+
+	if tool.Annotations.ReadOnlyHint == nil || *tool.Annotations.ReadOnlyHint != readOnly {
+		t.Fatalf("tool %q readOnlyHint: got %#v want %v", tool.Name, tool.Annotations.ReadOnlyHint, readOnly)
+	}
+	if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint != destructive {
+		t.Fatalf("tool %q destructiveHint: got %#v want %v", tool.Name, tool.Annotations.DestructiveHint, destructive)
+	}
+	if tool.Annotations.IdempotentHint == nil || *tool.Annotations.IdempotentHint != idempotent {
+		t.Fatalf("tool %q idempotentHint: got %#v want %v", tool.Name, tool.Annotations.IdempotentHint, idempotent)
+	}
+	if tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint != openWorld {
+		t.Fatalf("tool %q openWorldHint: got %#v want %v", tool.Name, tool.Annotations.OpenWorldHint, openWorld)
+	}
 }
 
 func callToolJSON(t *testing.T, ctx context.Context, mcpClient *client.Client, tool string, args map[string]any) map[string]any {
