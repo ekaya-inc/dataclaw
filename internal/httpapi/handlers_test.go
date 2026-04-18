@@ -254,3 +254,44 @@ func TestAgentCRUDAndSecretHandling(t *testing.T) {
 		t.Fatalf("expected delete status 200, got %d: %s", deleteRec.Code, deleteRec.Body.String())
 	}
 }
+
+func TestAgentManagerCapabilityNormalizesCanQueryInAPI(t *testing.T) {
+	api := newTestAPI(t)
+
+	createRec := performJSONRequest(t, api, http.MethodPost, "/api/agents", map[string]any{
+		"name":                        "Manager agent",
+		"can_query":                   false,
+		"can_manage_approved_queries": true,
+		"approved_query_scope":        "none",
+		"approved_query_ids":          []string{},
+	})
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected create status 201, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+	created := decodeData(t, createRec)["agent"].(map[string]any)
+	if created["can_query"] != true {
+		t.Fatalf("expected manager create response to normalize can_query=true, got %#v", created["can_query"])
+	}
+	if created["can_manage_approved_queries"] != true {
+		t.Fatalf("expected manager flag in create response, got %#v", created["can_manage_approved_queries"])
+	}
+
+	agentID := created["id"].(string)
+	updateRec := performJSONRequest(t, api, http.MethodPut, "/api/agents/"+agentID, map[string]any{
+		"name":                        "Manager agent",
+		"can_query":                   false,
+		"can_manage_approved_queries": true,
+		"approved_query_scope":        "none",
+		"approved_query_ids":          []string{},
+	})
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected update status 200, got %d: %s", updateRec.Code, updateRec.Body.String())
+	}
+	updated := decodeData(t, updateRec)["agent"].(map[string]any)
+	if updated["can_query"] != true {
+		t.Fatalf("expected manager update response to normalize can_query=true, got %#v", updated["can_query"])
+	}
+	if updated["can_manage_approved_queries"] != true {
+		t.Fatalf("expected manager flag in update response, got %#v", updated["can_manage_approved_queries"])
+	}
+}

@@ -149,6 +149,7 @@ describe('api service contracts', () => {
       name: 'Warehouse analyst',
       can_query: true,
       can_execute: false,
+      can_manage_approved_queries: false,
       approved_query_scope: 'selected',
       approved_query_ids: ['query_1'],
     });

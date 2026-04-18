@@ -90,6 +90,33 @@ func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]a
 				summary["parameter_keys"] = keys
 			}
 		}
+	case "create_query", "update_query":
+		if toolName == "update_query" {
+			if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
+				summary["query_id"] = queryID
+			}
+		}
+		if sqlQuery, ok := args["sql_query"].(string); ok {
+			if statementType := sqlStatementType(sqlQuery); statementType != "" {
+				summary["statement_type"] = statementType
+			}
+		}
+		if allowsModification, ok := args["allows_modification"].(bool); ok {
+			summary["allows_modification"] = allowsModification
+		}
+		if parameterCount, ok := arrayLength(args["parameters"]); ok {
+			summary["parameter_count"] = parameterCount
+		}
+		if outputColumnCount, ok := arrayLength(args["output_columns"]); ok {
+			summary["output_column_count"] = outputColumnCount
+		}
+		if constraints, ok := args["constraints"].(string); ok && strings.TrimSpace(constraints) != "" {
+			summary["has_constraints"] = true
+		}
+	case "delete_query":
+		if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
+			summary["query_id"] = queryID
+		}
 	}
 
 	return summary
@@ -99,6 +126,10 @@ func summarizeToolResult(toolName string, value any) map[string]any {
 	switch toolName {
 	case "list_queries":
 		return summarizeListQueriesResult(value)
+	case "create_query", "update_query":
+		return summarizeManagedQueryMutationResult(value)
+	case "delete_query":
+		return summarizeDeleteQueryResult(value)
 	default:
 		return summarizeQueryResult(value)
 	}
@@ -134,6 +165,33 @@ func summarizeListQueriesResult(value any) map[string]any {
 	return summary
 }
 
+func summarizeManagedQueryMutationResult(value any) map[string]any {
+	payload, err := normalizeToolPayload(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	record, ok := payload["query"].(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+	return summarizeManagedQueryRecord(record)
+}
+
+func summarizeDeleteQueryResult(value any) map[string]any {
+	payload, err := normalizeToolPayload(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	summary := map[string]any{}
+	if queryID, ok := payload["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
+		summary["query_id"] = queryID
+	}
+	if deleted, ok := payload["deleted"].(bool); ok {
+		summary["deleted"] = deleted
+	}
+	return summary
+}
+
 func summarizeQueryResult(value any) map[string]any {
 	payload, err := normalizeToolPayload(value)
 	if err != nil {
@@ -149,6 +207,34 @@ func summarizeQueryResult(value any) map[string]any {
 	}
 	if columnNames := extractColumnNames(payload["columns"]); len(columnNames) > 0 {
 		summary["column_names"] = columnNames
+	}
+	return summary
+}
+
+func summarizeManagedQueryRecord(record map[string]any) map[string]any {
+	summary := map[string]any{}
+	if queryID, ok := record["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
+		summary["query_id"] = queryID
+	}
+	if sqlQuery, ok := record["sql_query"].(string); ok {
+		if statementType := sqlStatementType(sqlQuery); statementType != "" {
+			summary["statement_type"] = statementType
+		}
+	}
+	if allowsModification, ok := record["allows_modification"].(bool); ok {
+		summary["allows_modification"] = allowsModification
+	}
+	if parameterCount, ok := arrayLength(record["parameters"]); ok {
+		summary["parameter_count"] = parameterCount
+	}
+	if outputColumnCount, ok := arrayLength(record["output_columns"]); ok {
+		summary["output_column_count"] = outputColumnCount
+	}
+	if constraints, ok := record["constraints"].(string); ok && strings.TrimSpace(constraints) != "" {
+		summary["has_constraints"] = true
+	}
+	if datasourceID, ok := record["datasource_id"].(string); ok && strings.TrimSpace(datasourceID) != "" {
+		summary["datasource_present"] = true
 	}
 	return summary
 }
@@ -175,6 +261,14 @@ func extractColumnNames(raw any) []string {
 		}
 	}
 	return names
+}
+
+func arrayLength(raw any) (int, bool) {
+	values, ok := raw.([]any)
+	if !ok {
+		return 0, false
+	}
+	return len(values), true
 }
 
 func sqlStatementType(sqlQuery string) string {

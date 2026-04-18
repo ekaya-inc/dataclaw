@@ -27,6 +27,13 @@ func TestFreshSchemaUsesAgentTables(t *testing.T) {
 	if membershipTableCount != 1 {
 		t.Fatalf("expected agent_approved_queries table to exist once, got %d", membershipTableCount)
 	}
+	hasManagerColumn, err := tableHasColumn(ctx, store.DB(), "agents", "can_manage_approved_queries")
+	if err != nil {
+		t.Fatalf("query agents table columns: %v", err)
+	}
+	if !hasManagerColumn {
+		t.Fatal("expected fresh schema to include can_manage_approved_queries column")
+	}
 
 }
 
@@ -49,12 +56,13 @@ func TestStorePersistsAgentsAndSelectedQueryMemberships(t *testing.T) {
 	}
 
 	agent := &Agent{
-		Name:               "Sales Assistant",
-		APIKeyEncrypted:    "encrypted-key",
-		CanQuery:           true,
-		CanExecute:         false,
-		ApprovedQueryScope: ApprovedQueryScopeSelected,
-		ApprovedQueryIDs:   []string{queryA.ID, queryB.ID},
+		Name:                     "Sales Assistant",
+		APIKeyEncrypted:          "encrypted-key",
+		CanQuery:                 true,
+		CanExecute:               false,
+		CanManageApprovedQueries: true,
+		ApprovedQueryScope:       ApprovedQueryScopeSelected,
+		ApprovedQueryIDs:         []string{queryA.ID, queryB.ID},
 	}
 	if err := store.CreateAgent(ctx, agent); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
@@ -77,6 +85,9 @@ func TestStorePersistsAgentsAndSelectedQueryMemberships(t *testing.T) {
 	}
 	if loaded.Name != agent.Name {
 		t.Fatalf("expected name %q, got %q", agent.Name, loaded.Name)
+	}
+	if !loaded.CanManageApprovedQueries {
+		t.Fatalf("expected can_manage_approved_queries to round-trip, got %#v", loaded)
 	}
 	if len(loaded.ApprovedQueryIDs) != 2 || !containsAll(loaded.ApprovedQueryIDs, []string{queryA.ID, queryB.ID}) {
 		t.Fatalf("unexpected approved query ids: %#v", loaded.ApprovedQueryIDs)

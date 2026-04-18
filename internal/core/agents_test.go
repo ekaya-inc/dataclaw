@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 func TestCreateAgentRevealRotateAndAuthenticate(t *testing.T) {
@@ -125,6 +126,133 @@ func TestCreateAgentRejectsDuplicateNameCaseInsensitive(t *testing.T) {
 	}
 	if _, err := service.CreateAgent(ctx, AgentInput{Name: "finance bot", CanQuery: true}); err == nil {
 		t.Fatal("expected case-insensitive duplicate name to fail")
+	}
+}
+
+func TestManagerCapabilityForcesRawQueryAndAllowsCatalogCRUD(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	ctx := context.Background()
+	seedDatasource(t, service, "postgres")
+
+	manager, err := service.CreateAgent(ctx, AgentInput{
+		Name:                     "Catalog manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	if !manager.CanQuery {
+		t.Fatal("expected manager capability to force can_query=true")
+	}
+	if !manager.CanManageApprovedQueries {
+		t.Fatal("expected manager capability to round-trip on create")
+	}
+
+	internalManager, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+	if internalManager == nil {
+		t.Fatal("expected manager agent to authenticate")
+	}
+
+	queries, err := service.ListQueriesForAgent(ctx, internalManager)
+	if err != nil {
+		t.Fatalf("ListQueriesForAgent(manager): %v", err)
+	}
+	if len(queries) != 0 {
+		t.Fatalf("expected empty catalog for new manager, got %#v", queries)
+	}
+
+	createdQuery, err := service.CreateQueryForAgent(ctx, internalManager, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "List accounts",
+		SQLQuery:              "SELECT account_id FROM accounts",
+	})
+	if err != nil {
+		t.Fatalf("CreateQueryForAgent(manager): %v", err)
+	}
+	if _, err := service.ExecuteStoredQueryForAgent(ctx, internalManager, createdQuery.ID, nil, 10); err == nil {
+		t.Fatal("expected manager capability alone not to grant execute_query access")
+	}
+
+	updatedQuery, err := service.UpdateQueryForAgent(ctx, internalManager, createdQuery.ID, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Rename account",
+		SQLQuery:              "UPDATE accounts SET account_name = {{account_name}} WHERE account_id = {{account_id}}",
+		AllowsModification:    true,
+		Parameters: []models.QueryParameter{
+			{Name: "account_id", Type: "uuid", Description: "Account identifier", Required: true},
+			{Name: "account_name", Type: "string", Description: "New account name", Required: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateQueryForAgent(manager): %v", err)
+	}
+	if !updatedQuery.AllowsModification {
+		t.Fatalf("expected updated query to persist allows_modification, got %#v", updatedQuery)
+	}
+
+	if err := service.DeleteQueryForAgent(ctx, internalManager, createdQuery.ID); err != nil {
+		t.Fatalf("DeleteQueryForAgent(manager): %v", err)
+	}
+	deletedQuery, err := service.GetQuery(ctx, createdQuery.ID)
+	if err != nil {
+		t.Fatalf("GetQuery(after delete): %v", err)
+	}
+	if deletedQuery != nil {
+		t.Fatalf("expected query to be deleted, got %#v", deletedQuery)
+	}
+}
+
+func TestApprovedQueryCRUDRequiresManagerCapability(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	ctx := context.Background()
+	seedDatasource(t, service, "postgres")
+
+	manager, err := service.CreateAgent(ctx, AgentInput{
+		Name:                     "Catalog manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	reader, err := service.CreateAgent(ctx, AgentInput{Name: "Reader"})
+	if err != nil {
+		t.Fatalf("CreateAgent(reader): %v", err)
+	}
+
+	internalManager, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+	internalReader, err := service.AuthenticateAgent(ctx, reader.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(reader): %v", err)
+	}
+
+	createdQuery, err := service.CreateQueryForAgent(ctx, internalManager, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "List accounts",
+		SQLQuery:              "SELECT account_id FROM accounts",
+	})
+	if err != nil {
+		t.Fatalf("CreateQueryForAgent(manager): %v", err)
+	}
+
+	if _, err := service.CreateQueryForAgent(ctx, internalReader, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Should fail",
+		SQLQuery:              "SELECT 1",
+	}); err == nil {
+		t.Fatal("expected non-manager create to fail")
+	}
+	if _, err := service.UpdateQueryForAgent(ctx, internalReader, createdQuery.ID, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Should fail",
+		SQLQuery:              "SELECT 1",
+	}); err == nil {
+		t.Fatal("expected non-manager update to fail")
+	}
+	if err := service.DeleteQueryForAgent(ctx, internalReader, createdQuery.ID); err == nil {
+		t.Fatal("expected non-manager delete to fail")
 	}
 }
 

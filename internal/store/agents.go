@@ -19,19 +19,20 @@ const (
 )
 
 type Agent struct {
-	ID                 string             `json:"id"`
-	Name               string             `json:"name"`
-	APIKeyEncrypted    string             `json:"-"`
-	CanQuery           bool               `json:"can_query"`
-	CanExecute         bool               `json:"can_execute"`
-	ApprovedQueryScope ApprovedQueryScope `json:"approved_query_scope"`
-	ApprovedQueryIDs   []string           `json:"approved_query_ids,omitempty"`
-	CreatedAt          time.Time          `json:"created_at"`
-	UpdatedAt          time.Time          `json:"updated_at"`
-	LastUsedAt         *time.Time         `json:"last_used_at,omitempty"`
+	ID                       string             `json:"id"`
+	Name                     string             `json:"name"`
+	APIKeyEncrypted          string             `json:"-"`
+	CanQuery                 bool               `json:"can_query"`
+	CanExecute               bool               `json:"can_execute"`
+	CanManageApprovedQueries bool               `json:"can_manage_approved_queries"`
+	ApprovedQueryScope       ApprovedQueryScope `json:"approved_query_scope"`
+	ApprovedQueryIDs         []string           `json:"approved_query_ids,omitempty"`
+	CreatedAt                time.Time          `json:"created_at"`
+	UpdatedAt                time.Time          `json:"updated_at"`
+	LastUsedAt               *time.Time         `json:"last_used_at,omitempty"`
 }
 
-const agentColumns = `id, name, api_key_encrypted, can_query, can_execute, approved_query_scope, created_at, updated_at, last_used_at`
+const agentColumns = `id, name, api_key_encrypted, can_query, can_execute, can_manage_approved_queries, approved_query_scope, created_at, updated_at, last_used_at`
 
 func (s *Store) CountAgents(ctx context.Context) (int, error) {
 	var count int
@@ -197,15 +198,15 @@ func (s *Store) upsertAgent(ctx context.Context, agent *Agent, create bool) (err
 	if create {
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO agents(
-				id, name, api_key_encrypted, can_query, can_execute, approved_query_scope, created_at, updated_at, last_used_at
-			) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, agent.ID, agent.Name, agent.APIKeyEncrypted, boolToInt(agent.CanQuery), boolToInt(agent.CanExecute), string(agent.ApprovedQueryScope), agent.CreatedAt.Format(time.RFC3339), agent.UpdatedAt.Format(time.RFC3339), formatNullableTime(agent.LastUsedAt))
+				id, name, api_key_encrypted, can_query, can_execute, can_manage_approved_queries, approved_query_scope, created_at, updated_at, last_used_at
+			) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, agent.ID, agent.Name, agent.APIKeyEncrypted, boolToInt(agent.CanQuery), boolToInt(agent.CanExecute), boolToInt(agent.CanManageApprovedQueries), string(agent.ApprovedQueryScope), agent.CreatedAt.Format(time.RFC3339), agent.UpdatedAt.Format(time.RFC3339), formatNullableTime(agent.LastUsedAt))
 	} else {
 		_, err = tx.ExecContext(ctx, `
 			UPDATE agents
-			SET name = ?, api_key_encrypted = ?, can_query = ?, can_execute = ?, approved_query_scope = ?, updated_at = ?, last_used_at = ?
+			SET name = ?, api_key_encrypted = ?, can_query = ?, can_execute = ?, can_manage_approved_queries = ?, approved_query_scope = ?, updated_at = ?, last_used_at = ?
 			WHERE id = ?
-		`, agent.Name, agent.APIKeyEncrypted, boolToInt(agent.CanQuery), boolToInt(agent.CanExecute), string(agent.ApprovedQueryScope), agent.UpdatedAt.Format(time.RFC3339), formatNullableTime(agent.LastUsedAt), agent.ID)
+		`, agent.Name, agent.APIKeyEncrypted, boolToInt(agent.CanQuery), boolToInt(agent.CanExecute), boolToInt(agent.CanManageApprovedQueries), string(agent.ApprovedQueryScope), agent.UpdatedAt.Format(time.RFC3339), formatNullableTime(agent.LastUsedAt), agent.ID)
 	}
 	if err != nil {
 		return err
@@ -230,14 +231,15 @@ func replaceAgentApprovedQueriesTx(ctx context.Context, tx *sql.Tx, agentID stri
 
 func scanAgent(scanner interface{ Scan(dest ...any) error }) (*Agent, error) {
 	var agent Agent
-	var canQuery, canExecute int
+	var canQuery, canExecute, canManageApprovedQueries int
 	var createdAt, updatedAt string
 	var lastUsedAt sql.NullString
-	if err := scanner.Scan(&agent.ID, &agent.Name, &agent.APIKeyEncrypted, &canQuery, &canExecute, &agent.ApprovedQueryScope, &createdAt, &updatedAt, &lastUsedAt); err != nil {
+	if err := scanner.Scan(&agent.ID, &agent.Name, &agent.APIKeyEncrypted, &canQuery, &canExecute, &canManageApprovedQueries, &agent.ApprovedQueryScope, &createdAt, &updatedAt, &lastUsedAt); err != nil {
 		return nil, err
 	}
 	agent.CanQuery = canQuery == 1
 	agent.CanExecute = canExecute == 1
+	agent.CanManageApprovedQueries = canManageApprovedQueries == 1
 	agent.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	agent.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	if lastUsedAt.Valid && strings.TrimSpace(lastUsedAt.String) != "" {
