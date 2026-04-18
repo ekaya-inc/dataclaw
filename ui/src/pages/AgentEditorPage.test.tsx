@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe('AgentEditorPage', () => {
   it('creates an agent and navigates to the detail route with the plaintext key in state', async () => {
-    vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/queries') return jsonResponse({ queries: [] });
       if (url === '/api/agents' && init?.method === 'POST') {
@@ -68,6 +68,7 @@ describe('AgentEditorPage', () => {
               api_key: 'dclw-new-secret',
               can_query: true,
               can_execute: false,
+              can_manage_approved_queries: false,
               approved_query_scope: 'none',
               approved_query_ids: [],
             },
@@ -86,12 +87,79 @@ describe('AgentEditorPage', () => {
     const createButton = screen.getByRole('button', { name: /create agent/i });
     await userEvent.click(createButton);
 
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      name: 'New bot',
+      can_query: true,
+      can_execute: false,
+      can_manage_approved_queries: false,
+      approved_query_scope: 'none',
+      approved_query_ids: [],
+    });
+
     expect(await screen.findByText('Detail stub')).toBeInTheDocument();
     expect(screen.getByTestId('detail-state-apikey')).toHaveTextContent('dclw-new-secret');
   });
 
+  it('forces raw query on while approved-query management is enabled and submits the manager flag', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/queries') return jsonResponse({ queries: [] });
+      if (url === '/api/agents' && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            agent: {
+              id: 'agent_manager',
+              name: 'Manager bot',
+              masked_api_key: 'dclw-mg••••',
+              api_key: 'dclw-manager-secret',
+              can_query: true,
+              can_execute: false,
+              can_manage_approved_queries: true,
+              approved_query_scope: 'none',
+              approved_query_ids: [],
+            },
+          },
+          201,
+        );
+      }
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt('/agents/new');
+
+    const nameInput = await screen.findByLabelText(/^name$/i);
+    const rawQueryCheckbox = screen.getByRole('checkbox', { name: /allow raw query/i });
+    const managerCheckbox = screen.getByRole('checkbox', { name: /allow agent to manage approved queries/i });
+
+    await userEvent.click(rawQueryCheckbox);
+    expect(rawQueryCheckbox).not.toBeChecked();
+
+    const learnMoreButton = screen.getByRole('button', { name: /learn more/i });
+    await userEvent.click(learnMoreButton);
+    expect(screen.getByText(/hard work of maintaining approved queries/i)).toBeInTheDocument();
+
+    await userEvent.click(managerCheckbox);
+    expect(managerCheckbox).toBeChecked();
+    expect(rawQueryCheckbox).toBeChecked();
+    expect(rawQueryCheckbox).toBeDisabled();
+
+    await userEvent.type(nameInput, 'Manager bot');
+    await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      name: 'Manager bot',
+      can_query: true,
+      can_execute: false,
+      can_manage_approved_queries: true,
+      approved_query_scope: 'none',
+      approved_query_ids: [],
+    });
+  });
+
   it('loads an agent for editing and saves without a name change', async () => {
-    vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/queries') return jsonResponse({ queries: [] });
       if (url === '/api/agents/agent_1' && !init?.method) {
@@ -102,6 +170,7 @@ describe('AgentEditorPage', () => {
             masked_api_key: 'dclw-an••••',
             can_query: true,
             can_execute: false,
+            can_manage_approved_queries: false,
             approved_query_scope: 'none',
             approved_query_ids: [],
           },
@@ -115,6 +184,7 @@ describe('AgentEditorPage', () => {
             masked_api_key: 'dclw-an••••',
             can_query: true,
             can_execute: true,
+            can_manage_approved_queries: false,
             approved_query_scope: 'none',
             approved_query_ids: [],
           },
@@ -134,6 +204,16 @@ describe('AgentEditorPage', () => {
 
     const saveButton = screen.getByRole('button', { name: /save changes/i });
     await userEvent.click(saveButton);
+
+    const putCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT');
+    expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
+      name: 'Warehouse analyst',
+      can_query: true,
+      can_execute: true,
+      can_manage_approved_queries: false,
+      approved_query_scope: 'none',
+      approved_query_ids: [],
+    });
 
     expect(await screen.findByText('Detail stub')).toBeInTheDocument();
   });

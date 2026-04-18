@@ -79,6 +79,9 @@ function ToolsPills({ agent }: { agent: AgentRecord }): JSX.Element {
       {agent.canExecute ? (
         <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-red-700">execute</span>
       ) : null}
+      {agent.canManageApprovedQueries ? (
+        <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-indigo-700">manage approved queries</span>
+      ) : null}
       <span
         className={cn(
           'rounded-full px-2 py-0.5',
@@ -450,4 +453,3 @@ function DeleteAgentDialog({
     </Dialog>
   );
 }
-

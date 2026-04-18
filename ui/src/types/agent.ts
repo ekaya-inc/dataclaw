@@ -7,6 +7,7 @@ export interface AgentRecord {
   apiKey?: string | undefined;
   canQuery: boolean;
   canExecute: boolean;
+  canManageApprovedQueries?: boolean;
   approvedQueryScope: ApprovedQueryScope;
   approvedQueryIds: string[];
   createdAt?: string | undefined;
@@ -18,6 +19,7 @@ export interface AgentFormValues {
   name: string;
   canQuery: boolean;
   canExecute: boolean;
+  canManageApprovedQueries?: boolean;
   approvedQueryScope: ApprovedQueryScope;
   approvedQueryIds: string[];
 }
