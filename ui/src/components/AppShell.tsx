@@ -21,7 +21,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
-  { to: '/agents', label: 'Agents', icon: Bot, completionKey: 'agent' },
+  { to: '/agents', label: 'Agent Access', icon: Bot, completionKey: 'agent' },
 ];
 
 interface AppShellProps {

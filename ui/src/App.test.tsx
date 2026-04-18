@@ -39,7 +39,7 @@ describe('App shell', () => {
     expect(screen.getByText(/start by adding a datasource/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /configure datasource/i })).toBeInTheDocument();
 
-    const agentsLink = screen.getByRole('link', { name: /^agents$/i });
+    const agentsLink = screen.getByRole('link', { name: /^agent access$/i });
     expect(agentsLink.querySelector('[aria-label="Completed"]')).toBeNull();
     const queriesLink = screen.getByRole('link', { name: /^approved queries$/i });
     expect(queriesLink.querySelector('[aria-label="Completed"]')).toBeNull();

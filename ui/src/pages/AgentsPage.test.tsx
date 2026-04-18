@@ -92,7 +92,7 @@ describe('AgentsPage', () => {
       expect(screen.getByText(/start by adding a datasource/i)).toBeInTheDocument(),
     );
     expect(screen.getByRole('button', { name: /configure datasource/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /new agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new access point/i })).not.toBeInTheDocument();
   });
 
   it('shows the empty state when no agents exist', async () => {
@@ -106,9 +106,9 @@ describe('AgentsPage', () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: /no agents yet/i })).toBeInTheDocument(),
+      expect(screen.getByRole('heading', { name: /no access points yet/i })).toBeInTheDocument(),
     );
-    expect(screen.getAllByRole('button', { name: /new agent/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /new access point/i }).length).toBeGreaterThan(0);
   });
 
   it('renders the agent row with tool pills', async () => {
@@ -126,7 +126,7 @@ describe('AgentsPage', () => {
     expect(screen.getAllByText('1 query').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('navigates to /agents/new when New agent is clicked', async () => {
+  it('navigates to /agents/new when New Access Point is clicked', async () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/status') return statusResponse(0);
@@ -136,8 +136,8 @@ describe('AgentsPage', () => {
 
     renderPage();
 
-    const newAgentButton = await screen.findByRole('button', { name: /new agent/i });
-    await userEvent.click(newAgentButton);
+    const newAccessPointButton = await screen.findByRole('button', { name: /new access point/i });
+    await userEvent.click(newAccessPointButton);
 
     expect(await screen.findByText('New agent route')).toBeInTheDocument();
   });
@@ -158,7 +158,7 @@ describe('AgentsPage', () => {
     expect(await screen.findByText('Detail route')).toBeInTheDocument();
   });
 
-  it('requires typing "delete agent" to enable deletion', async () => {
+  it('requires typing "delete access point" to enable deletion', async () => {
     let agents: Array<Record<string, unknown>> = [warehouseAgent()];
     vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
@@ -179,13 +179,13 @@ describe('AgentsPage', () => {
 
     const dialog = await screen.findByRole('dialog');
     const confirmInput = within(dialog).getByLabelText(/type .* to confirm/i);
-    const deleteButton = within(dialog).getByRole('button', { name: /delete agent/i });
+    const deleteButton = within(dialog).getByRole('button', { name: /delete access point/i });
 
     expect(deleteButton).toBeDisabled();
-    await userEvent.type(confirmInput, 'delete agent');
+    await userEvent.type(confirmInput, 'delete access point');
     expect(deleteButton).toBeEnabled();
     await userEvent.click(deleteButton);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /no agents yet/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /no access points yet/i })).toBeInTheDocument());
   });
 });

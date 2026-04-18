@@ -84,7 +84,7 @@ describe('AgentEditorPage', () => {
     const nameInput = await screen.findByLabelText(/^name$/i);
     await userEvent.type(nameInput, 'New bot');
 
-    const createButton = screen.getByRole('button', { name: /create agent/i });
+    const createButton = screen.getByRole('button', { name: /create access point/i });
     await userEvent.click(createButton);
 
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
@@ -153,7 +153,7 @@ describe('AgentEditorPage', () => {
     expect(selectedRadio).toBeDisabled();
 
     await userEvent.type(nameInput, 'Manager bot');
-    await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create access point/i }));
 
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
     expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
@@ -232,7 +232,7 @@ describe('AgentEditorPage', () => {
     expect(screen.getByRole('checkbox', { name: /top accounts/i })).toBeChecked();
 
     await userEvent.type(nameInput, 'Scoped bot');
-    await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create access point/i }));
 
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
     expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({

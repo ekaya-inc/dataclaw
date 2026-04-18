@@ -136,7 +136,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
           {loading ? null : queries.length === 0 ? (
             <EmptyState
               title="No approved queries yet"
-              body="Create your own query by hand or (RECOMMENDED) have an agent create your queries for you by enabling 'Manage Approved Queries' in the Agents screen."
+              body="Create your own query by hand or (RECOMMENDED) have an agent create your queries for you by enabling 'Manage Approved Queries' in the Agent Access screen."
               actions={
                 <Button type="button" onClick={() => void handleSeedQuery()} disabled={seeding}>
                   <Sparkles className="h-4 w-4" />
