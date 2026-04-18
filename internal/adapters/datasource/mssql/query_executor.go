@@ -38,13 +38,23 @@ func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string
 	return datasource.ExecuteQueryRows(ctx, e.adapter.db, finalQuery, namedArgs, limit)
 }
 
-func (e *QueryExecutor) ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
-	preparedSQL, params, err := datasource.PrepareMutatingParameterizedQuery(sqlQuery, paramDefs, values)
+func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+	preparedSQL, params, err := datasource.PrepareDMLParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
 	convertedQuery, namedArgs := convertParams(preparedSQL, params)
 	return datasource.ExecuteQueryRows(ctx, e.adapter.db, convertedQuery, namedArgs, limit)
+}
+
+func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*datasource.ExecuteResult, error) {
+	if !datasource.SupportsExecuteStatement(sqlQuery) {
+		return nil, datasource.ErrExecuteStatementType
+	}
+	if isOutputStatement(sqlQuery) {
+		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, limit)
+	}
+	return datasource.ExecuteStatement(ctx, e.adapter.db, sqlQuery, nil)
 }
 
 func (e *QueryExecutor) Close() error {
@@ -63,6 +73,15 @@ func prepareQuery(sqlQuery string, limit int) string {
 		return sqlQuery
 	}
 	return wrapQuery(sqlQuery, limit)
+}
+
+func isOutputStatement(sqlQuery string) bool {
+	switch datasource.FirstStatementKeyword(sqlQuery) {
+	case "INSERT", "UPDATE", "DELETE", "MERGE":
+		return datasource.ContainsStatementKeyword(sqlQuery, "OUTPUT")
+	default:
+		return false
+	}
 }
 
 func convertParams(query string, args []any) (string, []any) {

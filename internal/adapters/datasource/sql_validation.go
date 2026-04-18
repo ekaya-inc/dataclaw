@@ -73,7 +73,7 @@ func ValidateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) 
 	return ValidateReadOnlySQL(normalized)
 }
 
-func ValidateMutatingSQL(sqlQuery string) (string, error) {
+func ValidateDMLSQL(sqlQuery string) (string, error) {
 	result := sqltmpl.ValidateAndNormalize(sqlQuery)
 	if result.Error != nil {
 		return "", result.Error
@@ -85,7 +85,7 @@ func ValidateMutatingSQL(sqlQuery string) (string, error) {
 	}
 	first := tokens[0].Text
 	if first != "INSERT" && first != "UPDATE" && first != "DELETE" {
-		return "", errors.New("mutating queries must start with INSERT, UPDATE, or DELETE")
+		return "", errors.New("DML queries must start with INSERT, UPDATE, or DELETE")
 	}
 	if containsForbiddenDDL(tokens) {
 		return "", errors.New("DDL statements (DROP, CREATE, ALTER, TRUNCATE, GRANT, REVOKE, RENAME, VACUUM, ATTACH, DETACH, PRAGMA) are not allowed")
@@ -93,12 +93,12 @@ func ValidateMutatingSQL(sqlQuery string) (string, error) {
 	return normalized, nil
 }
 
-func ValidateStoredMutatingSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+func ValidateStoredDMLSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
 	normalized, err := ValidateStoredSQL(sqlQuery, params)
 	if err != nil {
 		return "", err
 	}
-	return ValidateMutatingSQL(normalized)
+	return ValidateDMLSQL(normalized)
 }
 
 func PrepareParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
@@ -121,12 +121,12 @@ func PrepareReadOnlyParameterizedQuery(sqlQuery string, params []models.QueryPar
 	return readOnly, args, nil
 }
 
-func PrepareMutatingParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
+func PrepareDMLParameterizedQuery(sqlQuery string, params []models.QueryParameter, values map[string]any) (string, []any, error) {
 	prepared, args, err := PrepareParameterizedQuery(sqlQuery, params, values)
 	if err != nil {
 		return "", nil, err
 	}
-	mutating, err := ValidateMutatingSQL(prepared)
+	mutating, err := ValidateDMLSQL(prepared)
 	if err != nil {
 		return "", nil, err
 	}

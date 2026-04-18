@@ -14,7 +14,8 @@ type ConnectionTester interface {
 type QueryExecutor interface {
 	Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error)
 	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
-	ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
+	ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
+	Execute(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error)
 	Close() error
 }
 
@@ -56,4 +57,11 @@ type QueryResult struct {
 	Columns  []QueryColumn    `json:"columns"`
 	Rows     []map[string]any `json:"rows"`
 	RowCount int              `json:"row_count"`
+}
+
+type ExecuteResult struct {
+	Columns      []QueryColumn    `json:"columns"`
+	Rows         []map[string]any `json:"rows"`
+	RowCount     int              `json:"row_count"`
+	RowsAffected int64            `json:"rows_affected"`
 }

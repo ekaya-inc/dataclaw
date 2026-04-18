@@ -72,6 +72,74 @@ func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any,
 	return result, nil
 }
 
+func ExecuteReturningRows(ctx context.Context, db *sql.DB, query string, args []any, limit int) (*ExecuteResult, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	colNames, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	columns := make([]QueryColumn, len(colNames))
+	for i, name := range colNames {
+		columns[i] = QueryColumn{Name: name, Type: normalizeColumnType(colTypes[i].DatabaseTypeName())}
+	}
+
+	result := &ExecuteResult{
+		Columns: columns,
+		Rows:    make([]map[string]any, 0),
+	}
+	limit = NormalizeLimit(limit)
+	for rows.Next() {
+		values := make([]any, len(colNames))
+		ptrs := make([]any, len(colNames))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		rowMap := make(map[string]any, len(colNames))
+		for i, name := range colNames {
+			rowMap[name] = normalizeValue(values[i])
+		}
+		if len(result.Rows) < limit {
+			result.Rows = append(result.Rows, rowMap)
+		}
+		result.RowsAffected++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result.RowCount = len(result.Rows)
+	return result, nil
+}
+
+func ExecuteStatement(ctx context.Context, db *sql.DB, query string, args []any) (*ExecuteResult, error) {
+	execResult, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	rowsAffected, err := execResult.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	return &ExecuteResult{
+		Columns:      []QueryColumn{},
+		Rows:         []map[string]any{},
+		RowCount:     0,
+		RowsAffected: rowsAffected,
+	}, nil
+}
+
 func normalizeValue(v any) any {
 	switch t := v.(type) {
 	case []byte:

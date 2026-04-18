@@ -208,6 +208,9 @@ func summarizeQueryResult(value any) map[string]any {
 	if columnNames := extractColumnNames(payload["columns"]); len(columnNames) > 0 {
 		summary["column_names"] = columnNames
 	}
+	if rowsAffected, ok := intValue(payload["rows_affected"]); ok {
+		summary["rows_affected"] = rowsAffected
+	}
 	return summary
 }
 

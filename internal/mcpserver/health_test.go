@@ -108,11 +108,20 @@ func (fakeMCPQueryExecutor) QueryWithParameters(_ context.Context, _ string, _ [
 	}, nil
 }
 
-func (fakeMCPQueryExecutor) ExecuteMutatingQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
+func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
 	return &dsadapter.QueryResult{
 		Columns:  []dsadapter.QueryColumn{{Name: "rows_affected", Type: "integer"}},
 		Rows:     []map[string]any{{"rows_affected": 1}},
 		RowCount: 1,
+	}, nil
+}
+
+func (fakeMCPQueryExecutor) Execute(context.Context, string, int) (*dsadapter.ExecuteResult, error) {
+	return &dsadapter.ExecuteResult{
+		Columns:      []dsadapter.QueryColumn{},
+		Rows:         []map[string]any{},
+		RowCount:     0,
+		RowsAffected: 1,
 	}, nil
 }
 

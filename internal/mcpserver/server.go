@@ -123,9 +123,9 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute",
-		mcp.WithDescription("Execute ad-hoc mutating SQL/DDL/DML against the configured datasource when the authenticated agent has raw execute access."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("Mutating SQL statement to execute")),
-		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithDescription("Execute ad-hoc DDL or DML against the configured datasource when the authenticated agent has raw execute access."),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
+		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "execute", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanExecute {
@@ -136,7 +136,7 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 			return nil, err
 		}
 		limit := extractLimit(req, 100)
-		return service.ExecuteRawMutation(ctx, sqlQuery, limit)
+		return service.ExecuteRawStatement(ctx, sqlQuery, limit)
 	}))
 }
 

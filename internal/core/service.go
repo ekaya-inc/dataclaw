@@ -261,7 +261,7 @@ func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameter
 	}
 	defer executor.Close()
 	if allowsModification {
-		return executor.ExecuteMutatingQuery(ctx, sqlQuery, parameters, effectiveValues, limit)
+		return executor.ExecuteDMLQuery(ctx, sqlQuery, parameters, effectiveValues, limit)
 	}
 	return executor.QueryWithParameters(ctx, sqlQuery, parameters, effectiveValues, limit)
 }
@@ -298,7 +298,7 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 	}
 	defer executor.Close()
 	if q.AllowsModification {
-		return executor.ExecuteMutatingQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
+		return executor.ExecuteDMLQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
 	}
 	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
 }

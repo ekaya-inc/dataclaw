@@ -253,6 +253,32 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 }
 
+func TestExecuteToolAllowsDDLAndReturnsExecuteResult(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	writer, err := service.CreateAgent(ctx, core.AgentInput{Name: "Writer", CanExecute: true})
+	if err != nil {
+		t.Fatalf("CreateAgent(writer): %v", err)
+	}
+
+	payload := callToolJSONWithHeader(t, ctx, mcpClient, "execute", map[string]any{
+		"sql":   "CREATE TABLE scratch_execute (id integer)",
+		"limit": 25,
+	}, writer.APIKey)
+
+	if got := payload["row_count"]; got != float64(0) && got != 0 {
+		t.Fatalf("expected execute row_count=0 for DDL, got %#v", got)
+	}
+	if got := payload["rows_affected"]; got != float64(1) && got != 1 {
+		t.Fatalf("expected execute rows_affected=1 from fake executor, got %#v", got)
+	}
+	rows := asSlice(t, payload["rows"])
+	if len(rows) != 0 {
+		t.Fatalf("expected no execute rows for DDL, got %#v", rows)
+	}
+}
+
 func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)

@@ -234,6 +234,42 @@ func TestManagedQueryCRUDToolCallsRecordSafeSummaries(t *testing.T) {
 	}
 }
 
+func TestExecuteToolRecordsRowsAffectedSummaryForDDL(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	writer, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:       "Writer",
+		CanExecute: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(writer): %v", err)
+	}
+
+	callToolJSONWithHeader(t, ctx, mcpClient, "execute", map[string]any{
+		"sql": "CREATE TABLE scratch_execute (id integer)",
+	}, writer.APIKey)
+
+	page, err := service.ListMCPToolEvents(ctx, storepkg.ListMCPToolEventOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("expected 1 recorded execute event, got %#v", page)
+	}
+
+	event := page.Items[0]
+	if event.ToolName != "execute" || event.EventType != storepkg.MCPToolEventTypeCall || !event.WasSuccessful {
+		t.Fatalf("unexpected execute event: %#v", event)
+	}
+	if got := event.RequestParams["statement_type"]; got != "CREATE" {
+		t.Fatalf("expected execute request statement_type=CREATE, got %#v", got)
+	}
+	if got := event.ResultSummary["rows_affected"]; got != 1 && got != float64(1) {
+		t.Fatalf("expected execute result rows_affected=1, got %#v", got)
+	}
+}
+
 func TestSuccessfulTrackedToolCallStillSucceedsWhenEventPersistenceFails(t *testing.T) {
 	ctx := context.Background()
 	service, st := newTestMCPService(t, newFakeMCPAdapterFactory(), true)

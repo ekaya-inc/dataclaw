@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
+	sqltmpl "github.com/ekaya-inc/dataclaw/pkg/sql"
 )
 
 type AgentInput struct {
@@ -276,21 +276,25 @@ func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepk
 	return s.ExecuteStoredQuery(ctx, id, values, limit)
 }
 
-func (s *Service) ExecuteRawMutation(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
 	}
-	normalized, err := dsadapter.ValidateMutatingSQL(sqlQuery)
-	if err != nil {
-		return nil, err
+	result := sqltmpl.ValidateAndNormalize(sqlQuery)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	normalized := result.NormalizedSQL
+	if normalized == "" {
+		return nil, errors.New("sql is required")
 	}
 	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
 	if err != nil {
 		return nil, err
 	}
 	defer executor.Close()
-	return executor.ExecuteMutatingQuery(ctx, normalized, nil, nil, limit)
+	return executor.Execute(ctx, normalized, limit)
 }
 
 func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (AgentInput, error) {
