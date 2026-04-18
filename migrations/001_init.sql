@@ -82,8 +82,3 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_created_at ON mcp_tool_events(cre
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_agent_name_created_at ON mcp_tool_events(agent_name, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_tool_name_created_at ON mcp_tool_events(tool_name, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_events_event_type_created_at ON mcp_tool_events(event_type, created_at DESC);
-
--- Fresh installs already include can_manage_approved_queries in the bootstrap schema, so
--- pre-mark the follow-on additive migration and let upgraded databases run 002 normally.
-INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-VALUES(2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
