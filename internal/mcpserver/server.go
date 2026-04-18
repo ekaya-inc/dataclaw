@@ -48,6 +48,8 @@ type queryToolRequest struct {
 	Constraints           string                  `json:"constraints"`
 }
 
+const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC\nLIMIT {{page_size}} OFFSET {{page_offset}}"
+
 func New(version string, service *core.Service) *Server {
 	mcpServer := buildMCPServer(version, service)
 	return &Server{httpServer: server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true)), service: service}
@@ -151,12 +153,12 @@ func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
 
 func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("create_query",
-		mcp.WithDescription("Create an approved query in the catalog when the authenticated agent can manage approved queries."),
+		mcp.WithDescription("Create an approved query in the catalog when the authenticated agent can manage approved queries. "+approvedQueryTemplateExample),
 		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
 		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
-		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL body for the approved query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL body for the approved query. "+approvedQueryTemplateExample)),
 		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
-		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions for the query."), mcp.Items(queryParameterItemSchema())),
+		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Optional documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
 	)
@@ -179,9 +181,9 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Approved query ID to replace.")),
 		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
 		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
-		mcp.WithString("sql_query", mcp.Required(), mcp.Description("Full replacement SQL body for the approved query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("Full replacement SQL body for the approved query. "+approvedQueryTemplateExample)),
 		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
-		mcp.WithArray("parameters", mcp.Description("Full replacement parameter definitions for the query."), mcp.Items(queryParameterItemSchema())),
+		mcp.WithArray("parameters", mcp.Description("Full replacement parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Full replacement documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
 	)

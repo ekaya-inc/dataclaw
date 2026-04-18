@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -61,6 +62,51 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	executorTools := listToolNames(t, withAuthorizedAgent(ctx, executorAgent), mcpClient)
 	if got, want := executorTools, []string{"execute", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected executor tools: got %v want %v", got, want)
+	}
+}
+
+func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	createTool := requireToolByName(t, (*result).Tools, "create_query")
+	if !strings.Contains(createTool.Description, "{{parameter_name}}") {
+		t.Fatalf("expected create_query description to document placeholder syntax, got %q", createTool.Description)
+	}
+	if !strings.Contains(createTool.Description, "SELECT order_id, user_id, status, created_at, num_of_item") {
+		t.Fatalf("expected create_query description to include SQL example, got %q", createTool.Description)
+	}
+	if !strings.Contains(createTool.Description, "Do not use :status, @status, or $1") {
+		t.Fatalf("expected create_query description to warn about unsupported placeholder styles, got %q", createTool.Description)
+	}
+
+	sqlQuerySchema, ok := createTool.InputSchema.Properties["sql_query"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sql_query schema to be an object, got %#v", createTool.InputSchema.Properties["sql_query"])
+	}
+	description, ok := sqlQuerySchema["description"].(string)
+	if !ok {
+		t.Fatalf("expected sql_query description to be a string, got %#v", sqlQuerySchema["description"])
+	}
+	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "CAST({{created_after}} AS TIMESTAMP)") {
+		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
 	}
 }
 
@@ -534,6 +580,17 @@ func listToolNamesWithHeader(t *testing.T, ctx context.Context, mcpClient *clien
 	}
 	sort.Strings(names)
 	return names
+}
+
+func requireToolByName(t *testing.T, tools []mcp.Tool, name string) mcp.Tool {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found in %#v", name, tools)
+	return mcp.Tool{}
 }
 
 func callToolJSON(t *testing.T, ctx context.Context, mcpClient *client.Client, tool string, args map[string]any) map[string]any {
