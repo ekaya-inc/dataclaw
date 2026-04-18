@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
@@ -10,15 +12,18 @@ export const EMPTY_AGENT_FORM: AgentFormValues = {
   name: '',
   canQuery: true,
   canExecute: false,
+  canManageApprovedQueries: false,
   approvedQueryScope: 'none',
   approvedQueryIds: [],
 };
 
 export function agentFormFromRecord(agent: AgentRecord): AgentFormValues {
+  const canManageApprovedQueries = Boolean(agent.canManageApprovedQueries);
   return {
     name: agent.name,
-    canQuery: agent.canQuery,
+    canQuery: canManageApprovedQueries ? true : agent.canQuery,
     canExecute: agent.canExecute,
+    canManageApprovedQueries,
     approvedQueryScope: agent.approvedQueryScope,
     approvedQueryIds: [...agent.approvedQueryIds],
   };
@@ -38,6 +43,9 @@ interface AgentFormFieldsProps {
 }
 
 export function AgentFormFields({ form, onChange, queries, nameReadOnly = false }: AgentFormFieldsProps): JSX.Element {
+  const [showManagerHelp, setShowManagerHelp] = useState(false);
+  const managerEnabled = Boolean(form.canManageApprovedQueries);
+
   const setField = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]): void => {
     onChange({ ...form, [key]: value });
   };
@@ -87,13 +95,15 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
           <input
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border-border-medium"
-            checked={form.canQuery}
-            onChange={(event) => setField('canQuery', event.target.checked)}
+            checked={managerEnabled ? true : form.canQuery}
+            onChange={(event) => setField('canQuery', managerEnabled ? true : event.target.checked)}
+            disabled={managerEnabled}
           />
           <div>
             <div className="font-medium text-text-primary">Allow raw query</div>
             <p className="mt-0.5 text-xs">
               Expose the <code className="rounded bg-surface-primary px-1 py-0.5">query</code> tool for ad-hoc read-only SQL.
+              {managerEnabled ? ' Required while approved-query management is enabled.' : ''}
             </p>
           </div>
         </label>
@@ -111,6 +121,43 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
             </p>
           </div>
         </label>
+        <div className="flex items-start gap-3 rounded-xl border border-border-light bg-surface-secondary p-3 text-sm text-text-secondary">
+          <input
+            id="agent-manage-approved-queries"
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-border-medium"
+            checked={managerEnabled}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                canManageApprovedQueries: event.target.checked,
+                canQuery: event.target.checked ? true : form.canQuery,
+              })
+            }
+          />
+          <div className="min-w-0 flex-1">
+            <label htmlFor="agent-manage-approved-queries" className="font-medium text-text-primary">
+              Allow agent to manage approved queries
+            </label>
+            <p className="mt-0.5 text-xs">
+              Expose tools that allow this agent to manage approved queries for other agents to use{' '}
+              <button
+                type="button"
+                className="font-medium text-text-primary underline underline-offset-2"
+                aria-expanded={showManagerHelp}
+                onClick={() => setShowManagerHelp((current) => !current)}
+              >
+                learn more
+              </button>
+              .
+            </p>
+            {showManagerHelp ? (
+              <p className="mt-2 rounded-lg border border-border-light bg-surface-primary px-3 py-2 text-xs text-text-secondary">
+                This lets the agent do the hard work of maintaining approved queries based on agents’ needs.
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2">
