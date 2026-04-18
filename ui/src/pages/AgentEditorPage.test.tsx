@@ -166,6 +166,85 @@ describe('AgentEditorPage', () => {
     });
   });
 
+  it('restores prior query permissions after manager mode is toggled back off', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/queries') {
+        return jsonResponse({
+          queries: [
+            {
+              query_id: 'query_1',
+              natural_language_prompt: 'Top accounts',
+              sql_query: 'SELECT * FROM accounts',
+              allows_modification: false,
+              parameters: [],
+              output_columns: [],
+            },
+          ],
+        });
+      }
+      if (url === '/api/agents' && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            agent: {
+              id: 'agent_restored',
+              name: 'Scoped bot',
+              masked_api_key: 'dclw-sc••••',
+              api_key: 'dclw-scoped-secret',
+              can_query: false,
+              can_execute: false,
+              can_manage_approved_queries: false,
+              approved_query_scope: 'selected',
+              approved_query_ids: ['query_1'],
+            },
+          },
+          201,
+        );
+      }
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt('/agents/new');
+
+    const nameInput = await screen.findByLabelText(/^name$/i);
+    const rawQueryCheckbox = screen.getByRole('checkbox', { name: /allow agent to query entire database/i });
+    const managerCheckbox = screen.getByRole('checkbox', { name: /allow agent to manage approved queries/i });
+    const selectedRadio = screen.getByRole('radio', { name: /selected approved queries/i });
+
+    await userEvent.click(rawQueryCheckbox);
+    expect(rawQueryCheckbox).not.toBeChecked();
+
+    await userEvent.click(selectedRadio);
+    expect(selectedRadio).toHaveAttribute('aria-checked', 'true');
+
+    const selectedQueryCheckbox = await screen.findByRole('checkbox', { name: /top accounts/i });
+    await userEvent.click(selectedQueryCheckbox);
+    expect(selectedQueryCheckbox).toBeChecked();
+
+    await userEvent.click(managerCheckbox);
+    expect(managerCheckbox).toBeChecked();
+    expect(rawQueryCheckbox).toBeChecked();
+
+    await userEvent.click(managerCheckbox);
+    expect(managerCheckbox).not.toBeChecked();
+    expect(rawQueryCheckbox).not.toBeChecked();
+    expect(selectedRadio).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('checkbox', { name: /top accounts/i })).toBeChecked();
+
+    await userEvent.type(nameInput, 'Scoped bot');
+    await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      name: 'Scoped bot',
+      can_query: false,
+      can_execute: false,
+      can_manage_approved_queries: false,
+      approved_query_scope: 'selected',
+      approved_query_ids: ['query_1'],
+    });
+  });
+
   it('loads an agent for editing and saves without a name change', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;

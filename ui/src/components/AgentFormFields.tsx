@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ChevronUp, Sparkles } from 'lucide-react';
 
@@ -48,10 +48,13 @@ interface AgentFormFieldsProps {
   nameReadOnly?: boolean;
 }
 
+type ManagerPermissionsSnapshot = Pick<AgentFormValues, 'canQuery' | 'approvedQueryScope' | 'approvedQueryIds'>;
+
 export function AgentFormFields({ form, onChange, queries, nameReadOnly = false }: AgentFormFieldsProps): JSX.Element {
   const [showManagerHelp, setShowManagerHelp] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [executeDialogOpen, setExecuteDialogOpen] = useState(false);
+  const managerPermissionsSnapshotRef = useRef<ManagerPermissionsSnapshot | null>(null);
   const managerEnabled = Boolean(form.canManageApprovedQueries);
 
   const setField = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]): void => {
@@ -80,6 +83,35 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
       ...form,
       approvedQueryScope: scope,
       approvedQueryIds: scope === 'selected' ? form.approvedQueryIds : [],
+    });
+  };
+
+  const handleManagerToggle = (enabled: boolean): void => {
+    if (enabled) {
+      managerPermissionsSnapshotRef.current = {
+        canQuery: form.canQuery,
+        approvedQueryScope: form.approvedQueryScope,
+        approvedQueryIds: [...form.approvedQueryIds],
+      };
+      setPanelOpen(true);
+      onChange({
+        ...form,
+        canManageApprovedQueries: true,
+        canQuery: true,
+        approvedQueryScope: 'all',
+        approvedQueryIds: [],
+      });
+      return;
+    }
+
+    const snapshot = managerPermissionsSnapshotRef.current;
+    managerPermissionsSnapshotRef.current = null;
+    onChange({
+      ...form,
+      canManageApprovedQueries: false,
+      canQuery: snapshot?.canQuery ?? form.canQuery,
+      approvedQueryScope: snapshot?.approvedQueryScope ?? form.approvedQueryScope,
+      approvedQueryIds: snapshot ? [...snapshot.approvedQueryIds] : form.approvedQueryIds,
     });
   };
 
@@ -168,19 +200,7 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
               type="checkbox"
               className="mt-1 h-4 w-4 rounded border-border-medium"
               checked={managerEnabled}
-              onChange={(event) => {
-                const enabling = event.target.checked;
-                if (enabling) {
-                  setPanelOpen(true);
-                }
-                onChange({
-                  ...form,
-                  canManageApprovedQueries: enabling,
-                  canQuery: enabling ? true : form.canQuery,
-                  approvedQueryScope: enabling ? 'all' : form.approvedQueryScope,
-                  approvedQueryIds: enabling ? [] : form.approvedQueryIds,
-                });
-              }}
+              onChange={(event) => handleManagerToggle(event.target.checked)}
             />
             <div className="min-w-0 flex-1">
               <label htmlFor="agent-manage-approved-queries" className="font-medium text-text-primary">
