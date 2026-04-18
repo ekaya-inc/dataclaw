@@ -298,7 +298,7 @@ func summarizeManagedQueryRecord(record map[string]any) map[string]any {
 	if constraints, ok := record["constraints"].(string); ok && strings.TrimSpace(constraints) != "" {
 		summary["has_constraints"] = true
 	}
-	if datasourceID, ok := record["datasource_id"].(string); ok && strings.TrimSpace(datasourceID) != "" {
+	if queryID, ok := record["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
 		summary["datasource_present"] = true
 	}
 	return summary

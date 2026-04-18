@@ -309,7 +309,7 @@ func (s *Service) requireDatasource(ctx context.Context) (*storepkg.Datasource, 
 		return nil, err
 	}
 	if ds == nil {
-		return nil, errors.New("no datasource configured")
+		return nil, ErrNoDatasourceConfigured
 	}
 	if err := s.decryptDatasource(ds); err != nil {
 		return nil, err

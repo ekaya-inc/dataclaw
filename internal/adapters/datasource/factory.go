@@ -24,6 +24,14 @@ func (f *registryFactory) NewConnectionTester(ctx context.Context, dsType string
 	return reg.ConnectionTesterFactory(ctx, config)
 }
 
+func (f *registryFactory) NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (DatasourceIntrospector, error) {
+	reg, ok := f.registry.Get(dsType)
+	if !ok || reg.DatasourceIntrospectorFactory == nil {
+		return nil, fmt.Errorf("unsupported datasource type: %s", dsType)
+	}
+	return reg.DatasourceIntrospectorFactory(ctx, config)
+}
+
 func (f *registryFactory) NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (QueryExecutor, error) {
 	reg, ok := f.registry.Get(dsType)
 	if !ok || reg.QueryExecutorFactory == nil {

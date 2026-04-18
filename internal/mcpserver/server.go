@@ -25,7 +25,6 @@ type authorizedAgentKey struct{}
 
 type approvedQueryResponse struct {
 	QueryID               string                  `json:"query_id"`
-	DatasourceID          string                  `json:"datasource_id,omitempty"`
 	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
 	AdditionalContext     string                  `json:"additional_context,omitempty"`
 	SQLQuery              string                  `json:"sql_query"`
@@ -56,16 +55,18 @@ func New(version string, service *core.Service) *Server {
 }
 
 func buildMCPServer(version string, service *core.Service) *server.MCPServer {
+	descriptionCache := newDatasourceInfoDescriptionCache()
 	hooks := &server.Hooks{}
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 		if result == nil {
 			return
 		}
-		result.Tools = filterToolsForContext(ctx, service, result.Tools)
+		result.Tools = enrichDatasourceInformationToolDescriptions(ctx, service, descriptionCache, filterToolsForContext(ctx, service, result.Tools))
 	})
 
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true), server.WithHooks(hooks))
 	registerHealthTool(mcpServer, version, service)
+	registerDatasourceInformationTool(mcpServer, service)
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
@@ -292,6 +293,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 		return allowed
 	}
 	allowed["health"] = true
+	allowed[datasourceInformationToolName] = true
 	if agent.CanQuery {
 		allowed["query"] = true
 	}
@@ -375,7 +377,6 @@ func normalizeApprovedQueries(queries []*storepkg.ApprovedQuery) []approvedQuery
 func normalizeApprovedQuery(query *storepkg.ApprovedQuery) approvedQueryResponse {
 	return approvedQueryResponse{
 		QueryID:               query.ID,
-		DatasourceID:          query.DatasourceID,
 		NaturalLanguagePrompt: query.NaturalLanguagePrompt,
 		AdditionalContext:     query.AdditionalContext,
 		SQLQuery:              query.SQLQuery,

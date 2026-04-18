@@ -28,6 +28,10 @@ func (fakeHTTPAdapterFactory) NewConnectionTester(context.Context, string, map[s
 	return fakeHTTPConnectionTester{}, nil
 }
 
+func (fakeHTTPAdapterFactory) NewDatasourceIntrospector(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error) {
+	return nil, errors.New("unexpected datasource introspection in httpapi tests")
+}
+
 func (fakeHTTPAdapterFactory) NewQueryExecutor(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
 	return nil, errors.New("unexpected query execution in httpapi tests")
 }

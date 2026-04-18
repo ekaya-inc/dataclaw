@@ -21,6 +21,9 @@ func Registration() datasource.Registration {
 		ConnectionTesterFactory: func(ctx context.Context, config map[string]any) (datasource.ConnectionTester, error) {
 			return NewAdapter(ctx, config)
 		},
+		DatasourceIntrospectorFactory: func(ctx context.Context, config map[string]any) (datasource.DatasourceIntrospector, error) {
+			return NewDatasourceIntrospector(ctx, config)
+		},
 		QueryExecutorFactory: func(ctx context.Context, config map[string]any) (datasource.QueryExecutor, error) {
 			return NewQueryExecutor(ctx, config)
 		},
