@@ -17,23 +17,22 @@ type ValidationResult struct {
 	Error         error
 }
 
+type topLevelKeyword struct {
+	Text string
+	Pos  int
+}
+
 // ValidateAndNormalize checks SQL for multiple statements and strips the trailing semicolon.
 //
 // The validation order is:
 // 1. Strip trailing semicolon and whitespace (normalize)
 // 2. Check for multiple statements (any remaining semicolons outside string literals)
 func ValidateAndNormalize(sqlQuery string) ValidationResult {
-	// Trim whitespace first
-	sqlQuery = strings.TrimSpace(sqlQuery)
-
-	if sqlQuery == "" {
-		return ValidationResult{NormalizedSQL: sqlQuery}
+	normalized := NormalizeStatement(sqlQuery)
+	if normalized == "" {
+		return ValidationResult{NormalizedSQL: normalized}
 	}
 
-	// Strip trailing semicolon first (normalize)
-	normalized := stripTrailingSemicolon(sqlQuery)
-
-	// Check for multiple statements (any semicolons remaining after normalization)
 	if err := detectMultipleStatements(normalized); err != nil {
 		return ValidationResult{Error: err}
 	}
@@ -41,11 +40,28 @@ func ValidateAndNormalize(sqlQuery string) ValidationResult {
 	return ValidationResult{NormalizedSQL: normalized}
 }
 
+// NormalizeStatement trims surrounding whitespace and removes a trailing semicolon.
+func NormalizeStatement(sqlQuery string) string {
+	sqlQuery = strings.TrimSpace(sqlQuery)
+	if sqlQuery == "" {
+		return sqlQuery
+	}
+
+	return stripTrailingSemicolon(sqlQuery)
+}
+
 // detectMultipleStatements checks if the SQL contains multiple statements
-// by looking for any semicolons outside of string literals.
+// by looking for any semicolons outside of quoted/delimited sections.
 // Since we've already stripped the trailing semicolon, any remaining semicolon
 // indicates multiple statements.
 func detectMultipleStatements(sqlQuery string) error {
+	semicolons := findSemicolonsOutsideDelimitedSections(sqlQuery)
+	if len(semicolons) == 0 {
+		return nil
+	}
+	if allowsRoutineDefinitionSemicolons(sqlQuery, semicolons) {
+		return nil
+	}
 	if hasSemicolonOutsideStrings(sqlQuery) {
 		return ErrMultipleStatements
 	}
@@ -53,46 +69,245 @@ func detectMultipleStatements(sqlQuery string) error {
 }
 
 // hasSemicolonOutsideStrings returns true if the SQL contains any semicolon
-// outside of string literals.
+// outside of quoted/delimited sections.
 func hasSemicolonOutsideStrings(sqlQuery string) bool {
-	const (
-		stateNormal = iota
-		stateSingleQuote
-		stateDoubleQuote
-	)
+	return len(findSemicolonsOutsideDelimitedSections(sqlQuery)) > 0
+}
 
-	state := stateNormal
-	prevChar := rune(0)
-
-	for _, char := range sqlQuery {
-		switch state {
-		case stateNormal:
-			switch char {
-			case ';':
-				return true // Found semicolon outside strings
-			case '\'':
-				state = stateSingleQuote
-			case '"':
-				state = stateDoubleQuote
+func findSemicolonsOutsideDelimitedSections(sqlQuery string) []int {
+	positions := make([]int, 0, 2)
+	for i := 0; i < len(sqlQuery); {
+		switch {
+		case isWhitespace(sqlQuery[i]):
+			i++
+		case strings.HasPrefix(sqlQuery[i:], "--"):
+			i = skipLineComment(sqlQuery, i+2)
+		case strings.HasPrefix(sqlQuery[i:], "/*"):
+			i = skipBlockComment(sqlQuery, i+2)
+		case sqlQuery[i] == '\'':
+			i = skipSingleQuotedString(sqlQuery, i+1)
+		case sqlQuery[i] == '"':
+			i = skipDelimitedIdentifier(sqlQuery, i+1, '"')
+		case sqlQuery[i] == '[':
+			i = skipBracketIdentifier(sqlQuery, i+1)
+		case sqlQuery[i] == '`':
+			i = skipDelimitedIdentifier(sqlQuery, i+1, '`')
+		case sqlQuery[i] == '$':
+			next, ok := skipDollarQuotedString(sqlQuery, i)
+			if ok {
+				i = next
+				continue
 			}
-		case stateSingleQuote:
-			// Exit single quote if we see an unescaped single quote
-			// Handle both backslash escape (\') and SQL standard escape ('')
-			if char == '\'' && prevChar != '\\' {
-				// For SQL standard doubled quote (''), this will exit and immediately
-				// re-enter on the next quote, which correctly keeps us in the string
-				state = stateNormal
-			}
-		case stateDoubleQuote:
-			// Exit double quote if we see an unescaped double quote
-			if char == '"' && prevChar != '\\' {
-				state = stateNormal
-			}
+			i++
+		case sqlQuery[i] == ';':
+			positions = append(positions, i)
+			i++
+		default:
+			i++
 		}
-		prevChar = char
 	}
+	return positions
+}
 
-	return false
+func allowsRoutineDefinitionSemicolons(sqlQuery string, semicolonPositions []int) bool {
+	keywords := scanTopLevelKeywords(sqlQuery)
+	bodyStart, ok := routineDefinitionBodyStart(keywords)
+	if !ok {
+		return false
+	}
+	for _, position := range semicolonPositions {
+		if position < bodyStart {
+			return false
+		}
+	}
+	return true
+}
+
+func routineDefinitionBodyStart(keywords []topLevelKeyword) (int, bool) {
+	if len(keywords) < 2 {
+		return 0, false
+	}
+	statementKindIndex := -1
+	switch keywords[0].Text {
+	case "ALTER":
+		if isRoutineDefinitionKeyword(keywords[1].Text) {
+			statementKindIndex = 1
+		}
+	case "CREATE":
+		i := 1
+		if i+1 < len(keywords) && keywords[i].Text == "OR" && (keywords[i+1].Text == "ALTER" || keywords[i+1].Text == "REPLACE") {
+			i += 2
+		}
+		if i < len(keywords) && isRoutineDefinitionKeyword(keywords[i].Text) {
+			statementKindIndex = i
+		}
+	}
+	if statementKindIndex < 0 {
+		return 0, false
+	}
+	for i := statementKindIndex + 1; i < len(keywords); i++ {
+		if keywords[i].Text == "AS" || keywords[i].Text == "BEGIN" {
+			return keywords[i].Pos, true
+		}
+	}
+	return 0, false
+}
+
+func isRoutineDefinitionKeyword(keyword string) bool {
+	switch keyword {
+	case "PROC", "PROCEDURE", "FUNCTION", "TRIGGER":
+		return true
+	default:
+		return false
+	}
+}
+
+func scanTopLevelKeywords(sqlQuery string) []topLevelKeyword {
+	keywords := make([]topLevelKeyword, 0, 16)
+	depth := 0
+	for i := 0; i < len(sqlQuery); {
+		switch {
+		case isWhitespace(sqlQuery[i]):
+			i++
+		case strings.HasPrefix(sqlQuery[i:], "--"):
+			i = skipLineComment(sqlQuery, i+2)
+		case strings.HasPrefix(sqlQuery[i:], "/*"):
+			i = skipBlockComment(sqlQuery, i+2)
+		case sqlQuery[i] == '\'':
+			i = skipSingleQuotedString(sqlQuery, i+1)
+		case sqlQuery[i] == '"':
+			i = skipDelimitedIdentifier(sqlQuery, i+1, '"')
+		case sqlQuery[i] == '[':
+			i = skipBracketIdentifier(sqlQuery, i+1)
+		case sqlQuery[i] == '`':
+			i = skipDelimitedIdentifier(sqlQuery, i+1, '`')
+		case sqlQuery[i] == '$':
+			next, ok := skipDollarQuotedString(sqlQuery, i)
+			if ok {
+				i = next
+				continue
+			}
+			i++
+		case sqlQuery[i] == '(':
+			depth++
+			i++
+		case sqlQuery[i] == ')':
+			if depth > 0 {
+				depth--
+			}
+			i++
+		case isWordStart(sqlQuery[i]):
+			start := i
+			i++
+			for i < len(sqlQuery) && isWordPart(sqlQuery[i]) {
+				i++
+			}
+			if depth == 0 {
+				keywords = append(keywords, topLevelKeyword{
+					Text: strings.ToUpper(sqlQuery[start:i]),
+					Pos:  start,
+				})
+			}
+		default:
+			i++
+		}
+	}
+	return keywords
+}
+
+func isWhitespace(char byte) bool {
+	return char == ' ' || char == '\t' || char == '\n' || char == '\r' || char == '\f'
+}
+
+func isWordStart(char byte) bool {
+	return char == '_' || (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z')
+}
+
+func isWordPart(char byte) bool {
+	return isWordStart(char) || char == '$' || (char >= '0' && char <= '9')
+}
+
+func skipLineComment(sqlQuery string, start int) int {
+	for start < len(sqlQuery) && sqlQuery[start] != '\n' {
+		start++
+	}
+	return start
+}
+
+func skipBlockComment(sqlQuery string, start int) int {
+	for start+1 < len(sqlQuery) {
+		if sqlQuery[start] == '*' && sqlQuery[start+1] == '/' {
+			return start + 2
+		}
+		start++
+	}
+	return len(sqlQuery)
+}
+
+func skipSingleQuotedString(sqlQuery string, start int) int {
+	for start < len(sqlQuery) {
+		if sqlQuery[start] == '\'' {
+			if start+1 < len(sqlQuery) && sqlQuery[start+1] == '\'' {
+				start += 2
+				continue
+			}
+			if start > 0 && sqlQuery[start-1] == '\\' {
+				start++
+				continue
+			}
+			return start + 1
+		}
+		start++
+	}
+	return len(sqlQuery)
+}
+
+func skipDelimitedIdentifier(sqlQuery string, start int, delimiter byte) int {
+	for start < len(sqlQuery) {
+		if sqlQuery[start] == delimiter {
+			if start+1 < len(sqlQuery) && sqlQuery[start+1] == delimiter {
+				start += 2
+				continue
+			}
+			if start > 0 && sqlQuery[start-1] == '\\' {
+				start++
+				continue
+			}
+			return start + 1
+		}
+		start++
+	}
+	return len(sqlQuery)
+}
+
+func skipBracketIdentifier(sqlQuery string, start int) int {
+	for start < len(sqlQuery) {
+		if sqlQuery[start] == ']' {
+			if start+1 < len(sqlQuery) && sqlQuery[start+1] == ']' {
+				start += 2
+				continue
+			}
+			return start + 1
+		}
+		start++
+	}
+	return len(sqlQuery)
+}
+
+func skipDollarQuotedString(sqlQuery string, start int) (int, bool) {
+	end := start + 1
+	for end < len(sqlQuery) && ((sqlQuery[end] >= 'A' && sqlQuery[end] <= 'Z') || (sqlQuery[end] >= 'a' && sqlQuery[end] <= 'z') || (sqlQuery[end] >= '0' && sqlQuery[end] <= '9') || sqlQuery[end] == '_') {
+		end++
+	}
+	if end >= len(sqlQuery) || sqlQuery[end] != '$' {
+		return start, false
+	}
+	delimiter := sqlQuery[start : end+1]
+	closeIdx := strings.Index(sqlQuery[end+1:], delimiter)
+	if closeIdx < 0 {
+		return len(sqlQuery), true
+	}
+	return end + 1 + closeIdx + len(delimiter), true
 }
 
 // stripTrailingSemicolon removes a trailing semicolon and any whitespace after it.

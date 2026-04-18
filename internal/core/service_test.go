@@ -27,9 +27,10 @@ type fakeConnectionTester struct {
 }
 
 type fakeQueryExecutor struct {
-	query                func(context.Context, string, int) (*QueryResult, error)
-	queryWithParameters  func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
-	executeMutatingQuery func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+	query               func(context.Context, string, int) (*QueryResult, error)
+	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
+	execute             func(context.Context, string, int) (*ExecuteResult, error)
 }
 
 func newFakeAdapterFactory() *fakeAdapterFactory {
@@ -131,11 +132,18 @@ func (f fakeQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery str
 	return nil, errors.New("unexpected QueryWithParameters call")
 }
 
-func (f fakeQueryExecutor) ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
-	if f.executeMutatingQuery != nil {
-		return f.executeMutatingQuery(ctx, sqlQuery, paramDefs, values, limit)
+func (f fakeQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+	if f.executeDMLQuery != nil {
+		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, limit)
 	}
-	return nil, errors.New("unexpected ExecuteMutatingQuery call")
+	return nil, errors.New("unexpected ExecuteDMLQuery call")
+}
+
+func (f fakeQueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+	if f.execute != nil {
+		return f.execute(ctx, sqlQuery, limit)
+	}
+	return nil, errors.New("unexpected Execute call")
 }
 
 func (f fakeQueryExecutor) Close() error { return nil }

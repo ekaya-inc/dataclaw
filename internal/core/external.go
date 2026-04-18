@@ -325,17 +325,17 @@ func validateStoredReadOnlySQL(sqlQuery string, params []models.QueryParameter) 
 	return validateReadOnlySQL(normalized)
 }
 
-func validateStoredMutatingSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
+func validateStoredDMLSQL(sqlQuery string, params []models.QueryParameter) (string, error) {
 	normalized, err := validateStoredSQL(sqlQuery, params)
 	if err != nil {
 		return "", err
 	}
-	return dsadapter.ValidateMutatingSQL(normalized)
+	return dsadapter.ValidateDMLSQL(normalized)
 }
 
 func validateStoredQueryForStorage(sqlQuery string, params []models.QueryParameter, allowsModification bool) (string, error) {
 	if allowsModification {
-		return validateStoredMutatingSQL(sqlQuery, params)
+		return validateStoredDMLSQL(sqlQuery, params)
 	}
 	return validateStoredReadOnlySQL(sqlQuery, params)
 }

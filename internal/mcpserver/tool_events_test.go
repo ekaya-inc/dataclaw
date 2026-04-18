@@ -136,6 +136,140 @@ func TestFailedTrackedToolCallRecordsSanitizedErrorRequestWithoutUpdatingLastUse
 	}
 }
 
+func TestManagedQueryCRUDToolCallsRecordSafeSummaries(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+
+	createdPayload := callToolJSONWithHeader(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "List accounts",
+		"sql_query":               "SELECT account_id FROM accounts WHERE account_id = {{account_id}}",
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Account identifier", "required": true},
+		},
+		"output_columns": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Account identifier"},
+		},
+		"constraints": "Only visible to account managers.",
+	}, manager.APIKey)
+	queryID := requireString(t, asMap(t, createdPayload["query"]), "query_id")
+
+	callToolJSONWithHeader(t, ctx, mcpClient, "update_query", map[string]any{
+		"query_id":                queryID,
+		"natural_language_prompt": "Rename account",
+		"sql_query":               "UPDATE accounts SET account_name = {{account_name}} WHERE account_id = {{account_id}}",
+		"allows_modification":     true,
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Account identifier", "required": true},
+			{"name": "account_name", "type": "string", "description": "New account name", "required": true},
+		},
+		"output_columns": []map[string]any{
+			{"name": "rows_affected", "type": "integer", "description": "Rows changed"},
+		},
+	}, manager.APIKey)
+
+	callToolJSONWithHeader(t, ctx, mcpClient, "delete_query", map[string]any{"query_id": queryID}, manager.APIKey)
+
+	page, err := service.ListMCPToolEvents(ctx, storepkg.ListMCPToolEventOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents: %v", err)
+	}
+	if page.Total != 3 || len(page.Items) != 3 {
+		t.Fatalf("expected 3 recorded CRUD events, got %#v", page)
+	}
+
+	createEvent := findToolEvent(t, page.Items, "create_query")
+	if got := createEvent.RequestParams["statement_type"]; got != "SELECT" {
+		t.Fatalf("expected create_query statement_type=SELECT, got %#v", got)
+	}
+	if got := createEvent.RequestParams["parameter_count"]; got != 1 && got != float64(1) {
+		t.Fatalf("expected create_query parameter_count=1, got %#v", got)
+	}
+	if _, ok := createEvent.RequestParams["sql_query"]; ok {
+		t.Fatalf("expected create_query request summary to omit raw sql, got %#v", createEvent.RequestParams)
+	}
+	if _, ok := createEvent.RequestParams["parameters"]; ok {
+		t.Fatalf("expected create_query request summary to omit raw parameters, got %#v", createEvent.RequestParams)
+	}
+	if got := createEvent.ResultSummary["query_id"]; got != queryID {
+		t.Fatalf("expected create_query result summary query_id=%s, got %#v", queryID, got)
+	}
+	if got := createEvent.ResultSummary["datasource_present"]; got != true {
+		t.Fatalf("expected create_query result summary datasource_present=true, got %#v", got)
+	}
+
+	updateEvent := findToolEvent(t, page.Items, "update_query")
+	if got := updateEvent.RequestParams["query_id"]; got != queryID {
+		t.Fatalf("expected update_query request summary query_id=%s, got %#v", queryID, got)
+	}
+	if got := updateEvent.RequestParams["statement_type"]; got != "UPDATE" {
+		t.Fatalf("expected update_query statement_type=UPDATE, got %#v", got)
+	}
+	if got := updateEvent.RequestParams["allows_modification"]; got != true {
+		t.Fatalf("expected update_query allows_modification=true, got %#v", got)
+	}
+	if _, ok := updateEvent.RequestParams["sql_query"]; ok {
+		t.Fatalf("expected update_query request summary to omit raw sql, got %#v", updateEvent.RequestParams)
+	}
+	if got := updateEvent.ResultSummary["statement_type"]; got != "UPDATE" {
+		t.Fatalf("expected update_query result summary statement_type=UPDATE, got %#v", got)
+	}
+
+	deleteEvent := findToolEvent(t, page.Items, "delete_query")
+	if got := deleteEvent.RequestParams["query_id"]; got != queryID {
+		t.Fatalf("expected delete_query request summary query_id=%s, got %#v", queryID, got)
+	}
+	if got := deleteEvent.ResultSummary["deleted"]; got != true {
+		t.Fatalf("expected delete_query result summary deleted=true, got %#v", got)
+	}
+	if _, ok := deleteEvent.ResultSummary["sql_query"]; ok {
+		t.Fatalf("expected delete_query result summary to omit raw sql, got %#v", deleteEvent.ResultSummary)
+	}
+}
+
+func TestExecuteToolRecordsRowsAffectedSummaryForDDL(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	writer, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:       "Writer",
+		CanExecute: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(writer): %v", err)
+	}
+
+	callToolJSONWithHeader(t, ctx, mcpClient, "execute", map[string]any{
+		"sql": "CREATE TABLE scratch_execute (id integer)",
+	}, writer.APIKey)
+
+	page, err := service.ListMCPToolEvents(ctx, storepkg.ListMCPToolEventOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("expected 1 recorded execute event, got %#v", page)
+	}
+
+	event := page.Items[0]
+	if event.ToolName != "execute" || event.EventType != storepkg.MCPToolEventTypeCall || !event.WasSuccessful {
+		t.Fatalf("unexpected execute event: %#v", event)
+	}
+	if got := event.RequestParams["statement_type"]; got != "CREATE" {
+		t.Fatalf("expected execute request statement_type=CREATE, got %#v", got)
+	}
+	if got := event.ResultSummary["rows_affected"]; got != 1 && got != float64(1) {
+		t.Fatalf("expected execute result rows_affected=1, got %#v", got)
+	}
+}
+
 func TestSuccessfulTrackedToolCallStillSucceedsWhenEventPersistenceFails(t *testing.T) {
 	ctx := context.Background()
 	service, st := newTestMCPService(t, newFakeMCPAdapterFactory(), true)
@@ -223,4 +357,15 @@ func TestHealthAndListToolsDoNotRecordMCPDashboardEvents(t *testing.T) {
 	if agent.LastUsedAt != nil {
 		t.Fatalf("expected health/tools list to keep last_used_at empty, got %#v", agent.LastUsedAt)
 	}
+}
+
+func findToolEvent(t *testing.T, events []*storepkg.MCPToolEvent, toolName string) *storepkg.MCPToolEvent {
+	t.Helper()
+	for _, event := range events {
+		if event.ToolName == toolName {
+			return event
+		}
+	}
+	t.Fatalf("expected tool event %q, got %#v", toolName, events)
+	return nil
 }

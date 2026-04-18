@@ -78,10 +78,12 @@ export function OutputColumnEditor({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  className="h-9 w-9 p-0"
+                  title="Remove"
+                  aria-label="Remove column"
                   onClick={() => onChange(outputColumns.filter((_, currentIndex) => currentIndex !== index))}
                 >
                   <Trash2 className="h-4 w-4" />
-                  Remove
                 </Button>
               </div>
             </div>

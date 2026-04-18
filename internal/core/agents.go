@@ -8,30 +8,32 @@ import (
 	"strings"
 	"time"
 
-	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
+	sqltmpl "github.com/ekaya-inc/dataclaw/pkg/sql"
 )
 
 type AgentInput struct {
-	Name               string
-	CanQuery           bool
-	CanExecute         bool
-	ApprovedQueryScope storepkg.ApprovedQueryScope
-	ApprovedQueryIDs   []string
+	Name                     string
+	CanQuery                 bool
+	CanExecute               bool
+	CanManageApprovedQueries bool
+	ApprovedQueryScope       storepkg.ApprovedQueryScope
+	ApprovedQueryIDs         []string
 }
 
 type AgentView struct {
-	ID                 string                      `json:"id"`
-	Name               string                      `json:"name"`
-	MaskedAPIKey       string                      `json:"masked_api_key"`
-	CanQuery           bool                        `json:"can_query"`
-	CanExecute         bool                        `json:"can_execute"`
-	ApprovedQueryScope storepkg.ApprovedQueryScope `json:"approved_query_scope"`
-	ApprovedQueryIDs   []string                    `json:"approved_query_ids"`
-	CreatedAt          time.Time                   `json:"created_at"`
-	UpdatedAt          time.Time                   `json:"updated_at"`
-	LastUsedAt         *time.Time                  `json:"last_used_at,omitempty"`
+	ID                       string                      `json:"id"`
+	Name                     string                      `json:"name"`
+	MaskedAPIKey             string                      `json:"masked_api_key"`
+	CanQuery                 bool                        `json:"can_query"`
+	CanExecute               bool                        `json:"can_execute"`
+	CanManageApprovedQueries bool                        `json:"can_manage_approved_queries"`
+	ApprovedQueryScope       storepkg.ApprovedQueryScope `json:"approved_query_scope"`
+	ApprovedQueryIDs         []string                    `json:"approved_query_ids"`
+	CreatedAt                time.Time                   `json:"created_at"`
+	UpdatedAt                time.Time                   `json:"updated_at"`
+	LastUsedAt               *time.Time                  `json:"last_used_at,omitempty"`
 }
 
 type AgentCredentialView struct {
@@ -85,12 +87,13 @@ func (s *Service) CreateAgent(ctx context.Context, input AgentInput) (*AgentCred
 	}
 
 	agent := &storepkg.Agent{
-		Name:               normalized.Name,
-		APIKeyEncrypted:    encryptedKey,
-		CanQuery:           normalized.CanQuery,
-		CanExecute:         normalized.CanExecute,
-		ApprovedQueryScope: normalized.ApprovedQueryScope,
-		ApprovedQueryIDs:   append([]string(nil), normalized.ApprovedQueryIDs...),
+		Name:                     normalized.Name,
+		APIKeyEncrypted:          encryptedKey,
+		CanQuery:                 normalized.CanQuery,
+		CanExecute:               normalized.CanExecute,
+		CanManageApprovedQueries: normalized.CanManageApprovedQueries,
+		ApprovedQueryScope:       normalized.ApprovedQueryScope,
+		ApprovedQueryIDs:         append([]string(nil), normalized.ApprovedQueryIDs...),
 	}
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
 		if isAgentNameConflict(err) {
@@ -120,6 +123,7 @@ func (s *Service) UpdateAgent(ctx context.Context, id string, input AgentInput) 
 	existing.Name = normalized.Name
 	existing.CanQuery = normalized.CanQuery
 	existing.CanExecute = normalized.CanExecute
+	existing.CanManageApprovedQueries = normalized.CanManageApprovedQueries
 	existing.ApprovedQueryScope = normalized.ApprovedQueryScope
 	existing.ApprovedQueryIDs = append([]string(nil), normalized.ApprovedQueryIDs...)
 	if err := s.store.UpdateAgent(ctx, existing); err != nil {
@@ -225,16 +229,40 @@ func (s *Service) ListQueriesForAgent(ctx context.Context, agent *storepkg.Agent
 	if agent == nil {
 		return nil, errors.New("agent is required")
 	}
-	if agent.ApprovedQueryScope == storepkg.ApprovedQueryScopeNone {
-		return nil, errors.New("agent is not allowed to list approved queries")
-	}
 	if _, err := s.requireDatasource(ctx); err != nil {
 		return nil, err
+	}
+	if agent.CanManageApprovedQueries {
+		return s.store.ListQueries(ctx)
+	}
+	if agent.ApprovedQueryScope == storepkg.ApprovedQueryScopeNone {
+		return nil, errors.New("agent is not allowed to list approved queries")
 	}
 	if agent.ApprovedQueryScope == storepkg.ApprovedQueryScopeAll {
 		return s.store.ListQueries(ctx)
 	}
 	return s.store.ListQueriesByIDs(ctx, agent.ApprovedQueryIDs)
+}
+
+func (s *Service) CreateQueryForAgent(ctx context.Context, agent *storepkg.Agent, q *storepkg.ApprovedQuery) (*storepkg.ApprovedQuery, error) {
+	if err := requireApprovedQueryManager(agent); err != nil {
+		return nil, err
+	}
+	return s.CreateQuery(ctx, q)
+}
+
+func (s *Service) UpdateQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, q *storepkg.ApprovedQuery) (*storepkg.ApprovedQuery, error) {
+	if err := requireApprovedQueryManager(agent); err != nil {
+		return nil, err
+	}
+	return s.UpdateQuery(ctx, id, q)
+}
+
+func (s *Service) DeleteQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string) error {
+	if err := requireApprovedQueryManager(agent); err != nil {
+		return err
+	}
+	return s.DeleteQuery(ctx, id)
 }
 
 func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any, limit int) (*QueryResult, error) {
@@ -248,27 +276,35 @@ func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepk
 	return s.ExecuteStoredQuery(ctx, id, values, limit)
 }
 
-func (s *Service) ExecuteRawMutation(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
 	}
-	normalized, err := dsadapter.ValidateMutatingSQL(sqlQuery)
-	if err != nil {
-		return nil, err
+	result := sqltmpl.ValidateAndNormalize(sqlQuery)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	normalized := result.NormalizedSQL
+	if normalized == "" {
+		return nil, errors.New("sql is required")
 	}
 	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
 	if err != nil {
 		return nil, err
 	}
 	defer executor.Close()
-	return executor.ExecuteMutatingQuery(ctx, normalized, nil, nil, limit)
+	return executor.Execute(ctx, normalized, limit)
 }
 
 func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (AgentInput, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return AgentInput{}, errors.New("name is required")
+	}
+	if input.CanManageApprovedQueries {
+		input.ApprovedQueryScope = storepkg.ApprovedQueryScopeAll
+		input.ApprovedQueryIDs = nil
 	}
 	scope := input.ApprovedQueryScope
 	if scope == "" {
@@ -298,11 +334,12 @@ func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (Ag
 		}
 	}
 	return AgentInput{
-		Name:               name,
-		CanQuery:           input.CanQuery,
-		CanExecute:         input.CanExecute,
-		ApprovedQueryScope: scope,
-		ApprovedQueryIDs:   queryIDs,
+		Name:                     name,
+		CanQuery:                 input.CanQuery || input.CanManageApprovedQueries,
+		CanExecute:               input.CanExecute,
+		CanManageApprovedQueries: input.CanManageApprovedQueries,
+		ApprovedQueryScope:       scope,
+		ApprovedQueryIDs:         queryIDs,
 	}, nil
 }
 
@@ -341,16 +378,17 @@ func (s *Service) agentView(agent *storepkg.Agent, plainKey string) (*AgentView,
 		}
 	}
 	return &AgentView{
-		ID:                 agent.ID,
-		Name:               agent.Name,
-		MaskedAPIKey:       maskAPIKey(plainKey),
-		CanQuery:           agent.CanQuery,
-		CanExecute:         agent.CanExecute,
-		ApprovedQueryScope: agent.ApprovedQueryScope,
-		ApprovedQueryIDs:   append([]string(nil), agent.ApprovedQueryIDs...),
-		CreatedAt:          agent.CreatedAt,
-		UpdatedAt:          agent.UpdatedAt,
-		LastUsedAt:         agent.LastUsedAt,
+		ID:                       agent.ID,
+		Name:                     agent.Name,
+		MaskedAPIKey:             maskAPIKey(plainKey),
+		CanQuery:                 agent.CanQuery,
+		CanExecute:               agent.CanExecute,
+		CanManageApprovedQueries: agent.CanManageApprovedQueries,
+		ApprovedQueryScope:       agent.ApprovedQueryScope,
+		ApprovedQueryIDs:         append([]string(nil), agent.ApprovedQueryIDs...),
+		CreatedAt:                agent.CreatedAt,
+		UpdatedAt:                agent.UpdatedAt,
+		LastUsedAt:               agent.LastUsedAt,
 	}, nil
 }
 
@@ -396,6 +434,16 @@ func dedupeStrings(values []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func requireApprovedQueryManager(agent *storepkg.Agent) error {
+	if agent == nil {
+		return errors.New("agent is required")
+	}
+	if !agent.CanManageApprovedQueries {
+		return errors.New("agent is not allowed to manage approved queries")
+	}
+	return nil
 }
 
 func isAgentNameConflict(err error) bool {

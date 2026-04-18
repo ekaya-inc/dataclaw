@@ -1,35 +1,19 @@
 import { AlertTriangle, ArrowLeft, Pencil, Play, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
 import { DeleteQueryDialog } from '../components/DeleteQueryDialog';
 import { PageHeader } from '../components/PageHeader';
-import { ParameterInputForm } from '../components/ParameterInputForm';
+import { ParameterInputDialog } from '../components/ParameterInputDialog';
 import { QueryResultsTable } from '../components/QueryResultsTable';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Label } from '../components/ui/Label';
 import { useToast } from '../components/ui/Toast';
+import { useStoredParameterValues } from '../hooks/useStoredParameterValues';
 import { deleteQuery, executeSavedQuery, getQuery } from '../services/api';
 import type { OutputColumn, QueryExecutionResult, QueryParameter, SavedQuery } from '../types/query';
-
-function hasRequiredExecutionValues(parameters: QueryParameter[], values: Record<string, unknown>): boolean {
-  return parameters.every((parameter) => {
-    if (!parameter.required) {
-      return true;
-    }
-    const provided = Object.prototype.hasOwnProperty.call(values, parameter.name);
-    if (provided) {
-      const value = values[parameter.name];
-      if (value === null || value === undefined) return false;
-      if (typeof value === 'string') return value.trim() !== '';
-      if (Array.isArray(value)) return value.length > 0;
-      return true;
-    }
-    return parameter.default !== null && parameter.default !== undefined;
-  });
-}
 
 function formatTimestamp(value?: string): string {
   if (!value) return 'recently';
@@ -109,9 +93,11 @@ export default function QueryDetailPage(): JSX.Element {
   const [query, setQuery] = useState<SavedQuery | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'executing' | 'deleting' | null>(null);
-  const [executeParameterValues, setExecuteParameterValues] = useState<Record<string, unknown>>({});
   const [results, setResults] = useState<QueryExecutionResult | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
+  const storageKey = `dataclaw.queryParams.detail.${id ?? 'unknown'}`;
+  const [storedValues, setStoredValues] = useStoredParameterValues(storageKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,8 +114,8 @@ export default function QueryDetailPage(): JSX.Element {
       setLoading(true);
       setQuery(null);
       setResults(null);
-      setExecuteParameterValues({});
       setDeleteDialogOpen(false);
+      setParameterDialogOpen(false);
       try {
         const savedQuery = await getQuery(id);
         if (cancelled) return;
@@ -154,18 +140,14 @@ export default function QueryDetailPage(): JSX.Element {
     };
   }, [id, navigate, toast]);
 
-  const canExecuteSavedQuery = useMemo(() => {
-    if (!query) return false;
-    return hasRequiredExecutionValues(query.parameters, executeParameterValues);
-  }, [query, executeParameterValues]);
-
-  const runSavedQuery = async (): Promise<void> => {
-    if (!query || !canExecuteSavedQuery) return;
+  const runSavedQuery = async (values: Record<string, unknown>): Promise<void> => {
+    if (!query) return;
     setBusy('executing');
     try {
-      const execution = await executeSavedQuery(query.id, executeParameterValues, 100);
+      const execution = await executeSavedQuery(query.id, values, 100);
       setResults(execution);
       toast({ variant: 'success', title: 'Approved query executed' });
+      setParameterDialogOpen(false);
     } catch (error) {
       toast({
         variant: 'error',
@@ -175,6 +157,20 @@ export default function QueryDetailPage(): JSX.Element {
     } finally {
       setBusy(null);
     }
+  };
+
+  const handleExecuteClick = (): void => {
+    if (!query) return;
+    if (query.parameters.length === 0) {
+      void runSavedQuery({});
+      return;
+    }
+    setParameterDialogOpen(true);
+  };
+
+  const handleDialogSubmit = (values: Record<string, unknown>): void => {
+    setStoredValues(values);
+    void runSavedQuery(values);
   };
 
   const removeSelectedQuery = async (): Promise<void> => {
@@ -305,28 +301,34 @@ export default function QueryDetailPage(): JSX.Element {
           <CardDescription>Run the approved query exactly as saved. Draft testing lives on the edit page.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <ParameterInputForm
-            parameters={query.parameters}
-            values={executeParameterValues}
-            onChange={setExecuteParameterValues}
-          />
-
           <div className="flex flex-wrap gap-3">
-            <Button type="button" variant="outline" onClick={() => void runSavedQuery()} disabled={busy !== null || !canExecuteSavedQuery}>
+            <Button type="button" variant="outline" onClick={handleExecuteClick} disabled={busy !== null}>
               <Play className="h-4 w-4" />
               Execute saved query
             </Button>
           </div>
 
-          {!canExecuteSavedQuery && query.parameters.length > 0 ? (
+          {query.parameters.length > 0 ? (
             <p className="text-sm text-text-secondary">
-              Provide values for the required execution parameters before running this approved query.
+              You&apos;ll be prompted for execution parameter values before the query runs.
             </p>
           ) : null}
         </CardContent>
       </Card>
 
       {results ? <QueryResultsTable columns={results.columns} rows={results.rows} rowCount={results.rowCount} /> : null}
+
+      <ParameterInputDialog
+        open={parameterDialogOpen}
+        onOpenChange={setParameterDialogOpen}
+        parameters={query.parameters}
+        initialValues={storedValues}
+        title="Execute saved query"
+        description="Enter values for this query's parameters. Defaults are used when present."
+        submitLabel="Execute"
+        submitting={busy === 'executing'}
+        onSubmit={handleDialogSubmit}
+      />
 
       <DeleteQueryDialog
         open={deleteDialogOpen}

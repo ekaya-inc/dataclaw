@@ -93,15 +93,36 @@ func (f fakeMCPConnectionTester) TestConnection(ctx context.Context) error {
 func (f fakeMCPConnectionTester) Close() error { return nil }
 
 func (fakeMCPQueryExecutor) Query(context.Context, string, int) (*dsadapter.QueryResult, error) {
-	return nil, errors.New("unexpected Query call")
+	return &dsadapter.QueryResult{
+		Columns:  []dsadapter.QueryColumn{{Name: "table_name", Type: "text"}},
+		Rows:     []map[string]any{{"table_name": "accounts"}},
+		RowCount: 1,
+	}, nil
 }
 
-func (fakeMCPQueryExecutor) QueryWithParameters(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
-	return nil, errors.New("unexpected QueryWithParameters call")
+func (fakeMCPQueryExecutor) QueryWithParameters(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, _ int) (*dsadapter.QueryResult, error) {
+	return &dsadapter.QueryResult{
+		Columns:  []dsadapter.QueryColumn{{Name: "parameter_count", Type: "integer"}},
+		Rows:     []map[string]any{{"parameter_count": len(values)}},
+		RowCount: 1,
+	}, nil
 }
 
-func (fakeMCPQueryExecutor) ExecuteMutatingQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
-	return nil, errors.New("unexpected ExecuteMutatingQuery call")
+func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
+	return &dsadapter.QueryResult{
+		Columns:  []dsadapter.QueryColumn{{Name: "rows_affected", Type: "integer"}},
+		Rows:     []map[string]any{{"rows_affected": 1}},
+		RowCount: 1,
+	}, nil
+}
+
+func (fakeMCPQueryExecutor) Execute(context.Context, string, int) (*dsadapter.ExecuteResult, error) {
+	return &dsadapter.ExecuteResult{
+		Columns:      []dsadapter.QueryColumn{},
+		Rows:         []map[string]any{},
+		RowCount:     0,
+		RowsAffected: 1,
+	}, nil
 }
 
 func (fakeMCPQueryExecutor) Close() error { return nil }

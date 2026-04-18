@@ -34,12 +34,22 @@ func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string
 	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, params, limit)
 }
 
-func (e *QueryExecutor) ExecuteMutatingQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
-	prepared, params, err := datasource.PrepareMutatingParameterizedQuery(sqlQuery, paramDefs, values)
+func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+	prepared, params, err := datasource.PrepareDMLParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
 	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, params, limit)
+}
+
+func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*datasource.ExecuteResult, error) {
+	if !datasource.SupportsExecuteStatement(sqlQuery) {
+		return nil, datasource.ErrExecuteStatementType
+	}
+	if isReturningStatement(sqlQuery) {
+		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, limit)
+	}
+	return datasource.ExecuteStatement(ctx, e.adapter.db, sqlQuery, nil)
 }
 
 func (e *QueryExecutor) Close() error {
@@ -51,4 +61,13 @@ func (e *QueryExecutor) Close() error {
 
 func wrapQuery(sqlQuery string, limit int) string {
 	return fmt.Sprintf("SELECT * FROM (%s) AS _limited LIMIT %d", sqlQuery, datasource.NormalizeLimit(limit))
+}
+
+func isReturningStatement(sqlQuery string) bool {
+	switch datasource.FirstStatementKeyword(sqlQuery) {
+	case "INSERT", "UPDATE", "DELETE":
+		return datasource.ContainsStatementKeyword(sqlQuery, "RETURNING")
+	default:
+		return false
+	}
 }

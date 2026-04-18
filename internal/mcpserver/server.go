@@ -37,6 +37,19 @@ type approvedQueryResponse struct {
 	UpdatedAt             time.Time               `json:"updated_at"`
 }
 
+type queryToolRequest struct {
+	QueryID               string                  `json:"query_id"`
+	NaturalLanguagePrompt string                  `json:"natural_language_prompt"`
+	AdditionalContext     string                  `json:"additional_context"`
+	SQLQuery              string                  `json:"sql_query"`
+	AllowsModification    bool                    `json:"allows_modification"`
+	Parameters            []models.QueryParameter `json:"parameters"`
+	OutputColumns         []models.OutputColumn   `json:"output_columns"`
+	Constraints           string                  `json:"constraints"`
+}
+
+const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC\nLIMIT {{page_size}} OFFSET {{page_offset}}"
+
 func New(version string, service *core.Service) *Server {
 	mcpServer := buildMCPServer(version, service)
 	return &Server{httpServer: server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true)), service: service}
@@ -56,6 +69,9 @@ func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
+	registerCreateQueryTool(mcpServer, service)
+	registerUpdateQueryTool(mcpServer, service)
+	registerDeleteQueryTool(mcpServer, service)
 	registerExecuteQueryTool(mcpServer, service)
 	return mcpServer
 }
@@ -107,9 +123,9 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute",
-		mcp.WithDescription("Execute ad-hoc mutating SQL/DDL/DML against the configured datasource when the authenticated agent has raw execute access."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("Mutating SQL statement to execute")),
-		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithDescription("Execute ad-hoc DDL or DML against the configured datasource when the authenticated agent has raw execute access."),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
+		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
 	)
 	srv.AddTool(tool, trackedToolHandler(service, "execute", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		if !agent.CanExecute {
@@ -120,18 +136,88 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 			return nil, err
 		}
 		limit := extractLimit(req, 100)
-		return service.ExecuteRawMutation(ctx, sqlQuery, limit)
+		return service.ExecuteRawStatement(ctx, sqlQuery, limit)
 	}))
 }
 
 func registerListQueriesTool(srv *server.MCPServer, service *core.Service) {
-	tool := mcp.NewTool("list_queries", mcp.WithDescription("List approved queries available to the authenticated agent."))
+	tool := mcp.NewTool("list_queries", mcp.WithDescription("List approved queries available to or manageable by the authenticated agent."))
 	srv.AddTool(tool, trackedToolHandler(service, "list_queries", func(ctx context.Context, agent *storepkg.Agent, _ mcp.CallToolRequest) (any, error) {
 		queries, err := service.ListQueriesForAgent(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"queries": normalizeApprovedQueries(queries)}, nil
+	}))
+}
+
+func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
+	tool := mcp.NewTool("create_query",
+		mcp.WithDescription("Create an approved query in the catalog when the authenticated agent can manage approved queries. "+approvedQueryTemplateExample),
+		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
+		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL body for the approved query. "+approvedQueryTemplateExample)),
+		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
+		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
+		mcp.WithArray("output_columns", mcp.Description("Optional documented output columns."), mcp.Items(outputColumnItemSchema())),
+		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
+	)
+	srv.AddTool(tool, trackedToolHandler(service, "create_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
+		input, err := parseQueryToolRequest(req)
+		if err != nil {
+			return nil, err
+		}
+		query, err := service.CreateQueryForAgent(ctx, agent, approvedQueryFromToolRequest(input))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"query": normalizeApprovedQuery(query)}, nil
+	}))
+}
+
+func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
+	tool := mcp.NewTool("update_query",
+		mcp.WithDescription("Replace an approved query definition when the authenticated agent can manage approved queries."),
+		mcp.WithString("query_id", mcp.Required(), mcp.Description("Approved query ID to replace.")),
+		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
+		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
+		mcp.WithString("sql_query", mcp.Required(), mcp.Description("Full replacement SQL body for the approved query. "+approvedQueryTemplateExample)),
+		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
+		mcp.WithArray("parameters", mcp.Description("Full replacement parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
+		mcp.WithArray("output_columns", mcp.Description("Full replacement documented output columns."), mcp.Items(outputColumnItemSchema())),
+		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
+	)
+	srv.AddTool(tool, trackedToolHandler(service, "update_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
+		queryID, err := req.RequireString("query_id")
+		if err != nil {
+			return nil, err
+		}
+		input, err := parseQueryToolRequest(req)
+		if err != nil {
+			return nil, err
+		}
+		query, err := service.UpdateQueryForAgent(ctx, agent, queryID, approvedQueryFromToolRequest(input))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"query": normalizeApprovedQuery(query)}, nil
+	}))
+}
+
+func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
+	tool := mcp.NewTool("delete_query",
+		mcp.WithDescription("Delete an approved query when the authenticated agent can manage approved queries."),
+		mcp.WithString("query_id", mcp.Required(), mcp.Description("Approved query ID to delete.")),
+	)
+	srv.AddTool(tool, trackedToolHandler(service, "delete_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
+		queryID, err := req.RequireString("query_id")
+		if err != nil {
+			return nil, err
+		}
+		if err := service.DeleteQueryForAgent(ctx, agent, queryID); err != nil {
+			return nil, err
+		}
+		return map[string]any{"deleted": true, "query_id": queryID}, nil
 	}))
 }
 
@@ -171,7 +257,7 @@ func filterToolsForContext(ctx context.Context, service *core.Service, tools []m
 }
 
 func allowedTools(agent *storepkg.Agent) map[string]bool {
-	allowed := make(map[string]bool, 5)
+	allowed := make(map[string]bool, 8)
 	if agent == nil {
 		return allowed
 	}
@@ -181,6 +267,12 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 	}
 	if agent.CanExecute {
 		allowed["execute"] = true
+	}
+	if agent.CanManageApprovedQueries {
+		allowed["list_queries"] = true
+		allowed["create_query"] = true
+		allowed["update_query"] = true
+		allowed["delete_query"] = true
 	}
 	if agent.ApprovedQueryScope != storepkg.ApprovedQueryScopeNone {
 		allowed["list_queries"] = true
@@ -263,5 +355,68 @@ func normalizeApprovedQuery(query *storepkg.ApprovedQuery) approvedQueryResponse
 		Constraints:           query.Constraints,
 		CreatedAt:             query.CreatedAt,
 		UpdatedAt:             query.UpdatedAt,
+	}
+}
+
+func parseQueryToolRequest(req mcp.CallToolRequest) (queryToolRequest, error) {
+	args, _ := req.Params.Arguments.(map[string]any)
+	if args == nil {
+		args = map[string]any{}
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return queryToolRequest{}, errors.New("invalid query arguments")
+	}
+	var input queryToolRequest
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return queryToolRequest{}, errors.New("invalid query arguments")
+	}
+	return input, nil
+}
+
+func approvedQueryFromToolRequest(input queryToolRequest) *storepkg.ApprovedQuery {
+	parameters := input.Parameters
+	if parameters == nil {
+		parameters = []models.QueryParameter{}
+	}
+	outputColumns := input.OutputColumns
+	if outputColumns == nil {
+		outputColumns = []models.OutputColumn{}
+	}
+	return &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: input.NaturalLanguagePrompt,
+		AdditionalContext:     input.AdditionalContext,
+		SQLQuery:              input.SQLQuery,
+		AllowsModification:    input.AllowsModification,
+		Parameters:            parameters,
+		OutputColumns:         outputColumns,
+		Constraints:           input.Constraints,
+	}
+}
+
+func queryParameterItemSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":        map[string]any{"type": "string"},
+			"type":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"required":    map[string]any{"type": "boolean"},
+			"default":     map[string]any{},
+			"example":     map[string]any{},
+		},
+		"additionalProperties": true,
+	}
+}
+
+func outputColumnItemSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":        map[string]any{"type": "string"},
+			"type":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+		},
+		"additionalProperties": true,
 	}
 }

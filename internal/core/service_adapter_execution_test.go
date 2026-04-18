@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
@@ -98,7 +99,7 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 		}}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, false, 25)
+	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, map[string]any{"min_total": 42.5}, false, 25)
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -108,8 +109,8 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 	if len(gotParams) != 1 || gotParams[0].Name != "min_total" {
 		t.Fatalf("expected query parameter definitions, got %#v", gotParams)
 	}
-	if gotValues != nil {
-		t.Fatalf("expected nil execution values for draft test, got %#v", gotValues)
+	if gotValues["min_total"] != 42.5 {
+		t.Fatalf("expected caller-supplied min_total to flow through, got %#v", gotValues)
 	}
 	if gotLimit != 25 {
 		t.Fatalf("expected limit 25, got %d", gotLimit)
@@ -186,7 +187,7 @@ func TestExecuteStoredQueryForwardsLimitForMutatingQueries(t *testing.T) {
 	var gotValues map[string]any
 	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
 		return fakeQueryExecutor{
-			executeMutatingQuery: func(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+			executeDMLQuery: func(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
 				gotValues = values
 				gotLimit = limit
 				return &QueryResult{}, nil
@@ -216,7 +217,7 @@ func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
 	var gotQuery string
 	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
 		return fakeQueryExecutor{
-			executeMutatingQuery: func(_ context.Context, sqlQuery string, _ []models.QueryParameter, _ map[string]any, limit int) (*QueryResult, error) {
+			executeDMLQuery: func(_ context.Context, sqlQuery string, _ []models.QueryParameter, _ map[string]any, limit int) (*QueryResult, error) {
 				gotQuery = sqlQuery
 				gotLimit = limit
 				return &QueryResult{}, nil
@@ -224,7 +225,7 @@ func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
 		}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, true, 400)
+	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000"}, true, 400)
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -233,5 +234,115 @@ func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
 	}
 	if gotLimit != 400 {
 		t.Fatalf("expected caller limit 400 to flow through, got %d", gotLimit)
+	}
+}
+
+func TestExecuteRawStatementUsesAdapterExecuteForDDL(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	var gotQuery string
+	var gotLimit int
+	factory.newExecutor = func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+		if dsType != "postgres" {
+			t.Fatalf("expected postgres adapter, got %q", dsType)
+		}
+		return fakeQueryExecutor{
+			execute: func(_ context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+				gotQuery = sqlQuery
+				gotLimit = limit
+				return &ExecuteResult{}, nil
+			},
+		}, nil
+	}
+
+	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE scratch_execute (id integer);", 75); err != nil {
+		t.Fatalf("ExecuteRawStatement: %v", err)
+	}
+	if gotQuery != "CREATE TABLE scratch_execute (id integer)" {
+		t.Fatalf("expected normalized DDL, got %q", gotQuery)
+	}
+	if gotLimit != 75 {
+		t.Fatalf("expected limit 75, got %d", gotLimit)
+	}
+}
+
+func TestExecuteRawStatementAllowsProceduralDDL(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	var gotQuery string
+	factory.newExecutor = func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+		if dsType != "postgres" {
+			t.Fatalf("expected postgres adapter, got %q", dsType)
+		}
+		return fakeQueryExecutor{
+			execute: func(_ context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+				gotQuery = sqlQuery
+				return &ExecuteResult{}, nil
+			},
+		}, nil
+	}
+
+	sqlQuery := `CREATE OR REPLACE FUNCTION scratch_execute()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+	RETURN 1;
+END;
+$fn$;`
+
+	if _, err := service.ExecuteRawStatement(context.Background(), sqlQuery, 75); err != nil {
+		t.Fatalf("ExecuteRawStatement: %v", err)
+	}
+	if gotQuery != `CREATE OR REPLACE FUNCTION scratch_execute()
+RETURNS integer
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+	RETURN 1;
+END;
+$fn$` {
+		t.Fatalf("expected procedural DDL to be preserved, got %q", gotQuery)
+	}
+}
+
+func TestExecuteRawStatementRejectsMultipleStatements(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE a (id integer); DROP TABLE a", 10); err == nil {
+		t.Fatal("expected multiple statements to be rejected")
+	}
+}
+
+func TestExecuteRawStatementRejectsReadOnlySQL(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	seedDatasource(t, service, "postgres")
+
+	called := false
+	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
+		return fakeQueryExecutor{
+			execute: func(_ context.Context, _ string, _ int) (*ExecuteResult, error) {
+				called = true
+				return nil, errors.New("execute only accepts single-statement DDL or DML")
+			},
+		}, nil
+	}
+
+	if _, err := service.ExecuteRawStatement(context.Background(), "SELECT 1", 10); err == nil {
+		t.Fatal("expected read-only SQL to be rejected by raw execute")
+	}
+	if !called {
+		t.Fatal("expected adapter Execute to enforce raw execute statement type")
 	}
 }

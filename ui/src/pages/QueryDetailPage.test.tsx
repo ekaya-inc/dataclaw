@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -94,9 +94,12 @@ describe('QueryDetailPage', () => {
 
     renderAt(['/queries/query_1']);
 
-    const parameterInput = await screen.findByLabelText(/account_id/i);
+    await userEvent.click(await screen.findByRole('button', { name: /^execute saved query$/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    const parameterInput = await within(dialog).findByLabelText(/account_id/i);
     await userEvent.type(parameterInput, '550e8400-e29b-41d4-a716-446655440000');
-    await userEvent.click(screen.getByRole('button', { name: /^execute saved query$/i }));
+    await userEvent.click(within(dialog).getByRole('button', { name: /^execute$/i }));
 
     await waitFor(() => expect(screen.getByText(/returned 1 rows\./i)).toBeInTheDocument());
     expect(screen.getByText('true')).toBeInTheDocument();
@@ -163,11 +166,13 @@ describe('QueryDetailPage', () => {
 
     renderAt(['/queries/query_1']);
 
-    const parameterInput = await screen.findByLabelText(/account_id/i);
-    await userEvent.type(parameterInput, '550e8400-e29b-41d4-a716-446655440000');
-    await userEvent.click(screen.getByRole('button', { name: /^execute saved query$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^execute saved query$/i }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled());
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+    const parameterInput = await within(dialog).findByLabelText(/account_id/i);
+    await userEvent.type(parameterInput, '550e8400-e29b-41d4-a716-446655440000');
+    await userEvent.click(within(dialog).getByRole('button', { name: /^execute$/i }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^delete$/i, hidden: true })).toBeDisabled());
   });
 });

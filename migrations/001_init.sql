@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS agents (
   api_key_encrypted TEXT NOT NULL,
   can_query INTEGER NOT NULL DEFAULT 0,
   can_execute INTEGER NOT NULL DEFAULT 0,
+  can_manage_approved_queries INTEGER NOT NULL DEFAULT 0,
   approved_query_scope TEXT NOT NULL DEFAULT 'none' CHECK (approved_query_scope IN ('none', 'all', 'selected')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

@@ -3,6 +3,23 @@ import type { QueryParameter } from '../types/query';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
 
+export function hasRequiredExecutionValues(parameters: QueryParameter[], values: Record<string, unknown>): boolean {
+  return parameters.every((parameter) => {
+    if (!parameter.required) {
+      return true;
+    }
+    const provided = Object.prototype.hasOwnProperty.call(values, parameter.name);
+    if (provided) {
+      const value = values[parameter.name];
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim() !== '';
+      if (Array.isArray(value)) return value.length > 0;
+      return true;
+    }
+    return parameter.default !== null && parameter.default !== undefined;
+  });
+}
+
 function inputValue(value: unknown, fallback: unknown): string {
   const effective = value ?? fallback;
   if (Array.isArray(effective)) {

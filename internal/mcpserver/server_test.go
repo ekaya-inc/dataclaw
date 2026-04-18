@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -61,6 +62,51 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	executorTools := listToolNames(t, withAuthorizedAgent(ctx, executorAgent), mcpClient)
 	if got, want := executorTools, []string{"execute", "health"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected executor tools: got %v want %v", got, want)
+	}
+}
+
+func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	createTool := requireToolByName(t, (*result).Tools, "create_query")
+	if !strings.Contains(createTool.Description, "{{parameter_name}}") {
+		t.Fatalf("expected create_query description to document placeholder syntax, got %q", createTool.Description)
+	}
+	if !strings.Contains(createTool.Description, "SELECT order_id, user_id, status, created_at, num_of_item") {
+		t.Fatalf("expected create_query description to include SQL example, got %q", createTool.Description)
+	}
+	if !strings.Contains(createTool.Description, "Do not use :status, @status, or $1") {
+		t.Fatalf("expected create_query description to warn about unsupported placeholder styles, got %q", createTool.Description)
+	}
+
+	sqlQuerySchema, ok := createTool.InputSchema.Properties["sql_query"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sql_query schema to be an object, got %#v", createTool.InputSchema.Properties["sql_query"])
+	}
+	description, ok := sqlQuerySchema["description"].(string)
+	if !ok {
+		t.Fatalf("expected sql_query description to be a string, got %#v", sqlQuerySchema["description"])
+	}
+	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "CAST({{created_after}} AS TIMESTAMP)") {
+		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
 	}
 }
 
@@ -205,6 +251,142 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid bearer key to fail list tools")
 	}
+}
+
+func TestExecuteToolAllowsDDLAndReturnsExecuteResult(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	writer, err := service.CreateAgent(ctx, core.AgentInput{Name: "Writer", CanExecute: true})
+	if err != nil {
+		t.Fatalf("CreateAgent(writer): %v", err)
+	}
+
+	payload := callToolJSONWithHeader(t, ctx, mcpClient, "execute", map[string]any{
+		"sql":   "CREATE TABLE scratch_execute (id integer)",
+		"limit": 25,
+	}, writer.APIKey)
+
+	if got := payload["row_count"]; got != float64(0) && got != 0 {
+		t.Fatalf("expected execute row_count=0 for DDL, got %#v", got)
+	}
+	if got := payload["rows_affected"]; got != float64(1) && got != 1 {
+		t.Fatalf("expected execute rows_affected=1 from fake executor, got %#v", got)
+	}
+	rows := asSlice(t, payload["rows"])
+	if len(rows) != 0 {
+		t.Fatalf("expected no execute rows for DDL, got %#v", rows)
+	}
+}
+
+func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeNone,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+
+	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
+	if got, want := managerTools, []string{"create_query", "delete_query", "execute_query", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
+	}
+
+	initialList := callToolJSONWithHeader(t, ctx, mcpClient, "list_queries", nil, manager.APIKey)
+	if got := len(asSlice(t, initialList["queries"])); got != 0 {
+		t.Fatalf("expected empty manager catalog before creation, got %d entries", got)
+	}
+
+	createdPayload := callToolJSONWithHeader(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "List accounts",
+		"additional_context":      "Use this when an agent needs account names.",
+		"sql_query":               "SELECT account_id, account_name FROM accounts WHERE account_id = {{account_id}}",
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Optional account filter", "required": false},
+		},
+		"output_columns": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Account identifier"},
+			{"name": "account_name", "type": "text", "description": "Display name"},
+		},
+		"constraints": "Only for account catalog reads.",
+	}, manager.APIKey)
+	createdQuery := asMap(t, createdPayload["query"])
+	queryID := requireString(t, createdQuery, "query_id")
+
+	listedPayload := callToolJSONWithHeader(t, ctx, mcpClient, "list_queries", nil, manager.APIKey)
+	listedQueries := asSlice(t, listedPayload["queries"])
+	if len(listedQueries) != 1 {
+		t.Fatalf("expected manager to see full catalog with created query, got %d entries", len(listedQueries))
+	}
+
+	updatedPayload := callToolJSONWithHeader(t, ctx, mcpClient, "update_query", map[string]any{
+		"query_id":                queryID,
+		"natural_language_prompt": "Rename account",
+		"additional_context":      "Use when a manager agent needs to rename an account.",
+		"sql_query":               "UPDATE accounts SET account_name = {{account_name}} WHERE account_id = {{account_id}}",
+		"allows_modification":     true,
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "description": "Account identifier", "required": true},
+			{"name": "account_name", "type": "string", "description": "New account name", "required": true},
+		},
+		"output_columns": []map[string]any{
+			{"name": "rows_affected", "type": "integer", "description": "Rows changed"},
+		},
+	}, manager.APIKey)
+	updatedQuery := asMap(t, updatedPayload["query"])
+	if got := requireString(t, updatedQuery, "query_id"); got != queryID {
+		t.Fatalf("expected updated query_id %q, got %q", queryID, got)
+	}
+	if got := requireString(t, updatedQuery, "sql_query"); got != "UPDATE accounts SET account_name = {{account_name}} WHERE account_id = {{account_id}}" {
+		t.Fatalf("unexpected updated sql_query: %q", got)
+	}
+	if allows, ok := updatedQuery["allows_modification"].(bool); !ok || !allows {
+		t.Fatalf("expected allows_modification=true after update, got %#v", updatedQuery["allows_modification"])
+	}
+
+	deletePayload := callToolJSONWithHeader(t, ctx, mcpClient, "delete_query", map[string]any{"query_id": queryID}, manager.APIKey)
+	if deleted, ok := deletePayload["deleted"].(bool); !ok || !deleted {
+		t.Fatalf("expected delete_query to report deleted=true, got %#v", deletePayload["deleted"])
+	}
+	if got := requireString(t, deletePayload, "query_id"); got != queryID {
+		t.Fatalf("expected deleted query_id %q, got %q", queryID, got)
+	}
+
+	consumerQuery, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "List contacts",
+		SQLQuery:              "SELECT contact_id, contact_name FROM contacts",
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery(consumer): %v", err)
+	}
+	consumer, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:               "Consumer",
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected,
+		ApprovedQueryIDs:   []string{consumerQuery.ID},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(consumer): %v", err)
+	}
+
+	consumerTools := listToolNamesWithHeader(t, ctx, mcpClient, consumer.APIKey)
+	if got, want := consumerTools, []string{"execute_query", "health", "list_queries"}; !equalStrings(got, want) {
+		t.Fatalf("unexpected consumer tools via header auth: got %v want %v", got, want)
+	}
+
+	executePayload := callToolJSONWithHeader(t, ctx, mcpClient, "execute_query", map[string]any{"query_id": consumerQuery.ID}, consumer.APIKey)
+	if got := executePayload["row_count"]; got != float64(1) && got != 1 {
+		t.Fatalf("expected execute_query row_count=1, got %#v", got)
+	}
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "Should fail",
+		"sql_query":               "SELECT 1",
+	}, consumer.APIKey, "agent is not allowed to manage approved queries")
 }
 
 func TestHTTPHealthStaysAvailableWithoutDatasource(t *testing.T) {
@@ -424,6 +606,17 @@ func listToolNamesWithHeader(t *testing.T, ctx context.Context, mcpClient *clien
 	}
 	sort.Strings(names)
 	return names
+}
+
+func requireToolByName(t *testing.T, tools []mcp.Tool, name string) mcp.Tool {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found in %#v", name, tools)
+	return mcp.Tool{}
 }
 
 func callToolJSON(t *testing.T, ctx context.Context, mcpClient *client.Client, tool string, args map[string]any) map[string]any {

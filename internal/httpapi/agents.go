@@ -12,11 +12,12 @@ import (
 )
 
 type agentRequest struct {
-	Name               string   `json:"name"`
-	CanQuery           bool     `json:"can_query"`
-	CanExecute         bool     `json:"can_execute"`
-	ApprovedQueryScope string   `json:"approved_query_scope"`
-	ApprovedQueryIDs   []string `json:"approved_query_ids"`
+	Name                     string   `json:"name"`
+	CanQuery                 bool     `json:"can_query"`
+	CanExecute               bool     `json:"can_execute"`
+	CanManageApprovedQueries bool     `json:"can_manage_approved_queries"`
+	ApprovedQueryScope       string   `json:"approved_query_scope"`
+	ApprovedQueryIDs         []string `json:"approved_query_ids"`
 }
 
 func (a *API) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -162,11 +163,12 @@ func parseAgentRequest(body io.Reader) (core.AgentInput, error) {
 		return core.AgentInput{}, err
 	}
 	return core.AgentInput{
-		Name:               req.Name,
-		CanQuery:           req.CanQuery,
-		CanExecute:         req.CanExecute,
-		ApprovedQueryScope: storepkg.ApprovedQueryScope(strings.TrimSpace(req.ApprovedQueryScope)),
-		ApprovedQueryIDs:   append([]string(nil), req.ApprovedQueryIDs...),
+		Name:                     req.Name,
+		CanQuery:                 req.CanQuery,
+		CanExecute:               req.CanExecute,
+		CanManageApprovedQueries: req.CanManageApprovedQueries,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScope(strings.TrimSpace(req.ApprovedQueryScope)),
+		ApprovedQueryIDs:         append([]string(nil), req.ApprovedQueryIDs...),
 	}, nil
 }
 
@@ -175,16 +177,17 @@ func agentResponse(agent *core.AgentView) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":                   agent.ID,
-		"name":                 agent.Name,
-		"masked_api_key":       agent.MaskedAPIKey,
-		"can_query":            agent.CanQuery,
-		"can_execute":          agent.CanExecute,
-		"approved_query_scope": string(agent.ApprovedQueryScope),
-		"approved_query_ids":   append([]string(nil), agent.ApprovedQueryIDs...),
-		"created_at":           agent.CreatedAt,
-		"updated_at":           agent.UpdatedAt,
-		"last_used_at":         agent.LastUsedAt,
+		"id":                          agent.ID,
+		"name":                        agent.Name,
+		"masked_api_key":              agent.MaskedAPIKey,
+		"can_query":                   agent.CanQuery,
+		"can_execute":                 agent.CanExecute,
+		"can_manage_approved_queries": agent.CanManageApprovedQueries,
+		"approved_query_scope":        string(agent.ApprovedQueryScope),
+		"approved_query_ids":          append([]string(nil), agent.ApprovedQueryIDs...),
+		"created_at":                  agent.CreatedAt,
+		"updated_at":                  agent.UpdatedAt,
+		"last_used_at":                agent.LastUsedAt,
 	}
 }
 

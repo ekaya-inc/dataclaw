@@ -90,6 +90,7 @@ type validateRequest struct {
 type queryTestRequest struct {
 	SQLQuery           string                  `json:"sql_query"`
 	Parameters         []models.QueryParameter `json:"parameters,omitempty"`
+	ParameterValues    map[string]any          `json:"parameter_values,omitempty"`
 	AllowsModification bool                    `json:"allows_modification"`
 	Limit              int                     `json:"limit,omitempty"`
 }
@@ -177,7 +178,7 @@ func (a *API) handleTestQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	result, err := a.service.TestDraftQuery(r.Context(), req.SQLQuery, req.Parameters, req.AllowsModification, req.Limit)
+	result, err := a.service.TestDraftQuery(r.Context(), req.SQLQuery, req.Parameters, req.ParameterValues, req.AllowsModification, req.Limit)
 	if err != nil {
 		writeError(w, err)
 		return

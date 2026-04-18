@@ -172,6 +172,8 @@ function toAgentRecord(raw: unknown): AgentRecord {
     apiKey: asString(pick(record, 'apiKey', 'api_key')),
     canQuery: asBoolean(pick(record, 'canQuery', 'can_query')) ?? false,
     canExecute: asBoolean(pick(record, 'canExecute', 'can_execute')) ?? false,
+    canManageApprovedQueries:
+      asBoolean(pick(record, 'canManageApprovedQueries', 'can_manage_approved_queries')) ?? false,
     approvedQueryScope: (asString(pick(record, 'approvedQueryScope', 'approved_query_scope')) ?? 'none') as AgentRecord['approvedQueryScope'],
     approvedQueryIds: Array.isArray(pick(record, 'approvedQueryIds', 'approved_query_ids'))
       ? (pick(record, 'approvedQueryIds', 'approved_query_ids') as unknown[]).filter((value): value is string => typeof value === 'string')
@@ -244,10 +246,12 @@ function datasourcePayload(values: DatasourceFormValues): Record<string, unknown
 }
 
 function agentPayload(values: AgentFormValues): Record<string, unknown> {
+  const canManageApprovedQueries = Boolean(values.canManageApprovedQueries);
   return {
     name: values.name,
-    can_query: values.canQuery,
+    can_query: canManageApprovedQueries ? true : values.canQuery,
     can_execute: values.canExecute,
+    can_manage_approved_queries: canManageApprovedQueries,
     approved_query_scope: values.approvedQueryScope,
     approved_query_ids: values.approvedQueryScope === 'selected' ? values.approvedQueryIds : [],
   };
@@ -417,12 +421,21 @@ export async function validateQuery(sql: string, parameters: QueryParameter[], a
   };
 }
 
-export async function testQuery(sql: string, parameters: QueryParameter[], allowsModification: boolean): Promise<QueryExecutionResult> {
+export async function testQuery(
+  sql: string,
+  parameters: QueryParameter[],
+  allowsModification: boolean,
+  values?: Record<string, unknown>,
+): Promise<QueryExecutionResult> {
+  const body: Record<string, unknown> = { sql_query: sql, parameters, allows_modification: allowsModification };
+  if (values && Object.keys(values).length > 0) {
+    body.parameter_values = values;
+  }
   const data = await parseResponse<unknown>(
     await fetch('/api/queries/test', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ sql_query: sql, parameters, allows_modification: allowsModification }),
+      body: JSON.stringify(body),
     }),
   );
   const record = asRecord(data);
