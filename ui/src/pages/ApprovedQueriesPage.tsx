@@ -1,4 +1,4 @@
-import { CheckCircle2, Plus, Search } from 'lucide-react';
+import { Plus, Search, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
@@ -13,9 +13,6 @@ import { QUERY_TEMPLATE } from '../constants';
 import { createQuery, getDatasource, listQueries } from '../services/api';
 import type { DatasourceRecord } from '../types/datasource';
 import type { SavedQuery } from '../types/query';
-
-const SEED_QUERY_PROMPT = 'Connectivity check';
-const SEED_QUERY_CONTEXT = 'Verify the datasource is reachable by returning a simple boolean.';
 
 export default function ApprovedQueriesPage(): JSX.Element {
   const navigate = useNavigate();
@@ -59,23 +56,25 @@ export default function ApprovedQueriesPage(): JSX.Element {
   const handleSeedQuery = async (): Promise<void> => {
     setSeeding(true);
     try {
-      const seeded = await createQuery({
+      await createQuery({
         datasourceId: datasource?.id,
-        naturalLanguagePrompt: SEED_QUERY_PROMPT,
-        additionalContext: SEED_QUERY_CONTEXT,
+        naturalLanguagePrompt: 'Connectivity check',
+        additionalContext: 'Verify the datasource is reachable by returning a simple boolean.',
         sql: QUERY_TEMPLATE,
         allowsModification: false,
         parameters: [],
-        outputColumns: [{ name: 'connected', type: 'boolean', description: 'True when the datasource responds.' }],
+        outputColumns: [
+          { name: 'connected', type: 'boolean', description: 'True when the datasource responds.' },
+        ],
         constraints: '',
       });
-      toast({ variant: 'success', title: 'Seeded connectivity check' });
-      void refresh();
-      navigate(`/queries/${seeded.id}`);
+      toast({ variant: 'success', title: 'Seeded example query' });
+      const [latest] = await Promise.all([listQueries(), refresh()]);
+      setQueries(latest);
     } catch (error) {
       toast({
         variant: 'error',
-        title: 'Failed to seed connectivity check',
+        title: 'Failed to seed example query',
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -103,7 +102,7 @@ export default function ApprovedQueriesPage(): JSX.Element {
     <div className="space-y-6">
       <PageHeader
         title="Approved Queries"
-        description="Manage the exact SQL that Agents are allowed to create, inspect, and run through the local MCP server."
+        description="Manage the SQL Queries that Agents are allowed to run."
         actions={
           <Button type="button" onClick={() => navigate('/queries/new')}>
             <Plus className="h-4 w-4" />
@@ -137,11 +136,11 @@ export default function ApprovedQueriesPage(): JSX.Element {
           {loading ? null : queries.length === 0 ? (
             <EmptyState
               title="No approved queries yet"
-              body="Seed a simple connectivity check now, or create a custom SQL query below."
+              body="Create your own query by hand or (RECOMMENDED) have an agent create your queries for you by enabling 'Manage Approved Queries' in the Agents screen."
               actions={
                 <Button type="button" onClick={() => void handleSeedQuery()} disabled={seeding}>
-                  <CheckCircle2 className="h-4 w-4" />
-                  {seeding ? 'Seeding…' : 'Use SELECT true AS connected'}
+                  <Sparkles className="h-4 w-4" />
+                  {seeding ? 'Seeding…' : 'Seed with an Example Query'}
                 </Button>
               }
             />
