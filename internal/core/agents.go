@@ -298,6 +298,10 @@ func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (Ag
 	if name == "" {
 		return AgentInput{}, errors.New("name is required")
 	}
+	if input.CanManageApprovedQueries {
+		input.ApprovedQueryScope = storepkg.ApprovedQueryScopeAll
+		input.ApprovedQueryIDs = nil
+	}
 	scope := input.ApprovedQueryScope
 	if scope == "" {
 		scope = storepkg.ApprovedQueryScopeNone

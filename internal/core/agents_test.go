@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
@@ -138,6 +139,7 @@ func TestManagerCapabilityForcesRawQueryAndAllowsCatalogCRUD(t *testing.T) {
 	manager, err := service.CreateAgent(ctx, AgentInput{
 		Name:                     "Catalog manager",
 		CanManageApprovedQueries: true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeNone,
 	})
 	if err != nil {
 		t.Fatalf("CreateAgent(manager): %v", err)
@@ -147,6 +149,12 @@ func TestManagerCapabilityForcesRawQueryAndAllowsCatalogCRUD(t *testing.T) {
 	}
 	if !manager.CanManageApprovedQueries {
 		t.Fatal("expected manager capability to round-trip on create")
+	}
+	if manager.ApprovedQueryScope != storepkg.ApprovedQueryScopeAll {
+		t.Fatalf("expected manager capability to force approved_query_scope=all, got %q", manager.ApprovedQueryScope)
+	}
+	if len(manager.ApprovedQueryIDs) != 0 {
+		t.Fatalf("expected manager capability to clear approved_query_ids, got %#v", manager.ApprovedQueryIDs)
 	}
 
 	internalManager, err := service.AuthenticateAgent(ctx, manager.APIKey)
@@ -172,8 +180,8 @@ func TestManagerCapabilityForcesRawQueryAndAllowsCatalogCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateQueryForAgent(manager): %v", err)
 	}
-	if _, err := service.ExecuteStoredQueryForAgent(ctx, internalManager, createdQuery.ID, nil, 10); err == nil {
-		t.Fatal("expected manager capability alone not to grant execute_query access")
+	if _, err := service.ExecuteStoredQueryForAgent(ctx, internalManager, createdQuery.ID, nil, 10); err == nil || strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("expected manager capability to pass authorization for execute_query, got %v", err)
 	}
 
 	updatedQuery, err := service.UpdateQueryForAgent(ctx, internalManager, createdQuery.ID, &storepkg.ApprovedQuery{

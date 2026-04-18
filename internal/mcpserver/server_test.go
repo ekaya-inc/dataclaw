@@ -267,7 +267,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
-	if got, want := managerTools, []string{"create_query", "delete_query", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+	if got, want := managerTools, []string{"create_query", "delete_query", "execute_query", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
 	}
 

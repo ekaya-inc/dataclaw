@@ -275,6 +275,12 @@ func TestAgentManagerCapabilityNormalizesCanQueryInAPI(t *testing.T) {
 	if created["can_manage_approved_queries"] != true {
 		t.Fatalf("expected manager flag in create response, got %#v", created["can_manage_approved_queries"])
 	}
+	if created["approved_query_scope"] != "all" {
+		t.Fatalf("expected manager create response to normalize approved_query_scope=all, got %#v", created["approved_query_scope"])
+	}
+	if ids, _ := created["approved_query_ids"].([]any); len(ids) != 0 {
+		t.Fatalf("expected manager create response to clear approved_query_ids, got %#v", created["approved_query_ids"])
+	}
 
 	agentID := created["id"].(string)
 	updateRec := performJSONRequest(t, api, http.MethodPut, "/api/agents/"+agentID, map[string]any{
@@ -293,5 +299,11 @@ func TestAgentManagerCapabilityNormalizesCanQueryInAPI(t *testing.T) {
 	}
 	if updated["can_manage_approved_queries"] != true {
 		t.Fatalf("expected manager flag in update response, got %#v", updated["can_manage_approved_queries"])
+	}
+	if updated["approved_query_scope"] != "all" {
+		t.Fatalf("expected manager update response to normalize approved_query_scope=all, got %#v", updated["approved_query_scope"])
+	}
+	if ids, _ := updated["approved_query_ids"].([]any); len(ids) != 0 {
+		t.Fatalf("expected manager update response to clear approved_query_ids, got %#v", updated["approved_query_ids"])
 	}
 }
