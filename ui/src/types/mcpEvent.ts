@@ -9,10 +9,17 @@ export interface MCPToolEventRecord {
   eventType: MCPToolEventType;
   wasSuccessful: boolean;
   durationMs: number;
+  hasDetails: boolean;
+  createdAt: string;
+}
+
+export interface MCPToolEventDetails {
+  id: string;
   requestParams: Record<string, unknown>;
   resultSummary: Record<string, unknown>;
   errorMessage: string;
-  createdAt: string;
+  queryName: string;
+  sqlText: string;
 }
 
 export interface MCPToolEventPage {

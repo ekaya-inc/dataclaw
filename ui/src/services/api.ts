@@ -9,7 +9,7 @@ import type {
   TestConnectionResult,
 } from '../types/datasource';
 import type { OutputColumn, QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
-import type { MCPToolEventFilters, MCPToolEventPage, MCPToolEventRecord, MCPToolEventType } from '../types/mcpEvent';
+import type { MCPToolEventDetails, MCPToolEventFilters, MCPToolEventPage, MCPToolEventRecord, MCPToolEventType } from '../types/mcpEvent';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -217,10 +217,20 @@ function toMCPToolEvent(raw: unknown): MCPToolEventRecord {
     eventType: (asString(pick(record, 'eventType', 'event_type')) ?? 'tool_call') as MCPToolEventType,
     wasSuccessful: asBoolean(pick(record, 'wasSuccessful', 'was_successful')) ?? false,
     durationMs: asNumber(pick(record, 'durationMs', 'duration_ms')) ?? 0,
+    hasDetails: asBoolean(pick(record, 'hasDetails', 'has_details')) ?? false,
+    createdAt: asString(pick(record, 'createdAt', 'created_at')) ?? '',
+  };
+}
+
+function toMCPToolEventDetails(raw: unknown): MCPToolEventDetails {
+  const record = asRecord(raw);
+  return {
+    id: asString(pick(record, 'id')) ?? 'unknown',
     requestParams: asRecord(pick(record, 'requestParams', 'request_params')) ?? {},
     resultSummary: asRecord(pick(record, 'resultSummary', 'result_summary')) ?? {},
     errorMessage: asString(pick(record, 'errorMessage', 'error_message')) ?? '',
-    createdAt: asString(pick(record, 'createdAt', 'created_at')) ?? '',
+    queryName: asString(pick(record, 'queryName', 'query_name')) ?? '',
+    sqlText: asString(pick(record, 'sqlText', 'sql_text')) ?? '',
   };
 }
 
@@ -276,6 +286,12 @@ export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<
     limit: asNumber(pick(record, 'limit')) ?? (filters.limit ?? 50),
     offset: asNumber(pick(record, 'offset')) ?? (filters.offset ?? 0),
   };
+}
+
+export async function getMCPEvent(id: string): Promise<MCPToolEventDetails> {
+  const data = await parseResponse<unknown>(await fetch(`/api/mcp-events/${encodeURIComponent(id)}`));
+  const record = asRecord(data);
+  return toMCPToolEventDetails(record?.event);
 }
 
 export async function getStatus(): Promise<RuntimeStatus | null> {
