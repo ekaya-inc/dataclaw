@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as ReactRouterDom from 'react-router-dom';
 
-import AgentDetailPage from './AgentDetailPage';
+import AgentDetailPage, { endpointUrl } from './AgentDetailPage';
 import { ToastProvider } from '../components/ui/Toast';
 
 vi.mock('react-router-dom', async () => {
@@ -60,6 +60,19 @@ beforeEach(() => {
 });
 
 describe('AgentDetailPage', () => {
+  it('prefers the current browser origin for MCP instructions', () => {
+    expect(
+      endpointUrl(
+        {
+          port: 18790,
+          baseUrl: 'http://127.0.0.1:18790',
+          mcpUrl: 'http://127.0.0.1:18790/mcp',
+        },
+        'http://127.0.0.1:18791',
+      ),
+    ).toBe('http://127.0.0.1:18791/mcp');
+  });
+
   it('reveals the plaintext API key from router state on first load', async () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;

@@ -25,17 +25,27 @@ import { cn } from '../utils/cn';
 
 const DELETE_CONFIRM_TEXT = 'delete access point';
 
-function endpointUrl(runtime: RuntimeStatus | null): string {
-  return runtime?.mcpUrl ?? `http://127.0.0.1:${runtime?.port ?? 18790}/mcp`;
+export function endpointUrl(runtime: RuntimeStatus | null, browserOrigin?: string): string {
+  if (browserOrigin) {
+    return new URL('/mcp', browserOrigin).toString();
+  }
+  if (runtime?.mcpUrl) {
+    return runtime.mcpUrl;
+  }
+  if (runtime?.baseUrl) {
+    return new URL('/mcp', runtime.baseUrl).toString();
+  }
+  return `http://127.0.0.1:${runtime?.port ?? 18790}/mcp`;
 }
 
 function buildMcpConfig(runtime: RuntimeStatus | null, agent: AgentRecord, apiKey: string | undefined): string {
+  const browserOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
   return JSON.stringify(
     {
       mcpServers: {
         [toMCPKey(agent.name)]: {
           type: 'http',
-          url: endpointUrl(runtime),
+          url: endpointUrl(runtime, browserOrigin),
           headers: {
             Authorization: `Bearer ${apiKey ?? '<your-api-key>'}`,
           },
