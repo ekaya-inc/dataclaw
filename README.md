@@ -40,6 +40,44 @@ There is no web authentication and no schema / ontology workflow.
 - Node 24+ for rebuilding the UI
 - Docker only if you want to run the optional database smoke tests locally
 
+## Install
+
+### macOS and Linux
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ekaya-inc/dataclaw/releases/latest/download/install.sh | sh
+```
+
+If you prefer a shorter URL, `https://dataclaw.sh/install.sh` redirects to the same installer.
+
+To pin a specific version:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ekaya-inc/dataclaw/releases/latest/download/install.sh | VERSION=v1.0.0 sh
+```
+
+### Windows
+
+Download the latest `.zip` from [GitHub Releases](https://github.com/ekaya-inc/dataclaw/releases), extract it, add the extracted directory to your `PATH`, and run `dataclaw.exe`.
+
+### Manual download
+
+Pre-built binaries are available on [GitHub Releases](https://github.com/ekaya-inc/dataclaw/releases) for:
+
+- macOS (Intel and Apple Silicon)
+- Linux (x86_64 and ARM64)
+- Windows (x86_64)
+
+Each release also includes `checksums.txt`, `.env.example`, and this README.
+
+## Run after install
+
+```bash
+dataclaw
+```
+
+DataClaw starts on `http://127.0.0.1:18790` by default. If that port is busy, it increments to the next free localhost port and logs the actual URL to open in your browser.
+
 ## Developer checks
 
 List the available make targets:
@@ -80,7 +118,7 @@ make dev-ui
 
 `make dev` and `make dev-ui` do not refresh `internal/uifs/dist`, so run `make run` or `make check` before shipping.
 
-## Run locally
+## Run from source
 
 ```bash
 go run .
@@ -123,8 +161,8 @@ A typical MCP config snippet looks like this:
 {
   "mcpServers": {
     "warehouse-analyst-123456": {
-      "url": "http://127.0.0.1:18790/mcp",
-      "transport": "streamable-http",
+      "type": "http",
+      "url": "http://127.0.0.1:<actual-port>/mcp",
       "headers": {
         "Authorization": "Bearer ${DATACLAW_API_KEY}"
       }
@@ -132,6 +170,8 @@ A typical MCP config snippet looks like this:
   }
 }
 ```
+
+Copy the generated snippet from the agent detail page so the agent name and localhost port match your running app.
 
 ## Environment variables
 
