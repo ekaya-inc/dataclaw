@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
+import { AgentConnectionClients } from '../components/AgentConnectionClients';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
@@ -36,25 +37,6 @@ export function endpointUrl(runtime: RuntimeStatus | null, browserOrigin?: strin
     return new URL('/mcp', runtime.baseUrl).toString();
   }
   return `http://127.0.0.1:${runtime?.port ?? 18790}/mcp`;
-}
-
-function buildMcpConfig(runtime: RuntimeStatus | null, agent: AgentRecord, apiKey: string | undefined): string {
-  const browserOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
-  return JSON.stringify(
-    {
-      mcpServers: {
-        [toMCPKey(agent.name)]: {
-          type: 'http',
-          url: endpointUrl(runtime, browserOrigin),
-          headers: {
-            Authorization: `Bearer ${apiKey ?? '<your-api-key>'}`,
-          },
-        },
-      },
-    },
-    null,
-    2,
-  );
 }
 
 function formatDate(value?: string): string {
@@ -256,9 +238,10 @@ export default function AgentDetailPage(): JSX.Element {
   if (!agent) return <></>;
 
   const displayKey = revealedKey ?? (agent.maskedApiKey || '••••••••••••••••');
-  const mcpConfig = buildMcpConfig(runtime, agent, revealedKey ?? undefined);
+  const browserOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
+  const mcpUrl = endpointUrl(runtime, browserOrigin);
+  const agentSlug = toMCPKey(agent.name);
   const keyLabel = copyFlash === 'API key' ? 'Copied' : 'Copy';
-  const configLabel = copyFlash === 'MCP config' ? 'Copied' : 'Copy';
 
   return (
     <div className="space-y-6">
@@ -369,30 +352,7 @@ export default function AgentDetailPage(): JSX.Element {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>MCP server configuration</Label>
-            <div className="relative">
-              <pre className="overflow-x-auto rounded-xl border border-border-light bg-slate-950 p-4 pr-16 font-mono text-xs leading-relaxed text-slate-100">
-                {mcpConfig}
-              </pre>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="absolute right-2 top-2"
-                onClick={() => void copy(mcpConfig, 'MCP config')}
-                aria-label="Copy MCP config"
-              >
-                {copyFlash === 'MCP config' ? (
-                  <Check className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                <span className="sr-only">{configLabel}</span>
-              </Button>
-            </div>
-            <p className="text-xs text-text-tertiary">Add this to your MCP client configuration to connect this agent.</p>
-          </div>
+          <AgentConnectionClients agentSlug={agentSlug} mcpUrl={mcpUrl} apiKey={revealedKey} />
         </CardContent>
       </Card>
 
