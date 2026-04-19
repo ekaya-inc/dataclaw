@@ -123,14 +123,16 @@ checksums_url="https://github.com/${OWNER}/${REPO}/releases/download/${VERSION}/
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT INT TERM
 
+archive_path="$tmp_dir/${ARCHIVE_BASENAME}${ARCHIVE_EXT}"
+
 info "Downloading ${VERSION} for ${OS}/${ARCH}"
-http_download "$archive_url" "$tmp_dir/archive${ARCHIVE_EXT}"
+http_download "$archive_url" "$archive_path"
 http_download "$checksums_url" "$tmp_dir/checksums.txt"
-verify_archive "$tmp_dir/archive${ARCHIVE_EXT}" "$tmp_dir/checksums.txt"
+verify_archive "$archive_path" "$tmp_dir/checksums.txt"
 
 extract_dir="$tmp_dir/extract"
 mkdir -p "$extract_dir"
-extract_archive "$tmp_dir/archive${ARCHIVE_EXT}" "$extract_dir"
+extract_archive "$archive_path" "$extract_dir"
 
 binary_path="$extract_dir/${ARCHIVE_BASENAME}/${BINARY}"
 [ "$OS" != "windows" ] || binary_path="${binary_path}.exe"
