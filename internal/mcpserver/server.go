@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,11 @@ import (
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
+
+type authDiag struct {
+	reason    string
+	tokenHint string
+}
 
 type Server struct {
 	httpServer *server.StreamableHTTPServer
@@ -79,8 +85,22 @@ func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		agent, err := s.authorize(r)
+		agent, diag, err := s.authorize(r)
 		if err != nil || agent == nil {
+			attrs := []any{
+				"reason", diag.reason,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote", r.RemoteAddr,
+				"user_agent", r.UserAgent(),
+			}
+			if diag.tokenHint != "" {
+				attrs = append(attrs, "token_prefix", diag.tokenHint)
+			}
+			if err != nil {
+				attrs = append(attrs, "error", err.Error())
+			}
+			slog.Warn("mcp request unauthorized", attrs...)
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": "unauthorized"})
 			return
@@ -89,7 +109,7 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 
-func (s *Server) authorize(r *http.Request) (*storepkg.Agent, error) {
+func (s *Server) authorize(r *http.Request) (*storepkg.Agent, authDiag, error) {
 	cred := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(strings.ToLower(cred), "bearer ") {
 		cred = strings.TrimSpace(cred[7:])
@@ -98,9 +118,25 @@ func (s *Server) authorize(r *http.Request) (*storepkg.Agent, error) {
 		cred = strings.TrimSpace(r.Header.Get("X-API-Key"))
 	}
 	if cred == "" {
-		return nil, errors.New("missing api key")
+		return nil, authDiag{reason: "no_credential"}, errors.New("missing api key")
 	}
-	return s.service.AuthenticateAgent(r.Context(), cred)
+	agent, err := s.service.AuthenticateAgent(r.Context(), cred)
+	hint := tokenHint(cred)
+	if err != nil {
+		return nil, authDiag{reason: "lookup_failed", tokenHint: hint}, err
+	}
+	if agent == nil {
+		return nil, authDiag{reason: "unknown_token", tokenHint: hint}, nil
+	}
+	return agent, authDiag{}, nil
+}
+
+func tokenHint(token string) string {
+	const prefixLen = 8
+	if len(token) <= prefixLen {
+		return token
+	}
+	return token[:prefixLen] + "..."
 }
 
 func registerQueryTool(srv *server.MCPServer, service *core.Service) {

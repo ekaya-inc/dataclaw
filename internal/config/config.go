@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ const (
 	DefaultPort     = 18790
 )
 
+var DefaultLogLevel = slog.LevelInfo
+
 type Config struct {
 	BindAddr   string
 	Port       int
@@ -21,6 +24,7 @@ type Config struct {
 	SQLitePath string
 	SecretPath string
 	Version    string
+	LogLevel   slog.Level
 }
 
 func Load(version string) (*Config, error) {
@@ -34,6 +38,10 @@ func Load(version string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	logLevel, err := parseLogLevel(os.Getenv("DATACLAW_LOG_LEVEL"))
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		BindAddr:   normalizeBindAddr(envOrDefault("DATACLAW_BIND_ADDR", DefaultBindAddr)),
@@ -42,8 +50,26 @@ func Load(version string) (*Config, error) {
 		SQLitePath: envOrDefault("DATACLAW_DB_PATH", filepath.Join(dataDir, "dataclaw.sqlite")),
 		SecretPath: envOrDefault("DATACLAW_SECRET_PATH", filepath.Join(dataDir, "secret.key")),
 		Version:    version,
+		LogLevel:   logLevel,
 	}
 	return cfg, nil
+}
+
+func parseLogLevel(raw string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return DefaultLogLevel, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("invalid DATACLAW_LOG_LEVEL: %q (expected debug, info, warn, or error)", raw)
+	}
 }
 
 func normalizeBindAddr(bindAddr string) string {

@@ -31,6 +31,7 @@ func Run(version string) error {
 	if err != nil {
 		return err
 	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return err
 	}
