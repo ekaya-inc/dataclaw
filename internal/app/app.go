@@ -31,6 +31,7 @@ func Run(version string) error {
 	if err != nil {
 		return err
 	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return err
 	}
@@ -63,6 +64,7 @@ func Run(version string) error {
 	registerUIRoutes(mux, uiFS)
 	server := &http.Server{Handler: logRequests(mux)}
 	slog.Info("starting dataclaw", "base_url", baseURL, "mcp_url", baseURL+"/mcp", "sqlite", cfg.SQLitePath, "ui_source", uifs.Source())
+	slog.Info("dataclaw", "version", version, "open", baseURL)
 	shutdownDone := make(chan struct{})
 	go func() {
 		sig := make(chan os.Signal, 1)

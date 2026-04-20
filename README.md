@@ -180,6 +180,7 @@ Copy the generated snippet from the agent detail page so the agent name and loca
 - `DATACLAW_DATA_DIR`
 - `DATACLAW_DB_PATH`
 - `DATACLAW_SECRET_PATH`
+- `DATACLAW_LOG_LEVEL`
 
 See [.env.example](./.env.example) for documented defaults and shell-friendly examples.
 

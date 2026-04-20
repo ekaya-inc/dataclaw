@@ -40,6 +40,8 @@ func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() 
 
 func (s *Service) Close() error { return nil }
 
+func (s *Service) Version() string { return s.version }
+
 func (s *Service) DatasourceTypes() []dsadapter.AdapterInfo {
 	if s.adapters == nil {
 		return nil

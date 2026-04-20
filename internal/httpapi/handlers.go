@@ -22,6 +22,8 @@ type API struct {
 func New(service *core.Service) *API { return &API{service: service} }
 
 func (a *API) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /ping", a.handlePing)
+	mux.HandleFunc("HEAD /ping", a.handlePing)
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/mcp-events", a.handleListMCPEvents)
 	mux.HandleFunc("GET /api/mcp-events/", a.handleGetMCPEvent)
@@ -94,6 +96,26 @@ type queryTestRequest struct {
 	ParameterValues    map[string]any          `json:"parameter_values,omitempty"`
 	AllowsModification bool                    `json:"allows_modification"`
 	Limit              int                     `json:"limit,omitempty"`
+}
+
+type pingResponse struct {
+	Status  string `json:"status"`
+	Version string `json:"version"`
+	Service string `json:"service"`
+}
+
+func (a *API) handlePing(w http.ResponseWriter, r *http.Request) {
+	status := "ok"
+	if configured, _ := a.service.HasDatasource(r.Context()); !configured {
+		status = "no datasource"
+	}
+	body := pingResponse{Status: status, Version: a.service.Version(), Service: "dataclaw"}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, _ *http.Request) {
