@@ -114,6 +114,61 @@ func decodeData(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return payload
 }
 
+func TestPingReportsStatusAndVersion(t *testing.T) {
+	api := newTestAPI(t)
+
+	rec := performJSONRequest(t, api, http.MethodGet, "/ping", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got := payload["status"]; got != "no datasource" {
+		t.Fatalf("expected status=no datasource before configuring, got %#v", got)
+	}
+	if got := payload["version"]; got != "test" {
+		t.Fatalf("expected version=test, got %#v", got)
+	}
+	if got := payload["service"]; got != "dataclaw" {
+		t.Fatalf("expected service=dataclaw, got %#v", got)
+	}
+
+	if _, err := api.service.UpsertDatasource(context.Background(), &storepkg.Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "warehouse",
+			"user":     "analyst",
+			"password": "secret",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDatasource: %v", err)
+	}
+
+	rec = performJSONRequest(t, api, http.MethodGet, "/ping", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 after configure, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got := payload["status"]; got != "ok" {
+		t.Fatalf("expected status=ok once datasource configured, got %#v", got)
+	}
+
+	head := performJSONRequest(t, api, http.MethodHead, "/ping", nil)
+	if head.Code != http.StatusOK {
+		t.Fatalf("expected HEAD 200, got %d", head.Code)
+	}
+	if head.Body.Len() != 0 {
+		t.Fatalf("expected empty HEAD body, got %q", head.Body.String())
+	}
+}
+
 func TestStatusReturnsAgentCount(t *testing.T) {
 	api := newTestAPI(t)
 	created := performJSONRequest(t, api, http.MethodPost, "/api/agents", map[string]any{"name": "Status agent", "can_query": true})
