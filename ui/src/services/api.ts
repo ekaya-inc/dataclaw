@@ -1,6 +1,6 @@
 import { QUERY_TEMPLATE } from '../constants';
 import type { ApiEnvelope } from '../types/api';
-import type { AgentFormValues, AgentRecord } from '../types/agent';
+import type { AgentBundleInstallLink, AgentFormValues, AgentRecord } from '../types/agent';
 import type {
   DatasourceAdapterInfo,
   DatasourceFormValues,
@@ -181,6 +181,16 @@ function toAgentRecord(raw: unknown): AgentRecord {
     createdAt: asString(pick(record, 'createdAt', 'created_at')),
     updatedAt: asString(pick(record, 'updatedAt', 'updated_at')),
     lastUsedAt: asString(pick(record, 'lastUsedAt', 'last_used_at')),
+  };
+}
+
+function toAgentBundleInstallLink(raw: unknown): AgentBundleInstallLink {
+  const record = asRecord(raw);
+  return {
+    slug: asString(pick(record, 'slug')) ?? 'agent',
+    code: asString(pick(record, 'code')) ?? '',
+    bundleUrl: asString(pick(record, 'bundleUrl', 'bundle_url')) ?? '',
+    expiresAt: asString(pick(record, 'expiresAt', 'expires_at')),
   };
 }
 
@@ -536,4 +546,16 @@ export async function rotateAgentKey(id: string): Promise<AgentRecord> {
   );
   const record = asRecord(data);
   return toAgentRecord(record && 'agent' in record ? record.agent : data);
+}
+
+export async function createAgentBundleInstallLink(id: string): Promise<AgentBundleInstallLink> {
+  const data = await parseResponse<unknown>(
+    await fetch(`/api/agents/${id}/bundle-code`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({}),
+    }),
+  );
+  const record = asRecord(data);
+  return toAgentBundleInstallLink(record && 'bundle_install' in record ? record.bundle_install : data);
 }

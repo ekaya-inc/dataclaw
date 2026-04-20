@@ -15,6 +15,13 @@ export interface AgentRecord {
   lastUsedAt?: string | undefined;
 }
 
+export interface AgentBundleInstallLink {
+  slug: string;
+  code: string;
+  bundleUrl: string;
+  expiresAt?: string | undefined;
+}
+
 export interface AgentFormValues {
   name: string;
   canQuery: boolean;

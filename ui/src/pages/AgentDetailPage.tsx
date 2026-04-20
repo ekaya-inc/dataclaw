@@ -19,17 +19,14 @@ import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { useToast } from '../components/ui/Toast';
 import { toMCPKey } from '../lib/mcpSlug';
-import { deleteAgent, getAgent, getStatus, revealAgentKey, rotateAgentKey } from '../services/api';
+import { createAgentBundleInstallLink, deleteAgent, getAgent, getStatus, revealAgentKey, rotateAgentKey } from '../services/api';
 import type { AgentRecord } from '../types/agent';
 import type { RuntimeStatus } from '../types/datasource';
 import { cn } from '../utils/cn';
 
 const DELETE_CONFIRM_TEXT = 'delete access point';
 
-export function endpointUrl(runtime: RuntimeStatus | null, browserOrigin?: string): string {
-  if (browserOrigin) {
-    return new URL('/mcp', browserOrigin).toString();
-  }
+export function endpointUrl(runtime: RuntimeStatus | null): string {
   if (runtime?.mcpUrl) {
     return runtime.mcpUrl;
   }
@@ -37,6 +34,11 @@ export function endpointUrl(runtime: RuntimeStatus | null, browserOrigin?: strin
     return new URL('/mcp', runtime.baseUrl).toString();
   }
   return `http://127.0.0.1:${runtime?.port ?? 18790}/mcp`;
+}
+
+export function bundleUrl(agentSlug: string, runtime: RuntimeStatus | null): string {
+  const base = runtime?.baseUrl ?? `http://127.0.0.1:${runtime?.port ?? 18790}`;
+  return new URL(`/bundles/${agentSlug}`, base).toString();
 }
 
 function formatDate(value?: string): string {
@@ -101,6 +103,7 @@ export default function AgentDetailPage(): JSX.Element {
 
   const [agent, setAgent] = useState<AgentRecord | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [installBundleUrl, setInstallBundleUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [revealBusy, setRevealBusy] = useState(false);
@@ -140,6 +143,31 @@ export default function AgentDetailPage(): JSX.Element {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    setInstallBundleUrl(null);
+    void createAgentBundleInstallLink(id)
+      .then((bundleInstall) => {
+        if (!cancelled) {
+          setInstallBundleUrl(bundleInstall.bundleUrl);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setInstallBundleUrl(null);
+          toast({
+            title: 'Install link unavailable',
+            description: error instanceof Error ? error.message : 'Failed to generate install link.',
+            variant: 'error',
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, toast]);
 
   const copy = async (value: string, label: string): Promise<void> => {
     try {
@@ -238,8 +266,7 @@ export default function AgentDetailPage(): JSX.Element {
   if (!agent) return <></>;
 
   const displayKey = revealedKey ?? (agent.maskedApiKey || '••••••••••••••••');
-  const browserOrigin = typeof window === 'undefined' ? undefined : window.location.origin;
-  const mcpUrl = endpointUrl(runtime, browserOrigin);
+  const mcpUrl = endpointUrl(runtime);
   const agentSlug = toMCPKey(agent.name);
   const keyLabel = copyFlash === 'API key' ? 'Copied' : 'Copy';
 
@@ -352,7 +379,12 @@ export default function AgentDetailPage(): JSX.Element {
             </div>
           </div>
 
-          <AgentConnectionClients agentSlug={agentSlug} mcpUrl={mcpUrl} apiKey={revealedKey} />
+          <AgentConnectionClients
+            agentSlug={agentSlug}
+            bundleUrl={installBundleUrl}
+            mcpUrl={mcpUrl}
+            apiKey={revealedKey}
+          />
         </CardContent>
       </Card>
 

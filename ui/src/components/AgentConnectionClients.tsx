@@ -7,6 +7,7 @@ import { cn } from '../utils/cn';
 
 interface ClientContext {
   agentSlug: string;
+  bundleUrl: string | null;
   mcpUrl: string;
   apiKey: string;
 }
@@ -27,17 +28,25 @@ const CODEX_ENV_VAR = 'DATACLAW_API_KEY';
 
 const CLIENTS: readonly ClientSpec[] = [
   {
-    id: 'openclaw',
-    name: 'OpenClaw',
-    build: ({ agentSlug, mcpUrl, apiKey }) => {
-      const payload = JSON.stringify({
-        url: mcpUrl,
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
+    id: 'as-skill',
+    name: 'As a Skill',
+    build: ({ bundleUrl }) => {
       return [
         {
-          hint: 'Run in your terminal',
-          code: `openclaw mcp set ${agentSlug} '${payload}'`,
+          hint: bundleUrl ? 'Ask the agent to install the access point as a skill' : 'Generating install link…',
+          code: bundleUrl ? `install dataclaw from ${bundleUrl}` : 'Loading…',
+        },
+      ];
+    },
+  },
+  {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    build: ({ bundleUrl }) => {
+      return [
+        {
+          hint: bundleUrl ? 'Ask OpenClaw to install the access point' : 'Generating install link…',
+          code: bundleUrl ? `install dataclaw from ${bundleUrl}` : 'Loading…',
         },
       ];
     },
@@ -111,20 +120,24 @@ const CLIENTS: readonly ClientSpec[] = [
 
 interface Props {
   agentSlug: string;
+  bundleUrl: string | null;
   mcpUrl: string;
   apiKey: string | null;
 }
 
-const DEFAULT_CLIENT_ID = 'openclaw';
+const DEFAULT_CLIENT_ID = 'as-skill';
+const SKILL_INSTALL_CLIENT_IDS = new Set(['as-skill', 'openclaw']);
 
-export function AgentConnectionClients({ agentSlug, mcpUrl, apiKey }: Props): JSX.Element {
+export function AgentConnectionClients({ agentSlug, bundleUrl, mcpUrl, apiKey }: Props): JSX.Element {
   const [selected, setSelected] = useState<string>(DEFAULT_CLIENT_ID);
   const client =
     CLIENTS.find((c) => c.id === selected) ??
     CLIENTS.find((c) => c.id === DEFAULT_CLIENT_ID);
   if (!client) return <></>;
+  const needsInlineAPIKey = !SKILL_INSTALL_CLIENT_IDS.has(client.id);
   const blocks = client.build({
     agentSlug,
+    bundleUrl,
     mcpUrl,
     apiKey: apiKey ?? KEY_PLACEHOLDER,
   });
@@ -165,7 +178,7 @@ export function AgentConnectionClients({ agentSlug, mcpUrl, apiKey }: Props): JS
         ))}
       </div>
 
-      {!apiKey && (
+      {!apiKey && needsInlineAPIKey && (
         <p className="text-xs text-text-tertiary">
           Reveal the API key above to inline it in the configuration.
         </p>

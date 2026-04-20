@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
@@ -296,6 +297,16 @@ func TestAgentCRUDAndSecretHandling(t *testing.T) {
 	revealKeyData := decodeData(t, revealKeyRec)
 	if revealKeyData["masked"] != false || revealKeyData["key"] != createdKey {
 		t.Fatalf("expected plaintext key response, got %#v", revealKeyData)
+	}
+
+	bundleCodeRec := performJSONRequest(t, api, http.MethodPost, "/api/agents/"+agentID+"/bundle-code", map[string]any{})
+	if bundleCodeRec.Code != http.StatusOK {
+		t.Fatalf("expected bundle-code status 200, got %d: %s", bundleCodeRec.Code, bundleCodeRec.Body.String())
+	}
+	bundleCodeData := decodeData(t, bundleCodeRec)
+	bundleInstall := bundleCodeData["bundle_install"].(map[string]any)
+	if !strings.Contains(bundleInstall["bundle_url"].(string), "/bundles/ops_agent_v2?code=") {
+		t.Fatalf("expected one-time bundle url, got %#v", bundleInstall["bundle_url"])
 	}
 
 	rotateRec := performJSONRequest(t, api, http.MethodPost, "/api/agents/"+agentID+"/rotate-key", map[string]any{})
