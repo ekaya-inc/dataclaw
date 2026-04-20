@@ -60,17 +60,14 @@ beforeEach(() => {
 });
 
 describe('AgentDetailPage', () => {
-  it('prefers the current browser origin for MCP instructions', () => {
+  it('prefers the server-reported MCP URL for instructions', () => {
     expect(
-      endpointUrl(
-        {
-          port: 18790,
-          baseUrl: 'http://127.0.0.1:18790',
-          mcpUrl: 'http://127.0.0.1:18790/mcp',
-        },
-        'http://127.0.0.1:18791',
-      ),
-    ).toBe('http://127.0.0.1:18791/mcp');
+      endpointUrl({
+        port: 18790,
+        baseUrl: 'http://sparktwo:18790',
+        mcpUrl: 'http://sparktwo:18790/mcp',
+      }),
+    ).toBe('http://sparktwo:18790/mcp');
   });
 
   it('reveals the plaintext API key from router state on first load', async () => {
@@ -148,5 +145,37 @@ describe('AgentDetailPage', () => {
     await userEvent.click(editButton);
 
     expect(await screen.findByText('Edit route')).toBeInTheDocument();
+  });
+
+  it('shows the skill-install prompt with a fresh coded bundle url on load', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
+      if (url === '/api/status') {
+        return jsonResponse({
+          port: 18791,
+          mcp_url: 'http://127.0.0.1:18791/mcp',
+          datasource_configured: true,
+          agent_count: 1,
+        });
+      }
+      if (url === '/api/agents/agent_1/bundle-code' && init?.method === 'POST') {
+        return jsonResponse({
+          bundle_install: {
+            slug: 'warehouse_analyst',
+            code: 'abc123',
+            bundle_url: 'http://127.0.0.1:18791/bundles/warehouse_analyst?code=abc123',
+            expires_at: '2026-04-20T10:05:00Z',
+          },
+        });
+      }
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt(['/agents/agent_1']);
+
+    expect(await screen.findByText(/install dataclaw from http:\/\/127.0.0.1:18791\/bundles\/warehouse_analyst\?code=abc123/i)).toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeEnabled();
   });
 });

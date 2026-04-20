@@ -77,6 +77,8 @@ func (a *API) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		a.handleRevealAgentKey(w, r, id)
 	case suffix == "rotate-key" && r.Method == http.MethodPost:
 		a.handleRotateAgentKey(w, r, id)
+	case suffix == "bundle-code" && r.Method == http.MethodPost:
+		a.handleCreateAgentBundleCode(w, r, id)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, response{Error: "method not allowed"})
 	}
@@ -155,6 +157,15 @@ func (a *API) handleRotateAgentKey(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"agent": agentCredentialResponse(agent)}})
+}
+
+func (a *API) handleCreateAgentBundleCode(w http.ResponseWriter, r *http.Request, id string) {
+	code, err := a.service.CreateBundleInstallCode(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"bundle_install": code}})
 }
 
 func parseAgentRequest(body io.Reader) (core.AgentInput, error) {

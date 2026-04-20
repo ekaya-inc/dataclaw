@@ -30,7 +30,7 @@ interface AppShellProps {
   outletContext: AppOutletContext;
 }
 
-export function AppShell({ status: _status, completion, outletContext }: AppShellProps): JSX.Element {
+export function AppShell({ status, completion, outletContext }: AppShellProps): JSX.Element {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
@@ -38,13 +38,22 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
       <div className="mx-auto flex min-h-screen max-w-screen-2xl">
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-20 w-72 border-r border-border-light bg-slate-950 px-5 py-6 text-slate-100 transition-transform lg:static lg:translate-x-0',
+            'fixed inset-y-0 left-0 z-20 flex w-72 flex-col border-r border-border-light bg-slate-950 px-5 py-6 text-slate-100 transition-transform lg:static lg:translate-x-0',
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
           <div className="flex items-center justify-between">
-            <Link className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300" to="/" onClick={() => setMobileNavOpen(false)}>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-50">DataClaw</h1>
+            <Link
+              aria-label="DataClaw"
+              className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              to="/"
+              onClick={() => setMobileNavOpen(false)}
+            >
+              <img
+                src="/assets/logos/dataclaw-lockup-light-512.png"
+                alt="DataClaw"
+                className="h-auto w-56 max-w-full"
+              />
             </Link>
             <button className="rounded-lg border border-slate-700 px-3 py-2 lg:hidden" onClick={() => setMobileNavOpen(false)}>
               Close
@@ -53,7 +62,7 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
           <p className="mt-4 text-sm leading-6 text-slate-300">
             Connect local agents to your data safely and securely.
           </p>
-          <nav className="mt-8 space-y-2">
+          <nav className="mt-8 flex-1 space-y-2">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isComplete = completion[item.completionKey];
@@ -72,12 +81,17 @@ export function AppShell({ status: _status, completion, outletContext }: AppShel
                   <Icon className="h-4 w-4" />
                   <span className="flex-1">{item.label}</span>
                   {isComplete ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-label="Completed" />
+                    <CheckCircle2 className="h-4 w-4 text-[#2dd4bf]" aria-label="Completed" />
                   ) : null}
                 </NavLink>
               );
             })}
           </nav>
+          {status?.version ? (
+            <div className="mt-4 text-right text-xs text-slate-600" aria-label="Server version">
+              {status.version}
+            </div>
+          ) : null}
         </aside>
         <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:ml-0">
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">

@@ -24,6 +24,7 @@ func New(service *core.Service) *API { return &API{service: service} }
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ping", a.handlePing)
 	mux.HandleFunc("HEAD /ping", a.handlePing)
+	mux.HandleFunc("GET /bundles/", a.handleBundleBySlug)
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/mcp-events", a.handleListMCPEvents)
 	mux.HandleFunc("GET /api/mcp-events/", a.handleGetMCPEvent)

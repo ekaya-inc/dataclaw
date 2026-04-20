@@ -173,6 +173,14 @@ A typical MCP config snippet looks like this:
 
 Copy the generated snippet from the agent detail page so the agent name and localhost port match your running app.
 
+OpenClaw-style bundle installs are also exposed per access point at:
+
+```text
+http://127.0.0.1:<actual-port>/bundles/<agent-slug>
+```
+
+For example, if the access point slug is `marketing`, an OpenClaw client can install it from `http://127.0.0.1:<actual-port>/bundles/marketing`. The manifest points at a downloadable zip that contains the matching skill directory and MCP server config for that access point.
+
 ## Environment variables
 
 - `DATACLAW_BIND_ADDR`

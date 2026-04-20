@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"sync"
+	"time"
 
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
@@ -18,11 +20,15 @@ import (
 )
 
 type Service struct {
-	store     *storepkg.Store
-	secret    []byte
-	adapters  dsadapter.Factory
-	uiBaseURL func() string
-	version   string
+	store         *storepkg.Store
+	secret        []byte
+	adapters      dsadapter.Factory
+	uiBaseURL     func() string
+	version       string
+	now           func() time.Time
+	bundleCodeTTL time.Duration
+	bundleCodesMu sync.Mutex
+	bundleCodes   map[string]bundleAccessCode
 }
 
 func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() string, adapters dsadapter.Factory) *Service {
@@ -30,11 +36,14 @@ func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() 
 		adapters = dsadapter.NewFactory(dsadapter.DefaultRegistry())
 	}
 	return &Service{
-		store:     store,
-		secret:    secret,
-		adapters:  adapters,
-		uiBaseURL: uiBaseURL,
-		version:   version,
+		store:         store,
+		secret:        secret,
+		adapters:      adapters,
+		uiBaseURL:     uiBaseURL,
+		version:       version,
+		now:           func() time.Time { return time.Now().UTC() },
+		bundleCodeTTL: 20 * time.Minute,
+		bundleCodes:   map[string]bundleAccessCode{},
 	}
 }
 

@@ -57,6 +57,7 @@ func Run(version string) error {
 	mux := http.NewServeMux()
 	api.Register(mux)
 	mux.Handle("/mcp", mcpSrv.Handler())
+	mux.Handle("/mcp/", mcpSrv.Handler())
 	uiFS, err := uifs.Load()
 	if err != nil {
 		return fmt.Errorf("load ui: %w", err)
