@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="10" fill="#0a0d12"/>
+  <path d="M11 6 L4 6 L4 42 L11 42" stroke="#2dd4bf" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M37 6 L44 6 L44 42 L37 42" stroke="#2dd4bf" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="24" y="33" text-anchor="middle" font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="700" font-size="23" fill="#2dd4bf">dc</text>
+</svg>
