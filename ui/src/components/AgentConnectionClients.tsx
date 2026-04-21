@@ -42,11 +42,19 @@ const CLIENTS: readonly ClientSpec[] = [
   {
     id: 'openclaw',
     name: 'OpenClaw',
-    build: ({ bundleUrl }) => {
+    build: ({ agentSlug, bundleUrl, mcpUrl, apiKey }) => {
+      const payload = JSON.stringify({
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
       return [
         {
-          hint: bundleUrl ? 'Ask OpenClaw to install the access point' : 'Generating install link…',
+          hint: bundleUrl ? 'Ask OpenClaw to install the access point as a skill' : 'Generating install link…',
           code: bundleUrl ? `install dataclaw from ${bundleUrl}` : 'Loading…',
+        },
+        {
+          hint: 'Or register the MCP server directly',
+          code: `openclaw mcp set ${agentSlug} '${payload}'`,
         },
       ];
     },
@@ -126,7 +134,7 @@ interface Props {
 }
 
 const DEFAULT_CLIENT_ID = 'as-skill';
-const SKILL_INSTALL_CLIENT_IDS = new Set(['as-skill', 'openclaw']);
+const SKILL_INSTALL_CLIENT_IDS = new Set(['as-skill']);
 
 export function AgentConnectionClients({ agentSlug, bundleUrl, mcpUrl, apiKey }: Props): JSX.Element {
   const [selected, setSelected] = useState<string>(DEFAULT_CLIENT_ID);

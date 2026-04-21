@@ -178,4 +178,44 @@ describe('AgentDetailPage', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeEnabled();
   });
+
+  it('keeps OpenClaw skill-install and direct MCP setup instructions available together', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
+      if (url === '/api/status') {
+        return jsonResponse({
+          port: 18791,
+          mcp_url: 'http://127.0.0.1:18791/mcp',
+          datasource_configured: true,
+          agent_count: 1,
+        });
+      }
+      if (url === '/api/agents/agent_1/bundle-code' && init?.method === 'POST') {
+        return jsonResponse({
+          bundle_install: {
+            slug: 'warehouse_analyst',
+            code: 'abc123',
+            bundle_url: 'http://127.0.0.1:18791/bundles/warehouse_analyst?code=abc123',
+            expires_at: '2026-04-20T10:05:00Z',
+          },
+        });
+      }
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt([{ pathname: '/agents/agent_1', state: { apiKey: 'dclw-fresh-secret' } }]);
+
+    await screen.findByText(/install dataclaw from http:\/\/127.0.0.1:18791\/bundles\/warehouse_analyst\?code=abc123/i);
+    await userEvent.click(screen.getByRole('radio', { name: /openclaw/i }));
+
+    expect(screen.getByText('Ask OpenClaw to install the access point as a skill')).toBeInTheDocument();
+    expect(screen.getByText(/install dataclaw from http:\/\/127.0.0.1:18791\/bundles\/warehouse_analyst\?code=abc123/i)).toBeInTheDocument();
+    expect(screen.getByText('Or register the MCP server directly')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `openclaw mcp set warehouse_analyst '{"url":"http://127.0.0.1:18791/mcp","headers":{"Authorization":"Bearer dclw-fresh-secret"}}'`,
+      ),
+    ).toBeInTheDocument();
+  });
 });
