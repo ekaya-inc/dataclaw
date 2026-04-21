@@ -37,10 +37,6 @@ function formatTimestamp(value?: string): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
-function queryCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'query' : 'queries'}`;
-}
-
 function scopeSummary(agent: AgentRecord): string {
   switch (agent.approvedQueryScope) {
     case 'all':
@@ -250,7 +246,6 @@ function AgentTable({
           >
             <div className="min-w-0">
               <div className="truncate font-medium text-text-primary">{agent.name}</div>
-              <div className="text-xs text-text-tertiary">{queryCountLabel(agent.approvedQueryIds.length)}</div>
             </div>
             <ToolsPills agent={agent} />
             <div className="text-sm tabular-nums text-text-secondary">{formatDate(agent.createdAt)}</div>
