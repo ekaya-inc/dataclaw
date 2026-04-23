@@ -1,0 +1,68 @@
+name: ClawHub Skill Publish
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "skills/dataclaw/**"
+      - ".github/workflows/clawhub-publish.yml"
+      - ".github/workflows/release.yml"
+      - "README.md"
+
+jobs:
+  validate:
+    name: Validate ClawHub Skill
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NODE_VERSION: "24"
+      SKILL_DIR: "skills/dataclaw"
+      SKILL_FILE: "skills/dataclaw/SKILL.md"
+      LICENSE_FILE: "skills/dataclaw/LICENSE"
+      SKILL_NAME: "DataClaw"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install latest ClawHub CLI
+        run: npm install -g clawhub@latest
+
+      - name: Show ClawHub CLI version
+        run: clawhub --version
+
+      - name: Validate skill files and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ -d "${SKILL_DIR}" ]] || { echo "Missing skill directory: ${SKILL_DIR}" >&2; exit 1; }
+          [[ -f "${SKILL_FILE}" ]] || { echo "Missing skill file: ${SKILL_FILE}" >&2; exit 1; }
+          [[ -f "${LICENSE_FILE}" ]] || { echo "Missing skill license: ${LICENSE_FILE}" >&2; exit 1; }
+
+          if [[ "$(head -n 1 "${SKILL_FILE}")" != "---" ]]; then
+            echo "${SKILL_FILE} must start with YAML frontmatter." >&2
+            exit 1
+          fi
+
+          skill_name="$(awk '/^name:[[:space:]]*/{sub(/^name:[[:space:]]*/, ""); print; exit}' "${SKILL_FILE}")"
+          description="$(awk '/^description:[[:space:]]*/{sub(/^description:[[:space:]]*/, ""); print; exit}' "${SKILL_FILE}")"
+
+          [[ -n "${skill_name}" ]] || { echo "Missing frontmatter name in ${SKILL_FILE}" >&2; exit 1; }
+          [[ -n "${description}" ]] || { echo "Missing frontmatter description in ${SKILL_FILE}" >&2; exit 1; }
+
+          if [[ "${skill_name}" != "${SKILL_NAME}" ]]; then
+            echo "Expected frontmatter name '${SKILL_NAME}', got '${skill_name}'." >&2
+            exit 1
+          fi
+
+          if ! grep -q "MIT No Attribution" "${LICENSE_FILE}"; then
+            echo "${LICENSE_FILE} must contain the MIT-0 license text." >&2
+            exit 1
+          fi
