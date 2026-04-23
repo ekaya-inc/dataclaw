@@ -134,6 +134,8 @@ jobs:
       SKILL_SLUG: "dataclaw"
       SKILL_NAME: "DataClaw"
       CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
