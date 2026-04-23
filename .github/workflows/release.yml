@@ -151,7 +151,7 @@ jobs:
         run: npm install -g clawhub@latest
 
       - name: Show ClawHub CLI version
-        run: clawhub --version
+        run: clawhub --cli-version
 
       - name: Validate publish inputs
         shell: bash
