@@ -5,8 +5,12 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 BINARY_NAME := dataclaw
 BINARY_PATH := bin/$(BINARY_NAME)
 EMBEDDED_UI_DIR := internal/uifs/dist
+COVERAGE_DIR := .coverage
+GO_COVER_PROFILE := $(COVERAGE_DIR)/go-cover.out
+GO_COVER_INTEGRATION_DIR := $(COVERAGE_DIR)/go-integration
+GO_COVER_INTEGRATION_BIN := $(COVERAGE_DIR)/dataclaw-cover
 
-.PHONY: none build-ui build-binary build check run dev dev-ui
+.PHONY: none build-ui build-binary build check coverage coverage-gate coverage-go coverage-go-instrumented coverage-go-integration coverage-ui run dev dev-ui
 
 none: ## Show available targets
 	@echo "DataClaw"
@@ -95,6 +99,76 @@ check: ## Run quiet backend and UI verification
 	run_step "go build" $(MAKE) build-binary; \
 	echo ""; \
 	echo "All checks passed."
+
+coverage: coverage-go coverage-go-instrumented coverage-ui ## Run the primary package and UI coverage commands
+
+coverage-gate: ## Enforce the first-pass provisional coverage floors for critical paths
+	@set -eu; \
+	mkdir -p "$(COVERAGE_DIR)"; \
+	go_output="$(COVERAGE_DIR)/go-package-coverage.txt"; \
+	go test ./... -count=1 -cover >"$$go_output"; \
+	cat "$$go_output"; \
+	check_pkg() { \
+		pkg="$$1"; \
+		minimum="$$2"; \
+		actual=$$(awk -v pkg="$$pkg" '$$2 == pkg { value=$$5; gsub("%", "", value); print value }' "$$go_output" | tail -n 1); \
+		if [ -z "$$actual" ]; then \
+			echo "Missing coverage output for $$pkg" >&2; \
+			exit 1; \
+		fi; \
+		if ! awk -v actual="$$actual" -v minimum="$$minimum" 'BEGIN { exit !(actual + 0 >= minimum + 0) }'; then \
+			echo "$$pkg coverage $$actual% is below provisional floor $$minimum%" >&2; \
+			exit 1; \
+		fi; \
+		printf '%s coverage %s%% >= %s%%\n' "$$pkg" "$$actual" "$$minimum"; \
+	}; \
+	check_pkg "github.com/ekaya-inc/dataclaw/internal/config" "90"; \
+	check_pkg "github.com/ekaya-inc/dataclaw/internal/security" "75"; \
+	check_pkg "github.com/ekaya-inc/dataclaw/internal/httpapi" "55"; \
+	check_pkg "github.com/ekaya-inc/dataclaw/internal/adapters/datasource" "35"; \
+	npm --prefix ui run test:coverage >/tmp/dataclaw-ui-coverage.log; \
+	cat /tmp/dataclaw-ui-coverage.log; \
+	node -e 'const fs = require("fs"); const summary = JSON.parse(fs.readFileSync("ui/coverage/coverage-summary.json", "utf8")).total; const statementFloor = 90; const branchFloor = 80; const statementPct = summary.statements.pct; const branchPct = summary.branches.pct; if (statementPct < statementFloor || branchPct < branchFloor) { console.error("UI targeted coverage below provisional floors: statements " + statementPct + "% / " + statementFloor + "%, branches " + branchPct + "% / " + branchFloor + "%"); process.exit(1); } console.log("UI targeted coverage statements " + statementPct + "% >= " + statementFloor + "%"); console.log("UI targeted coverage branches " + branchPct + "% >= " + branchFloor + "%");'
+
+coverage-go: ## Measure package-local Go coverage across the repo
+	@set -eu; \
+	go test ./... -count=1 -cover
+
+coverage-go-instrumented: ## Measure repo-wide instrumented Go coverage with -coverpkg
+	@set -eu; \
+	mkdir -p "$(COVERAGE_DIR)"; \
+	go test ./... -count=1 -coverprofile="$(GO_COVER_PROFILE)" -coverpkg=./...; \
+	go tool cover -func="$(GO_COVER_PROFILE)"
+
+coverage-go-integration: ## Measure runtime integration coverage from an instrumented binary
+	@set -eu; \
+	mkdir -p "$(COVERAGE_DIR)"; \
+	rm -rf "$(GO_COVER_INTEGRATION_DIR)"; \
+	mkdir -p "$(GO_COVER_INTEGRATION_DIR)"; \
+	go build -cover -o "$(GO_COVER_INTEGRATION_BIN)" .; \
+	data_dir=$$(mktemp -d); \
+	log_file="$(COVERAGE_DIR)/go-integration.log"; \
+	cleanup() { \
+		if [ -n "$${pid:-}" ]; then \
+			kill -INT "$$pid" 2>/dev/null || true; \
+			wait "$$pid" 2>/dev/null || true; \
+		fi; \
+		rm -rf "$$data_dir"; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	DATACLAW_DATA_DIR="$$data_dir" GOCOVERDIR="$(GO_COVER_INTEGRATION_DIR)" "$(GO_COVER_INTEGRATION_BIN)" >"$$log_file" 2>&1 & \
+	pid=$$!; \
+	sleep 2; \
+	kill -INT "$$pid"; \
+	wait "$$pid"; \
+	trap - EXIT INT TERM; \
+	rm -rf "$$data_dir"; \
+	go tool covdata percent -i="$(GO_COVER_INTEGRATION_DIR)"
+
+coverage-ui: ## Measure UI coverage with Vitest
+	@set -eu; \
+	test -d ui/node_modules || npm --prefix ui install; \
+	npm --prefix ui run test:coverage
 
 run: ## Rebuild embedded assets if needed, then start the server
 	@set -eu; \

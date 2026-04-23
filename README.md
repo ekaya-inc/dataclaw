@@ -45,3 +45,28 @@ DataClaw starts on `http://127.0.0.1:18790` by default. If that port is busy, it
 ## Environment variables
 
 See [.env.example](./.env.example) for documented defaults and shell-friendly examples.
+
+## Testing
+
+Use `make check` for the standard repo gate.
+
+Coverage workflows are available separately:
+
+- `make coverage-go` for package-local Go coverage
+- `make coverage-go-instrumented` for repo-wide instrumented Go coverage via `-coverpkg=./...`
+- `make coverage-go-integration` for runtime coverage from an instrumented binary
+- `make coverage-ui` for Vitest UI coverage
+- `make coverage-gate` for the first-pass provisional floors on critical backend packages and the targeted UI coverage set
+- `make coverage` for the primary Go package and UI coverage runs
+
+The initial coverage rollout is measurement-first. Thin runtime shells such as `main.go` and `internal/uifs`, plus the full `internal/app.Run` bootstrap path, are informational in the first pass rather than gating targets.
+
+First-pass provisional floors:
+
+- `internal/config` package-local Go coverage: `>= 90%`
+- `internal/security` package-local Go coverage: `>= 75%`
+- `internal/httpapi` package-local Go coverage: `>= 55%`
+- `internal/adapters/datasource` package-local Go coverage: `>= 35%`
+- targeted UI coverage include set (`SqlEditor`, `useStoredParameterValues`, `useSupportDismissed`): `>= 90%` statements and `>= 80%` branches
+
+CI now runs `make coverage-gate` after `make check` on pull requests and `main`.

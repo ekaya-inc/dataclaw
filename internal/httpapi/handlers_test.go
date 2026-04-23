@@ -16,24 +16,44 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/migrations"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
-type fakeHTTPAdapterFactory struct{}
+type fakeHTTPAdapterFactory struct {
+	newConnectionTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newDatasourceIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newQueryExecutor          func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+}
 
 type fakeHTTPConnectionTester struct{}
+type fakeHTTPQueryExecutor struct {
+	query               func(context.Context, string, int) (*core.QueryResult, error)
+	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*core.QueryResult, error)
+	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, int) (*core.QueryResult, error)
+	execute             func(context.Context, string, int) (*core.ExecuteResult, error)
+}
 
 func (fakeHTTPConnectionTester) TestConnection(context.Context) error { return nil }
 func (fakeHTTPConnectionTester) Close() error                         { return nil }
 
-func (fakeHTTPAdapterFactory) NewConnectionTester(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+func (f fakeHTTPAdapterFactory) NewConnectionTester(ctx context.Context, dsType string, config map[string]any) (dsadapter.ConnectionTester, error) {
+	if f.newConnectionTester != nil {
+		return f.newConnectionTester(ctx, dsType, config)
+	}
 	return fakeHTTPConnectionTester{}, nil
 }
 
-func (fakeHTTPAdapterFactory) NewDatasourceIntrospector(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error) {
+func (f fakeHTTPAdapterFactory) NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
+	if f.newDatasourceIntrospector != nil {
+		return f.newDatasourceIntrospector(ctx, dsType, config)
+	}
 	return nil, errors.New("unexpected datasource introspection in httpapi tests")
 }
 
-func (fakeHTTPAdapterFactory) NewQueryExecutor(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
+func (f fakeHTTPAdapterFactory) NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+	if f.newQueryExecutor != nil {
+		return f.newQueryExecutor(ctx, dsType, config)
+	}
 	return nil, errors.New("unexpected query execution in httpapi tests")
 }
 
@@ -62,7 +82,41 @@ func (fakeHTTPAdapterFactory) SupportsType(dsType string) bool {
 	return ok
 }
 
+func (f fakeHTTPQueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*core.QueryResult, error) {
+	if f.query != nil {
+		return f.query(ctx, sqlQuery, limit)
+	}
+	return nil, errors.New("unexpected Query call")
+}
+
+func (f fakeHTTPQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+	if f.queryWithParameters != nil {
+		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, limit)
+	}
+	return nil, errors.New("unexpected QueryWithParameters call")
+}
+
+func (f fakeHTTPQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+	if f.executeDMLQuery != nil {
+		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, limit)
+	}
+	return nil, errors.New("unexpected ExecuteDMLQuery call")
+}
+
+func (f fakeHTTPQueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*core.ExecuteResult, error) {
+	if f.execute != nil {
+		return f.execute(ctx, sqlQuery, limit)
+	}
+	return nil, errors.New("unexpected Execute call")
+}
+
+func (fakeHTTPQueryExecutor) Close() error { return nil }
+
 func newTestAPI(t *testing.T) *API {
+	return newTestAPIWithFactory(t, fakeHTTPAdapterFactory{})
+}
+
+func newTestAPIWithFactory(t *testing.T, factory dsadapter.Factory) *API {
 	t.Helper()
 	ctx := context.Background()
 	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
@@ -73,7 +127,7 @@ func newTestAPI(t *testing.T) *API {
 	if err != nil {
 		t.Fatalf("load secret: %v", err)
 	}
-	service := core.New(store, secret, "test", func() string { return "http://127.0.0.1:18790" }, fakeHTTPAdapterFactory{})
+	service := core.New(store, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 	t.Cleanup(func() {
 		_ = store.Close()
 	})
@@ -96,6 +150,17 @@ func performJSONRequest(t *testing.T, api *API, method, path string, payload any
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	rec := httptest.NewRecorder()
+	mux := http.NewServeMux()
+	api.Register(mux)
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func performRawRequest(t *testing.T, api *API, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mux := http.NewServeMux()
 	api.Register(mux)
@@ -376,4 +441,345 @@ func TestAgentManagerCapabilityNormalizesCanQueryInAPI(t *testing.T) {
 	if ids, _ := updated["approved_query_ids"].([]any); len(ids) != 0 {
 		t.Fatalf("expected manager update response to clear approved_query_ids, got %#v", updated["approved_query_ids"])
 	}
+}
+
+func TestWriteErrorMapsStatuses(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "bad request keyword", err: errors.New("unsupported datasource type: mysql"), wantStatus: http.StatusBadRequest},
+		{name: "not found keyword", err: errors.New("query not found"), wantStatus: http.StatusNotFound},
+		{name: "no datasource keyword", err: errors.New("no datasource configured"), wantStatus: http.StatusConflict},
+		{name: "connection keyword", err: errors.New("ping postgres: timeout"), wantStatus: http.StatusBadGateway},
+		{name: "fallback", err: errors.New("unexpected failure"), wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeError(rec, tt.err)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d: %s", tt.wantStatus, rec.Code, rec.Body.String())
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if payload["error"] != tt.err.Error() {
+				t.Fatalf("expected error %q, got %#v", tt.err.Error(), payload["error"])
+			}
+		})
+	}
+}
+
+func TestParseDatasourceRequest(t *testing.T) {
+	t.Run("builds config from legacy fields", func(t *testing.T) {
+		ds := parseDatasourceRequest(datasourceRequest{
+			Name:        "warehouse",
+			DisplayName: "Primary Warehouse",
+			Type:        "postgres",
+			Provider:    "postgres",
+			Host:        "db.example.com",
+			Port:        5432,
+			User:        "legacy-user",
+			Password:    "secret",
+			SSLMode:     "require",
+			Options: map[string]any{
+				"search_path": "analytics",
+			},
+		})
+
+		if ds.Name != "Primary Warehouse" {
+			t.Fatalf("expected display name to win, got %q", ds.Name)
+		}
+		if ds.Type != "postgres" || ds.Provider != "postgres" {
+			t.Fatalf("expected type/provider to be preserved, got %#v", ds)
+		}
+		if got := ds.Config["host"]; got != "db.example.com" {
+			t.Fatalf("expected host, got %#v", got)
+		}
+		if got := ds.Config["port"]; got != 5432 {
+			t.Fatalf("expected port 5432, got %#v", got)
+		}
+		if got := ds.Config["user"]; got != "legacy-user" {
+			t.Fatalf("expected user fallback, got %#v", got)
+		}
+		if got := ds.Config["password"]; got != "secret" {
+			t.Fatalf("expected password, got %#v", got)
+		}
+		if got := ds.Config["database"]; got != "warehouse" {
+			t.Fatalf("expected database derived from name, got %#v", got)
+		}
+		if got := ds.Config["name"]; got != "warehouse" {
+			t.Fatalf("expected config name derived from name, got %#v", got)
+		}
+		if got := ds.Config["ssl_mode"]; got != "require" {
+			t.Fatalf("expected ssl_mode, got %#v", got)
+		}
+		if got := ds.Config["search_path"]; got != "analytics" {
+			t.Fatalf("expected options to merge into config, got %#v", got)
+		}
+	})
+
+	t.Run("preserves explicit config", func(t *testing.T) {
+		ds := parseDatasourceRequest(datasourceRequest{
+			Name:        "warehouse",
+			DisplayName: "Primary Warehouse",
+			Type:        "postgres",
+			Provider:    "postgres",
+			Config: map[string]any{
+				"host": "db.internal",
+			},
+			Host:     "ignored.example.com",
+			Port:     5432,
+			Username: "ignored-user",
+			Password: "ignored-password",
+			Options: map[string]any{
+				"search_path": "ignored",
+			},
+		})
+
+		if ds.Name != "Primary Warehouse" {
+			t.Fatalf("expected display name to win, got %q", ds.Name)
+		}
+		if got := ds.Config["host"]; got != "db.internal" {
+			t.Fatalf("expected explicit config host to survive, got %#v", got)
+		}
+		if _, ok := ds.Config["port"]; ok {
+			t.Fatalf("did not expect legacy port to be merged into explicit config: %#v", ds.Config)
+		}
+		if _, ok := ds.Config["user"]; ok {
+			t.Fatalf("did not expect legacy user to be merged into explicit config: %#v", ds.Config)
+		}
+		if _, ok := ds.Config["database"]; ok {
+			t.Fatalf("did not expect name-derived database when config is provided: %#v", ds.Config)
+		}
+		if _, ok := ds.Config["search_path"]; ok {
+			t.Fatalf("did not expect options to be merged when config is provided: %#v", ds.Config)
+		}
+	})
+}
+
+func TestHandleQueryByIDBranches(t *testing.T) {
+	t.Run("missing id returns not found", func(t *testing.T) {
+		api := newTestAPI(t)
+		rec := performJSONRequest(t, api, http.MethodGet, "/api/queries/", nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if payload["error"] != "query id required" {
+			t.Fatalf("expected query id required error, got %#v", payload["error"])
+		}
+	})
+
+	t.Run("get missing query returns not found", func(t *testing.T) {
+		api := newTestAPI(t)
+		rec := performJSONRequest(t, api, http.MethodGet, "/api/queries/missing-query", nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if payload["error"] != "query not found" {
+			t.Fatalf("expected query not found error, got %#v", payload["error"])
+		}
+	})
+
+	t.Run("put invalid body returns bad request", func(t *testing.T) {
+		api := newTestAPI(t)
+		rec := performRawRequest(t, api, http.MethodPut, "/api/queries/query-123", `{"natural_language_prompt":`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if payload["error"] != "invalid request body" {
+			t.Fatalf("expected invalid request body error, got %#v", payload["error"])
+		}
+	})
+
+	t.Run("delete existing query succeeds", func(t *testing.T) {
+		api := newTestAPI(t)
+		if _, err := api.service.UpsertDatasource(context.Background(), &storepkg.Datasource{
+			Name:     "Primary",
+			Type:     "postgres",
+			Provider: "postgres",
+			Config: map[string]any{
+				"host":     "db.example.com",
+				"database": "warehouse",
+				"user":     "analyst",
+				"password": "secret",
+			},
+		}); err != nil {
+			t.Fatalf("UpsertDatasource: %v", err)
+		}
+		query, err := api.service.CreateQuery(context.Background(), &storepkg.ApprovedQuery{
+			NaturalLanguagePrompt: "List accounts",
+			SQLQuery:              "SELECT * FROM accounts",
+		})
+		if err != nil {
+			t.Fatalf("CreateQuery: %v", err)
+		}
+
+		rec := performJSONRequest(t, api, http.MethodDelete, "/api/queries/"+query.ID, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		data := decodeData(t, rec)
+		if data["deleted"] != true {
+			t.Fatalf("expected deleted=true, got %#v", data["deleted"])
+		}
+
+		deleted, err := api.service.GetQuery(context.Background(), query.ID)
+		if err != nil {
+			t.Fatalf("GetQuery after delete: %v", err)
+		}
+		if deleted != nil {
+			t.Fatalf("expected query to be deleted, got %#v", deleted)
+		}
+	})
+}
+
+func TestHandleExecuteQueryBranches(t *testing.T) {
+	t.Run("bad body returns bad request", func(t *testing.T) {
+		api := newTestAPI(t)
+		rec := performRawRequest(t, api, http.MethodPost, "/api/queries/query-123/execute", `{"parameters":`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if payload["error"] != "invalid request body" {
+			t.Fatalf("expected invalid request body error, got %#v", payload["error"])
+		}
+	})
+
+	t.Run("success returns execution result", func(t *testing.T) {
+		var gotQuery string
+		var gotParams []models.QueryParameter
+		var gotValues map[string]any
+		var gotLimit int
+		api := newTestAPIWithFactory(t, fakeHTTPAdapterFactory{
+			newQueryExecutor: func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
+				if dsType != "postgres" {
+					t.Fatalf("expected postgres datasource type, got %q", dsType)
+				}
+				return fakeHTTPQueryExecutor{
+					queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+						gotQuery = sqlQuery
+						gotParams = paramDefs
+						gotValues = values
+						gotLimit = limit
+						return &core.QueryResult{
+							Columns:  []dsadapter.QueryColumn{{Name: "id", Type: "uuid"}},
+							Rows:     []map[string]any{{"id": "550e8400-e29b-41d4-a716-446655440000"}},
+							RowCount: 1,
+						}, nil
+					},
+				}, nil
+			},
+		})
+
+		if _, err := api.service.UpsertDatasource(context.Background(), &storepkg.Datasource{
+			Name:     "Primary",
+			Type:     "postgres",
+			Provider: "postgres",
+			Config: map[string]any{
+				"host":     "db.example.com",
+				"database": "warehouse",
+				"user":     "analyst",
+				"password": "secret",
+			},
+		}); err != nil {
+			t.Fatalf("UpsertDatasource: %v", err)
+		}
+		query, err := api.service.CreateQuery(context.Background(), &storepkg.ApprovedQuery{
+			NaturalLanguagePrompt: "Find account by id",
+			SQLQuery:              "SELECT * FROM accounts WHERE id = {{account_id}}",
+			Parameters: []models.QueryParameter{
+				{Name: "account_id", Type: "uuid", Required: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("CreateQuery: %v", err)
+		}
+
+		rec := performJSONRequest(t, api, http.MethodPost, "/api/queries/"+query.ID+"/execute", map[string]any{
+			"parameters": map[string]any{
+				"account_id": "550e8400-e29b-41d4-a716-446655440000",
+			},
+			"limit": 25,
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if gotQuery != "SELECT * FROM accounts WHERE id = {{account_id}}" {
+			t.Fatalf("expected stored SQL to execute, got %q", gotQuery)
+		}
+		if len(gotParams) != 1 || gotParams[0].Name != "account_id" {
+			t.Fatalf("expected query parameters to flow through, got %#v", gotParams)
+		}
+		if gotValues["account_id"] != "550e8400-e29b-41d4-a716-446655440000" {
+			t.Fatalf("expected execution values to flow through, got %#v", gotValues)
+		}
+		if gotLimit != 25 {
+			t.Fatalf("expected limit 25, got %d", gotLimit)
+		}
+
+		data := decodeData(t, rec)
+		if data["row_count"] != float64(1) {
+			t.Fatalf("expected row_count 1, got %#v", data["row_count"])
+		}
+		rows, ok := data["rows"].([]any)
+		if !ok || len(rows) != 1 {
+			t.Fatalf("expected one result row, got %#v", data["rows"])
+		}
+	})
+
+	t.Run("service error returns mapped status", func(t *testing.T) {
+		api := newTestAPIWithFactory(t, fakeHTTPAdapterFactory{
+			newQueryExecutor: func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
+				t.Fatal("did not expect executor creation for missing query")
+				return nil, nil
+			},
+		})
+		if _, err := api.service.UpsertDatasource(context.Background(), &storepkg.Datasource{
+			Name:     "Primary",
+			Type:     "postgres",
+			Provider: "postgres",
+			Config: map[string]any{
+				"host":     "db.example.com",
+				"database": "warehouse",
+				"user":     "analyst",
+				"password": "secret",
+			},
+		}); err != nil {
+			t.Fatalf("UpsertDatasource: %v", err)
+		}
+
+		rec := performJSONRequest(t, api, http.MethodPost, "/api/queries/missing-query/execute", map[string]any{})
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if payload["error"] != "query not found" {
+			t.Fatalf("expected query not found error, got %#v", payload["error"])
+		}
+	})
 }
