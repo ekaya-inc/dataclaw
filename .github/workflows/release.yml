@@ -207,11 +207,14 @@ jobs:
           clawhub login --token "${CLAWHUB_TOKEN}" --no-browser
           clawhub whoami
 
+      - name: Show publish command help
+        run: clawhub publish --help
+
       - name: Publish skill
         shell: bash
         run: |
           set -euo pipefail
-          clawhub skill publish "${SKILL_DIR}" \
+          clawhub publish "${SKILL_DIR}" \
             --slug "${SKILL_SLUG}" \
             --name "${SKILL_NAME}" \
             --version "${{ steps.metadata.outputs.version }}" \
