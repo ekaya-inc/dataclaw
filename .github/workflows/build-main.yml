@@ -39,6 +39,9 @@ jobs:
       - name: Run repository checks
         run: make check
 
+      - name: Run provisional coverage gate
+        run: make coverage-gate
+
       - name: Upload main binary
         uses: actions/upload-artifact@v6
         with:

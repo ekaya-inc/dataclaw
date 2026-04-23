@@ -32,5 +32,14 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     setupFiles: './src/test/setup.ts',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'clover', 'html'],
+      include: [
+        'src/components/SqlEditor.tsx',
+        'src/hooks/useStoredParameterValues.ts',
+        'src/hooks/useSupportDismissed.ts',
+      ],
+    },
   },
 });

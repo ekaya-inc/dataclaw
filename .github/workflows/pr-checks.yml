@@ -41,3 +41,5 @@ jobs:
       - name: Run repository checks
         run: make check
 
+      - name: Run provisional coverage gate
+        run: make coverage-gate
