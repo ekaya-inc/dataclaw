@@ -134,7 +134,6 @@ jobs:
       SKILL_SLUG: "dataclaw"
       SKILL_NAME: "DataClaw"
       CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-      CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
 
     steps:
       - name: Checkout code
