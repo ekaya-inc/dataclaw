@@ -1,10 +1,11 @@
-import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Menu } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
 import type { RuntimeStatus } from '../types/datasource';
 
+import { useSupportDismissed } from '../hooks/useSupportDismissed';
 import { cn } from '../utils/cn';
 
 interface Completion {
@@ -17,11 +18,12 @@ const NAV_ITEMS: ReadonlyArray<{
   to: string;
   label: string;
   icon: typeof DatabaseZap;
-  completionKey: keyof Completion;
+  completionKey?: keyof Completion;
 }> = [
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
   { to: '/agents', label: 'Agent Access', icon: Bot, completionKey: 'agent' },
+  { to: '/support', label: 'Support', icon: Heart },
 ];
 
 interface AppShellProps {
@@ -32,6 +34,11 @@ interface AppShellProps {
 
 export function AppShell({ status, completion, outletContext }: AppShellProps): JSX.Element {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [supportDismissed] = useSupportDismissed();
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.to !== '/support') return true;
+    return completion.agent && !supportDismissed;
+  });
 
   return (
     <div className="min-h-screen bg-surface-secondary text-text-primary">
@@ -63,9 +70,9 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
             Connect local agents to your data safely and securely.
           </p>
           <nav className="mt-8 flex-1 space-y-2">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
-              const isComplete = completion[item.completionKey];
+              const isComplete = item.completionKey ? completion[item.completionKey] : false;
               return (
                 <NavLink
                   key={item.to}

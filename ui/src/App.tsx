@@ -11,6 +11,7 @@ import AgentEditorPage from './pages/AgentEditorPage';
 import AgentsPage from './pages/AgentsPage';
 import QueryDetailPage from './pages/QueryDetailPage';
 import QueryEditorPage from './pages/QueryEditorPage';
+import SupportPage from './pages/SupportPage';
 import { getStatus, listQueries } from './services/api';
 import type { RuntimeStatus } from './types/datasource';
 
@@ -67,6 +68,7 @@ export default function App(): JSX.Element {
             <Route path="/agents/new" element={<AgentEditorPage />} />
             <Route path="/agents/:id" element={<AgentDetailPage />} />
             <Route path="/agents/:id/edit" element={<AgentEditorPage />} />
+            <Route path="/support" element={<SupportPage />} />
             <Route path="*" element={<Navigate to="/datasource" replace />} />
           </Route>
         </Routes>
