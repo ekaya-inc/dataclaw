@@ -128,20 +128,7 @@ coverage-gate: ## Enforce the first-pass provisional coverage floors for critica
 	check_pkg "github.com/ekaya-inc/dataclaw/internal/adapters/datasource" "35"; \
 	npm --prefix ui run test:coverage >/tmp/dataclaw-ui-coverage.log; \
 	cat /tmp/dataclaw-ui-coverage.log; \
-	node -e '\
-		const fs = require("fs"); \
-		const summary = JSON.parse(fs.readFileSync("ui/coverage/coverage-summary.json", "utf8")).total; \
-		const statementFloor = 90; \
-		const branchFloor = 80; \
-		const statementPct = summary.statements.pct; \
-		const branchPct = summary.branches.pct; \
-		if (statementPct < statementFloor || branchPct < branchFloor) { \
-			console.error(`UI targeted coverage below provisional floors: statements $${statementPct}% / $${statementFloor}%, branches $${branchPct}% / $${branchFloor}%`); \
-			process.exit(1); \
-		} \
-		console.log(`UI targeted coverage statements $${statementPct}% >= $${statementFloor}%`); \
-		console.log(`UI targeted coverage branches $${branchPct}% >= $${branchFloor}%`); \
-	'
+	node -e 'const fs = require("fs"); const summary = JSON.parse(fs.readFileSync("ui/coverage/coverage-summary.json", "utf8")).total; const statementFloor = 90; const branchFloor = 80; const statementPct = summary.statements.pct; const branchPct = summary.branches.pct; if (statementPct < statementFloor || branchPct < branchFloor) { console.error("UI targeted coverage below provisional floors: statements " + statementPct + "% / " + statementFloor + "%, branches " + branchPct + "% / " + branchFloor + "%"); process.exit(1); } console.log("UI targeted coverage statements " + statementPct + "% >= " + statementFloor + "%"); console.log("UI targeted coverage branches " + branchPct + "% >= " + branchFloor + "%");'
 
 coverage-go: ## Measure package-local Go coverage across the repo
 	@set -eu; \
