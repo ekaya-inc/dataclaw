@@ -1,5 +1,5 @@
 ---
-name: dataclaw
+name: DataClaw
 description: Discover and set up DataClaw for controlled database access from OpenClaw agents
 homepage: https://dataclaw.sh
 user-invocable: false

@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_no_v: ${{ steps.version.outputs.version_no_v }}
 
     steps:
       - name: Checkout code
@@ -115,3 +118,103 @@ jobs:
             dist/install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-clawhub-skill:
+    name: Publish ClawHub Skill
+    runs-on: ubuntu-latest
+    needs: release
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+    env:
+      NODE_VERSION: "24"
+      SKILL_DIR: "skills/dataclaw"
+      SKILL_FILE: "skills/dataclaw/SKILL.md"
+      LICENSE_FILE: "skills/dataclaw/LICENSE"
+      SKILL_SLUG: "dataclaw"
+      SKILL_NAME: "DataClaw"
+      CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+      CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub-config.json
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install latest ClawHub CLI
+        run: npm install -g clawhub@latest
+
+      - name: Show ClawHub CLI version
+        run: clawhub --cli-version
+
+      - name: Validate publish inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ -f "${SKILL_FILE}" ]] || { echo "Missing skill file: ${SKILL_FILE}" >&2; exit 1; }
+          [[ -f "${LICENSE_FILE}" ]] || { echo "Missing skill license: ${LICENSE_FILE}" >&2; exit 1; }
+          [[ -n "${CLAWHUB_TOKEN}" ]] || { echo "CLAWHUB_TOKEN is required for publish." >&2; exit 1; }
+          [[ -n "${{ needs.release.outputs.version_no_v }}" ]] || { echo "Resolved publish version is empty." >&2; exit 1; }
+
+          if ! [[ "${{ needs.release.outputs.version_no_v }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version must be semver without a leading v: ${{ needs.release.outputs.version_no_v }}" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          tag_commit="$(git rev-list -n 1 "${GITHUB_REF}")"
+
+          if ! git merge-base --is-ancestor "${tag_commit}" origin/main; then
+            echo "Tag commit ${tag_commit} is not reachable from origin/main." >&2
+            exit 1
+          fi
+
+      - name: Resolve publish metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ needs.release.outputs.version_no_v }}"
+          publish_tags="latest"
+
+          if [[ "${version}" == *-alpha* || "${version}" == *-beta* || "${version}" == *-rc* ]]; then
+            publish_tags="beta"
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "publish_tags=${publish_tags}" >> "${GITHUB_OUTPUT}"
+          echo "changelog=Publish DataClaw skill version ${version}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "skill_dir=${SKILL_DIR}"
+            echo "skill_slug=${SKILL_SLUG}"
+            echo "skill_name=${SKILL_NAME}"
+            echo "version=${version}"
+            echo "publish_tags=${publish_tags}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Authenticate with ClawHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          clawhub login --token "${CLAWHUB_TOKEN}" --no-browser
+          clawhub whoami
+
+      - name: Publish skill
+        shell: bash
+        run: |
+          set -euo pipefail
+          clawhub skill publish "${SKILL_DIR}" \
+            --slug "${SKILL_SLUG}" \
+            --name "${SKILL_NAME}" \
+            --version "${{ steps.metadata.outputs.version }}" \
+            --tags "${{ steps.metadata.outputs.publish_tags }}" \
+            --changelog "${{ steps.metadata.outputs.changelog }}"

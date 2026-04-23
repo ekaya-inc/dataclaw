@@ -42,4 +42,5 @@ ui/dist/
 # .idea/
 # .vscode/
 .omx/
+.claude/
 

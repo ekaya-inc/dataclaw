@@ -46,6 +46,21 @@ DataClaw starts on `http://127.0.0.1:18790` by default. If that port is busy, it
 
 See [.env.example](./.env.example) for documented defaults and shell-friendly examples.
 
+## ClawHub
+
+The public DataClaw discovery skill lives in [`skills/dataclaw`](./skills/dataclaw). That directory is published to ClawHub from [`.github/workflows/release.yml`](./.github/workflows/release.yml) after the normal GitHub release job succeeds for a standard `v*` release tag. [`.github/workflows/clawhub-publish.yml`](./.github/workflows/clawhub-publish.yml) is validation-only for pull requests. The skill directory carries its own `MIT-0` license file for registry distribution.
+
+Stable tags publish with the ClawHub `latest` tag. Prerelease versions containing `-alpha`, `-beta`, or `-rc` publish with the ClawHub `beta` tag.
+
+Example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow requires the repository secret `CLAWHUB_TOKEN`. Pull requests that touch the skill, release workflow, validation workflow, or this README run validation only and do not publish.
+
 ## Testing
 
 Use `make check` for the standard repo gate.
