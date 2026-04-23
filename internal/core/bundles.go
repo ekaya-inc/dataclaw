@@ -370,10 +370,15 @@ func buildBundleSkillMarkdown(agent *storepkg.Agent, bundleName, mcpURL string, 
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: " + bundleName + "\n")
-	b.WriteString("description: Use the DataClaw access point named " + yamlSingleQuoted(agent.Name) + " for database access\n")
+	b.WriteString("description: Use the DataClaw access point named " + yamlSingleQuoted(agent.Name) + " for database access after the local DataClaw server and this access point are already installed and configured\n")
 	b.WriteString("---\n\n")
 	b.WriteString("# " + bundleName + "\n\n")
 	b.WriteString("Use this skill when you need database access through the DataClaw access point named `" + agent.Name + "`.\n\n")
+	b.WriteString("## Prerequisites\n\n")
+	b.WriteString("- Assume DataClaw is already installed and running locally.\n")
+	b.WriteString("- Assume the `" + agent.Name + "` access point already exists at the MCP URL below.\n")
+	b.WriteString("- Do not try to install, bootstrap, or reconfigure DataClaw from this skill.\n")
+	b.WriteString("- If the access point is unavailable, stop and report the missing prerequisite.\n\n")
 	b.WriteString("## Connection\n\n")
 	b.WriteString("- MCP server: `" + bundleName + "`\n")
 	b.WriteString("- MCP URL: `" + mcpURL + "`\n")
@@ -381,6 +386,7 @@ func buildBundleSkillMarkdown(agent *storepkg.Agent, bundleName, mcpURL string, 
 		b.WriteString("- Datasource: `" + datasource.Name + "` (`" + datasource.Type + "`)\n")
 	}
 	b.WriteString("\n## Allowed tools\n\n")
+	b.WriteString("- The capabilities below come from this configured access point.\n")
 	for _, tool := range bundleToolLines(agent, queries) {
 		b.WriteString("- " + tool + "\n")
 	}
@@ -391,6 +397,10 @@ func buildBundleSkillMarkdown(agent *storepkg.Agent, bundleName, mcpURL string, 
 func buildBundleReferenceMarkdown(agent *storepkg.Agent, datasource *storepkg.Datasource, queries []*storepkg.ApprovedQuery) string {
 	var b strings.Builder
 	b.WriteString("# DataClaw Access Point Reference\n\n")
+	b.WriteString("## Prerequisites\n\n")
+	b.WriteString("- DataClaw must already be installed and running.\n")
+	b.WriteString("- The local MCP endpoint for this access point must already exist.\n")
+	b.WriteString("- This reference documents and uses the access point. It does not install or configure DataClaw.\n")
 	b.WriteString("## Access point\n\n")
 	b.WriteString("- Name: `" + agent.Name + "`\n")
 	b.WriteString("- Raw query: " + yesNo(agent.CanQuery) + "\n")

@@ -143,8 +143,34 @@ func TestBundleManifestAndDownloadRequireCodesButAllowReuseWithinExpiry(t *testi
 	if _, ok := gotFiles["skills/dataclaw-marketing/references/dataclaw-api.md"]; !ok {
 		t.Fatalf("bundle missing dataclaw-api.md: %#v", gotFiles)
 	}
-	if !strings.HasPrefix(gotFiles["skills/dataclaw-marketing/SKILL.md"], "---\nname: dataclaw-marketing\n") {
-		t.Fatalf("expected SKILL.md to start with YAML frontmatter, got %q", gotFiles["skills/dataclaw-marketing/SKILL.md"])
+	skillMarkdown := gotFiles["skills/dataclaw-marketing/SKILL.md"]
+	if !strings.HasPrefix(skillMarkdown, "---\nname: dataclaw-marketing\n") {
+		t.Fatalf("expected SKILL.md to start with YAML frontmatter, got %q", skillMarkdown)
+	}
+	for _, want := range []string{
+		"description: Use the DataClaw access point named 'Marketing' for database access after the local DataClaw server and this access point are already installed and configured",
+		"## Prerequisites",
+		"- Assume DataClaw is already installed and running locally.",
+		"- Assume the `Marketing` access point already exists at the MCP URL below.",
+		"- Do not try to install, bootstrap, or reconfigure DataClaw from this skill.",
+		"- If the access point is unavailable, stop and report the missing prerequisite.",
+		"- The capabilities below come from this configured access point.",
+	} {
+		if !strings.Contains(skillMarkdown, want) {
+			t.Fatalf("expected SKILL.md to contain %q, got %q", want, skillMarkdown)
+		}
+	}
+
+	referenceMarkdown := gotFiles["skills/dataclaw-marketing/references/dataclaw-api.md"]
+	for _, want := range []string{
+		"## Prerequisites",
+		"- DataClaw must already be installed and running.",
+		"- The local MCP endpoint for this access point must already exist.",
+		"- This reference documents and uses the access point. It does not install or configure DataClaw.",
+	} {
+		if !strings.Contains(referenceMarkdown, want) {
+			t.Fatalf("expected dataclaw-api.md to contain %q, got %q", want, referenceMarkdown)
+		}
 	}
 
 	reusedDownloadCodeRec := performJSONRequest(t, api, http.MethodGet, "/bundles/marketing/download?code="+downloadCode, nil)
