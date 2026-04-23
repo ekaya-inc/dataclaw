@@ -20,7 +20,7 @@ jobs:
       SKILL_DIR: "skills/dataclaw"
       SKILL_FILE: "skills/dataclaw/SKILL.md"
       LICENSE_FILE: "skills/dataclaw/LICENSE"
-      SKILL_NAME: "DataClaw"
+      SKILL_NAME: "dataclaw-setup"
 
     steps:
       - name: Checkout code

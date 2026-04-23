@@ -48,7 +48,7 @@ See [.env.example](./.env.example) for documented defaults and shell-friendly ex
 
 ## ClawHub
 
-The public DataClaw discovery skill lives in [`skills/dataclaw`](./skills/dataclaw). That directory is published to ClawHub from [`.github/workflows/release.yml`](./.github/workflows/release.yml) after the normal GitHub release job succeeds for a standard `v*` release tag. [`.github/workflows/clawhub-publish.yml`](./.github/workflows/clawhub-publish.yml) is validation-only for pull requests. The skill directory carries its own `MIT-0` license file for registry distribution.
+The public DataClaw setup skill lives in [`skills/dataclaw`](./skills/dataclaw). It publishes to ClawHub as `dataclaw-setup`, not as the runtime access-point skill a user talks to later. Generated access-point skills remain separate and are installed from the DataClaw UI with names such as `dataclaw-marketing`. The public setup skill directory is published from [`.github/workflows/release.yml`](./.github/workflows/release.yml) after the normal GitHub release job succeeds for a standard `v*` release tag. [`.github/workflows/clawhub-publish.yml`](./.github/workflows/clawhub-publish.yml) is validation-only for pull requests. The skill directory carries its own `MIT-0` license file for registry distribution.
 
 Stable tags publish with the ClawHub `latest` tag. Prerelease versions containing `-alpha`, `-beta`, or `-rc` publish with the ClawHub `beta` tag.
 

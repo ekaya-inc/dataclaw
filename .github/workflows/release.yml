@@ -131,8 +131,8 @@ jobs:
       SKILL_DIR: "skills/dataclaw"
       SKILL_FILE: "skills/dataclaw/SKILL.md"
       LICENSE_FILE: "skills/dataclaw/LICENSE"
-      SKILL_SLUG: "dataclaw"
-      SKILL_NAME: "DataClaw"
+      SKILL_SLUG: "dataclaw-setup"
+      SKILL_NAME: "dataclaw-setup"
       CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
