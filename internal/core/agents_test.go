@@ -180,7 +180,7 @@ func TestManagerCapabilityForcesRawQueryAndAllowsCatalogCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateQueryForAgent(manager): %v", err)
 	}
-	if _, err := service.ExecuteStoredQueryForAgent(ctx, internalManager, createdQuery.ID, nil, 10); err == nil || strings.Contains(err.Error(), "not allowed") {
+	if _, err := service.ExecuteStoredQueryForAgent(ctx, internalManager, createdQuery.ID, nil, QueryOptions{Limit: 10}); err == nil || strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("expected manager capability to pass authorization for execute_query, got %v", err)
 	}
 

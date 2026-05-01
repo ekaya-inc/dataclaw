@@ -265,7 +265,7 @@ func (s *Service) DeleteQueryForAgent(ctx context.Context, agent *storepkg.Agent
 	return s.DeleteQuery(ctx, id)
 }
 
-func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any, limit int) (*QueryResult, error) {
+func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any, options QueryOptions) (*QueryResult, error) {
 	allowed, err := s.agentHasQueryAccess(ctx, agent, id)
 	if err != nil {
 		return nil, err
@@ -273,10 +273,21 @@ func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepk
 	if !allowed {
 		return nil, errors.New("agent is not allowed to execute this approved query")
 	}
-	return s.ExecuteStoredQuery(ctx, id, values, limit)
+	return s.ExecuteStoredQuery(ctx, id, values, options)
 }
 
-func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+func (s *Service) CountStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any) (*CountResult, error) {
+	allowed, err := s.agentHasQueryAccess(ctx, agent, id)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, errors.New("agent is not allowed to count this approved query")
+	}
+	return s.CountStoredQuery(ctx, id, values)
+}
+
+func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
@@ -294,7 +305,7 @@ func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, limi
 		return nil, err
 	}
 	defer executor.Close()
-	return executor.Execute(ctx, normalized, limit)
+	return executor.Execute(ctx, normalized, options)
 }
 
 func (s *Service) normalizeAgentInput(ctx context.Context, input AgentInput) (AgentInput, error) {

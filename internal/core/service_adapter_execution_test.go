@@ -152,14 +152,14 @@ func TestTestRawQueryUsesAdapterExecutor(t *testing.T) {
 		if dsType != "postgres" {
 			t.Fatalf("expected postgres adapter, got %q", dsType)
 		}
-		return fakeQueryExecutor{query: func(_ context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+		return fakeQueryExecutor{query: func(_ context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error) {
 			gotQuery = sqlQuery
-			gotLimit = limit
+			gotLimit = options.Limit
 			return &QueryResult{}, nil
 		}}, nil
 	}
 
-	if _, err := service.TestRawQuery(context.Background(), "select 1", 25); err != nil {
+	if _, err := service.TestRawQuery(context.Background(), "select 1", QueryOptions{Limit: 25}); err != nil {
 		t.Fatalf("TestRawQuery: %v", err)
 	}
 	wantQuery, err := validateReadOnlySQL("select 1")
@@ -185,16 +185,16 @@ func TestTestDraftQueryUsesPreparedParameters(t *testing.T) {
 	var gotValues map[string]any
 	var gotLimit int
 	factory.newExecutor = func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
-		return fakeQueryExecutor{queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+		return fakeQueryExecutor{queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error) {
 			gotQuery = sqlQuery
 			gotParams = paramDefs
 			gotValues = values
-			gotLimit = limit
+			gotLimit = options.Limit
 			return &QueryResult{}, nil
 		}}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, map[string]any{"min_total": 42.5}, false, 25)
+	_, err := service.TestDraftQuery(context.Background(), "SELECT * FROM orders WHERE total > {{min_total}}", []models.QueryParameter{{Name: "min_total", Type: "decimal", Default: 0.0}}, map[string]any{"min_total": 42.5}, false, QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -234,16 +234,16 @@ func TestExecuteStoredQueryUsesPreparedParameters(t *testing.T) {
 	var gotValues map[string]any
 	var gotLimit int
 	factory.newExecutor = func(_ context.Context, dsType string, config map[string]any) (dsadapter.QueryExecutor, error) {
-		return fakeQueryExecutor{queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+		return fakeQueryExecutor{queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error) {
 			gotQuery = sqlQuery
 			gotParams = paramDefs
 			gotValues = values
-			gotLimit = limit
+			gotLimit = options.Limit
 			return &QueryResult{}, nil
 		}}, nil
 	}
 
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_id": "550e8400-e29b-41d4-a716-446655440000"}, 50)
+	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_id": "550e8400-e29b-41d4-a716-446655440000"}, QueryOptions{Limit: 50})
 	if err != nil {
 		t.Fatalf("ExecuteStoredQuery: %v", err)
 	}
@@ -282,15 +282,15 @@ func TestExecuteStoredQueryForwardsLimitForMutatingQueries(t *testing.T) {
 	var gotValues map[string]any
 	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
 		return fakeQueryExecutor{
-			executeDMLQuery: func(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+			executeDMLQuery: func(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error) {
 				gotValues = values
-				gotLimit = limit
+				gotLimit = options.Limit
 				return &QueryResult{}, nil
 			},
 		}, nil
 	}
 
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"owner": "marketing"}, 250)
+	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"owner": "marketing"}, QueryOptions{Limit: 250})
 	if err != nil {
 		t.Fatalf("ExecuteStoredQuery: %v", err)
 	}
@@ -312,15 +312,15 @@ func TestTestDraftQueryForwardsLimitForMutatingQueries(t *testing.T) {
 	var gotQuery string
 	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
 		return fakeQueryExecutor{
-			executeDMLQuery: func(_ context.Context, sqlQuery string, _ []models.QueryParameter, _ map[string]any, limit int) (*QueryResult, error) {
+			executeDMLQuery: func(_ context.Context, sqlQuery string, _ []models.QueryParameter, _ map[string]any, options QueryOptions) (*QueryResult, error) {
 				gotQuery = sqlQuery
-				gotLimit = limit
+				gotLimit = options.Limit
 				return &QueryResult{}, nil
 			},
 		}, nil
 	}
 
-	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000"}, true, 400)
+	_, err := service.TestDraftQuery(context.Background(), "DELETE FROM contracts WHERE id = {{id}} RETURNING id", []models.QueryParameter{{Name: "id", Type: "uuid", Required: true}}, map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000"}, true, QueryOptions{Limit: 400})
 	if err != nil {
 		t.Fatalf("TestDraftQuery: %v", err)
 	}
@@ -345,15 +345,15 @@ func TestExecuteRawStatementUsesAdapterExecuteForDDL(t *testing.T) {
 			t.Fatalf("expected postgres adapter, got %q", dsType)
 		}
 		return fakeQueryExecutor{
-			execute: func(_ context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+			execute: func(_ context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error) {
 				gotQuery = sqlQuery
-				gotLimit = limit
+				gotLimit = options.Limit
 				return &ExecuteResult{}, nil
 			},
 		}, nil
 	}
 
-	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE scratch_execute (id integer);", 75); err != nil {
+	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE scratch_execute (id integer);", QueryOptions{Limit: 75}); err != nil {
 		t.Fatalf("ExecuteRawStatement: %v", err)
 	}
 	if gotQuery != "CREATE TABLE scratch_execute (id integer)" {
@@ -376,7 +376,7 @@ func TestExecuteRawStatementAllowsProceduralDDL(t *testing.T) {
 			t.Fatalf("expected postgres adapter, got %q", dsType)
 		}
 		return fakeQueryExecutor{
-			execute: func(_ context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+			execute: func(_ context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error) {
 				gotQuery = sqlQuery
 				return &ExecuteResult{}, nil
 			},
@@ -392,7 +392,7 @@ BEGIN
 END;
 $fn$;`
 
-	if _, err := service.ExecuteRawStatement(context.Background(), sqlQuery, 75); err != nil {
+	if _, err := service.ExecuteRawStatement(context.Background(), sqlQuery, QueryOptions{Limit: 75}); err != nil {
 		t.Fatalf("ExecuteRawStatement: %v", err)
 	}
 	if gotQuery != `CREATE OR REPLACE FUNCTION scratch_execute()
@@ -413,7 +413,7 @@ func TestExecuteRawStatementRejectsMultipleStatements(t *testing.T) {
 	defer service.store.Close()
 	seedDatasource(t, service, "postgres")
 
-	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE a (id integer); DROP TABLE a", 10); err == nil {
+	if _, err := service.ExecuteRawStatement(context.Background(), "CREATE TABLE a (id integer); DROP TABLE a", QueryOptions{Limit: 10}); err == nil {
 		t.Fatal("expected multiple statements to be rejected")
 	}
 }
@@ -427,14 +427,14 @@ func TestExecuteRawStatementRejectsReadOnlySQL(t *testing.T) {
 	called := false
 	factory.newExecutor = func(_ context.Context, _ string, _ map[string]any) (dsadapter.QueryExecutor, error) {
 		return fakeQueryExecutor{
-			execute: func(_ context.Context, _ string, _ int) (*ExecuteResult, error) {
+			execute: func(_ context.Context, _ string, _ QueryOptions) (*ExecuteResult, error) {
 				called = true
 				return nil, errors.New("execute only accepts single-statement DDL or DML")
 			},
 		}, nil
 	}
 
-	if _, err := service.ExecuteRawStatement(context.Background(), "SELECT 1", 10); err == nil {
+	if _, err := service.ExecuteRawStatement(context.Background(), "SELECT 1", QueryOptions{Limit: 10}); err == nil {
 		t.Fatal("expected read-only SQL to be rejected by raw execute")
 	}
 	if !called {

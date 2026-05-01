@@ -33,10 +33,11 @@ type fakeDatasourceIntrospector struct {
 }
 
 type fakeQueryExecutor struct {
-	query               func(context.Context, string, int) (*QueryResult, error)
-	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
-	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error)
-	execute             func(context.Context, string, int) (*ExecuteResult, error)
+	query               func(context.Context, string, QueryOptions) (*QueryResult, error)
+	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, QueryOptions) (*QueryResult, error)
+	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, QueryOptions) (*QueryResult, error)
+	execute             func(context.Context, string, QueryOptions) (*ExecuteResult, error)
+	countRows           func(context.Context, string, []models.QueryParameter, map[string]any) (*CountResult, error)
 }
 
 func newFakeAdapterFactory() *fakeAdapterFactory {
@@ -155,32 +156,39 @@ func (f fakeDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsadapt
 
 func (f fakeDatasourceIntrospector) Close() error { return nil }
 
-func (f fakeQueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+func (f fakeQueryExecutor) Query(ctx context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error) {
 	if f.query != nil {
-		return f.query(ctx, sqlQuery, limit)
+		return f.query(ctx, sqlQuery, options)
 	}
 	return nil, errors.New("unexpected Query call")
 }
 
-func (f fakeQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+func (f fakeQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error) {
 	if f.queryWithParameters != nil {
-		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, limit)
+		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, options)
 	}
 	return nil, errors.New("unexpected QueryWithParameters call")
 }
 
-func (f fakeQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error) {
+func (f fakeQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error) {
 	if f.executeDMLQuery != nil {
-		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, limit)
+		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, options)
 	}
 	return nil, errors.New("unexpected ExecuteDMLQuery call")
 }
 
-func (f fakeQueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error) {
+func (f fakeQueryExecutor) Execute(ctx context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error) {
 	if f.execute != nil {
-		return f.execute(ctx, sqlQuery, limit)
+		return f.execute(ctx, sqlQuery, options)
 	}
 	return nil, errors.New("unexpected Execute call")
+}
+
+func (f fakeQueryExecutor) CountRows(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any) (*CountResult, error) {
+	if f.countRows != nil {
+		return f.countRows(ctx, sqlQuery, paramDefs, values)
+	}
+	return nil, errors.New("unexpected CountRows call")
 }
 
 func (f fakeQueryExecutor) Close() error { return nil }
