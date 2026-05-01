@@ -230,7 +230,7 @@ func (s *Service) ValidateRawSQL(sqlQuery string) (string, error) {
 	return validateReadOnlySQL(sqlQuery)
 }
 
-func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error) {
+func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
@@ -244,10 +244,10 @@ func (s *Service) TestRawQuery(ctx context.Context, sqlQuery string, limit int) 
 		return nil, err
 	}
 	defer executor.Close()
-	return executor.Query(ctx, normalized, limit)
+	return executor.Query(ctx, normalized, options)
 }
 
-func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, values map[string]any, allowsModification bool, limit int) (*QueryResult, error) {
+func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, values map[string]any, allowsModification bool, options QueryOptions) (*QueryResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
@@ -272,12 +272,12 @@ func (s *Service) TestDraftQuery(ctx context.Context, sqlQuery string, parameter
 	}
 	defer executor.Close()
 	if allowsModification {
-		return executor.ExecuteDMLQuery(ctx, sqlQuery, parameters, effectiveValues, limit)
+		return executor.ExecuteDMLQuery(ctx, sqlQuery, parameters, effectiveValues, options)
 	}
-	return executor.QueryWithParameters(ctx, sqlQuery, parameters, effectiveValues, limit)
+	return executor.QueryWithParameters(ctx, sqlQuery, parameters, effectiveValues, options)
 }
 
-func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[string]any, limit int) (*QueryResult, error) {
+func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[string]any, options QueryOptions) (*QueryResult, error) {
 	ds, err := s.requireDatasource(ctx)
 	if err != nil {
 		return nil, err
@@ -309,9 +309,63 @@ func (s *Service) ExecuteStoredQuery(ctx context.Context, id string, values map[
 	}
 	defer executor.Close()
 	if q.AllowsModification {
-		return executor.ExecuteDMLQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
+		return executor.ExecuteDMLQuery(ctx, q.SQLQuery, q.Parameters, effectiveValues, options)
 	}
-	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, limit)
+	return executor.QueryWithParameters(ctx, q.SQLQuery, q.Parameters, effectiveValues, options)
+}
+
+func (s *Service) CountRows(ctx context.Context, sqlQuery string) (*CountResult, error) {
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := validateReadOnlySQL(sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer executor.Close()
+	return executor.CountRows(ctx, normalized, nil, nil)
+}
+
+func (s *Service) CountStoredQuery(ctx context.Context, id string, values map[string]any) (*CountResult, error) {
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q, err := s.store.GetQuery(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if q == nil {
+		return nil, errors.New("query not found")
+	}
+	if q.AllowsModification {
+		return nil, errors.New("count_rows only supports read-only approved queries")
+	}
+	effectiveValues, err := prepareExecutionParameterValues(q.Parameters, values)
+	if err != nil {
+		return nil, err
+	}
+	if injectionResults := sqltmpl.CheckAllParameters(effectiveValues); len(injectionResults) > 0 {
+		return nil, fmt.Errorf("potential SQL injection detected in parameter '%s'", injectionResults[0].ParamName)
+	}
+	if adapterInfo, ok := s.DatasourceTypeInfo(ds.Type); ok && hasArrayParameters(q.Parameters, effectiveValues) && !adapterInfo.Capabilities.SupportsArrayParameters {
+		name := adapterInfo.DisplayName
+		if name == "" {
+			name = ds.Type
+		}
+		return nil, fmt.Errorf("array parameters are not supported for %s saved-query count yet", name)
+	}
+	executor, err := s.adapters.NewQueryExecutor(ctx, ds.Type, ds.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer executor.Close()
+	return executor.CountRows(ctx, q.SQLQuery, q.Parameters, effectiveValues)
 }
 
 func (s *Service) requireDatasource(ctx context.Context) (*storepkg.Datasource, error) {

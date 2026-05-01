@@ -27,10 +27,11 @@ type fakeHTTPAdapterFactory struct {
 
 type fakeHTTPConnectionTester struct{}
 type fakeHTTPQueryExecutor struct {
-	query               func(context.Context, string, int) (*core.QueryResult, error)
-	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, int) (*core.QueryResult, error)
-	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, int) (*core.QueryResult, error)
-	execute             func(context.Context, string, int) (*core.ExecuteResult, error)
+	query               func(context.Context, string, core.QueryOptions) (*core.QueryResult, error)
+	queryWithParameters func(context.Context, string, []models.QueryParameter, map[string]any, core.QueryOptions) (*core.QueryResult, error)
+	executeDMLQuery     func(context.Context, string, []models.QueryParameter, map[string]any, core.QueryOptions) (*core.QueryResult, error)
+	execute             func(context.Context, string, core.QueryOptions) (*core.ExecuteResult, error)
+	countRows           func(context.Context, string, []models.QueryParameter, map[string]any) (*core.CountResult, error)
 }
 
 func (fakeHTTPConnectionTester) TestConnection(context.Context) error { return nil }
@@ -82,32 +83,39 @@ func (fakeHTTPAdapterFactory) SupportsType(dsType string) bool {
 	return ok
 }
 
-func (f fakeHTTPQueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*core.QueryResult, error) {
+func (f fakeHTTPQueryExecutor) Query(ctx context.Context, sqlQuery string, options core.QueryOptions) (*core.QueryResult, error) {
 	if f.query != nil {
-		return f.query(ctx, sqlQuery, limit)
+		return f.query(ctx, sqlQuery, options)
 	}
 	return nil, errors.New("unexpected Query call")
 }
 
-func (f fakeHTTPQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+func (f fakeHTTPQueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options core.QueryOptions) (*core.QueryResult, error) {
 	if f.queryWithParameters != nil {
-		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, limit)
+		return f.queryWithParameters(ctx, sqlQuery, paramDefs, values, options)
 	}
 	return nil, errors.New("unexpected QueryWithParameters call")
 }
 
-func (f fakeHTTPQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+func (f fakeHTTPQueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options core.QueryOptions) (*core.QueryResult, error) {
 	if f.executeDMLQuery != nil {
-		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, limit)
+		return f.executeDMLQuery(ctx, sqlQuery, paramDefs, values, options)
 	}
 	return nil, errors.New("unexpected ExecuteDMLQuery call")
 }
 
-func (f fakeHTTPQueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*core.ExecuteResult, error) {
+func (f fakeHTTPQueryExecutor) Execute(ctx context.Context, sqlQuery string, options core.QueryOptions) (*core.ExecuteResult, error) {
 	if f.execute != nil {
-		return f.execute(ctx, sqlQuery, limit)
+		return f.execute(ctx, sqlQuery, options)
 	}
 	return nil, errors.New("unexpected Execute call")
+}
+
+func (f fakeHTTPQueryExecutor) CountRows(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any) (*core.CountResult, error) {
+	if f.countRows != nil {
+		return f.countRows(ctx, sqlQuery, paramDefs, values)
+	}
+	return nil, errors.New("unexpected CountRows call")
 }
 
 func (fakeHTTPQueryExecutor) Close() error { return nil }
@@ -678,11 +686,11 @@ func TestHandleExecuteQueryBranches(t *testing.T) {
 					t.Fatalf("expected postgres datasource type, got %q", dsType)
 				}
 				return fakeHTTPQueryExecutor{
-					queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*core.QueryResult, error) {
+					queryWithParameters: func(_ context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options core.QueryOptions) (*core.QueryResult, error) {
 						gotQuery = sqlQuery
 						gotParams = paramDefs
 						gotValues = values
-						gotLimit = limit
+						gotLimit = options.Limit
 						return &core.QueryResult{
 							Columns:  []dsadapter.QueryColumn{{Name: "id", Type: "uuid"}},
 							Rows:     []map[string]any{{"id": "550e8400-e29b-41d4-a716-446655440000"}},

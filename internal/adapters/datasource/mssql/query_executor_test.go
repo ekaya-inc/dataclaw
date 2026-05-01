@@ -13,10 +13,28 @@ import (
 )
 
 func TestWrapQueryUsesBoundedDefaultLimit(t *testing.T) {
-	got := wrapQuery("SELECT * FROM accounts", 0)
-	want := "SELECT TOP (100) * FROM (SELECT * FROM accounts) AS _limited"
+	got := wrapQuery("SELECT * FROM accounts", datasource.QueryOptions{})
+	want := "SELECT TOP (101) * FROM (SELECT * FROM accounts) AS _limited"
 	if got != want {
 		t.Fatalf("unexpected wrapped query:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestPrepareQueryAppendsOffsetFetchWhenOrdered(t *testing.T) {
+	got, err := prepareQuery("SELECT id FROM accounts ORDER BY id", datasource.QueryOptions{Limit: 25, Offset: 50})
+	if err != nil {
+		t.Fatalf("prepareQuery: %v", err)
+	}
+	want := "SELECT id FROM accounts ORDER BY id OFFSET 50 ROWS FETCH NEXT 26 ROWS ONLY"
+	if got != want {
+		t.Fatalf("unexpected paged query:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestPrepareQueryRejectsCallerPaginationWhenQueryAlreadyDefinesTop(t *testing.T) {
+	_, err := prepareQuery("SELECT TOP (10) id FROM accounts", datasource.QueryOptions{Limit: 25})
+	if err == nil {
+		t.Fatal("expected TOP query with caller limit to be rejected")
 	}
 }
 
@@ -46,18 +64,17 @@ func TestConvertParamsConvertsPlaceholdersAndNamedArgs(t *testing.T) {
 	}
 }
 
-func TestPrepareQueryLeavesCTEQueriesUnwrapped(t *testing.T) {
+func TestPrepareQueryRejectsUnorderedCTEQueries(t *testing.T) {
 	query := "WITH recent_accounts AS (SELECT id FROM accounts) SELECT id FROM recent_accounts"
-	if got := prepareQuery(query, 25); got != query {
-		t.Fatalf("expected CTE query to remain unwrapped, got %q", got)
+	if _, err := prepareQuery(query, datasource.QueryOptions{Limit: 25}); err == nil {
+		t.Fatal("expected unordered CTE query to be rejected")
 	}
 }
 
-func TestPrepareQueryLeavesParameterizedCTEQueriesUnwrapped(t *testing.T) {
+func TestPrepareQueryRejectsParameterizedUnorderedCTEQueries(t *testing.T) {
 	query, args := convertParams("/* leading comment */ WITH recent_accounts AS (SELECT $1 AS id) SELECT id FROM recent_accounts WHERE id = $1", []any{123})
-	got := prepareQuery(query, 25)
-	if got != query {
-		t.Fatalf("expected parameterized CTE query to remain unwrapped, got %q", got)
+	if _, err := prepareQuery(query, datasource.QueryOptions{Limit: 25}); err == nil {
+		t.Fatal("expected unordered CTE query to be rejected")
 	}
 	first, ok := args[0].(sql.NamedArg)
 	if !ok {
@@ -193,7 +210,7 @@ func TestExecuteUsesQueryForOutputStatements(t *testing.T) {
 	}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) OUTPUT inserted.id VALUES (11)", 25)
+	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) OUTPUT inserted.id VALUES (11)", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute OUTPUT: %v", err)
 	}
@@ -212,7 +229,7 @@ func TestExecuteUsesExecForNonReturningStatements(t *testing.T) {
 	state := &executeDriverState{rowsAffected: 3}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "DELETE FROM scratch_execute WHERE id > 10", 25)
+	result, err := executor.Execute(context.Background(), "DELETE FROM scratch_execute WHERE id > 10", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute non-returning DML: %v", err)
 	}
@@ -228,7 +245,7 @@ func TestExecuteUsesExecForOutputIntoStatements(t *testing.T) {
 	state := &executeDriverState{rowsAffected: 2}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) OUTPUT inserted.id INTO @audit VALUES (11)", 25)
+	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) OUTPUT inserted.id INTO @audit VALUES (11)", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute OUTPUT INTO: %v", err)
 	}
@@ -244,7 +261,7 @@ func TestExecuteUsesExecForDDLStatements(t *testing.T) {
 	state := &executeDriverState{rowsAffected: 0}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "CREATE TABLE scratch_execute (id integer)", 25)
+	result, err := executor.Execute(context.Background(), "CREATE TABLE scratch_execute (id integer)", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute DDL: %v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/migrations"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 type httpAuthContextKey struct{}
@@ -55,7 +56,7 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	}
 
 	readerTools := listToolNames(t, withAuthorizedAgent(ctx, readerAgent), mcpClient)
-	if got, want := readerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools: got %v want %v", got, want)
 	}
 
@@ -142,6 +143,7 @@ func TestToolAnnotationsMatchBehavior(t *testing.T) {
 		openWorld   bool
 	}{
 		{name: "query", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "count_rows", readOnly: true, destructive: false, idempotent: true, openWorld: false},
 		{name: "execute", readOnly: false, destructive: true, idempotent: false, openWorld: false},
 		{name: "list_queries", readOnly: true, destructive: false, idempotent: true, openWorld: false},
 		{name: "create_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
@@ -215,8 +217,8 @@ func TestDatasourceDeletionFailsClosedForToolDiscovery(t *testing.T) {
 	agentCtx := withAuthorizedAgent(ctx, agent)
 
 	before := listToolNames(t, agentCtx, mcpClient)
-	if len(before) != 6 {
-		t.Fatalf("expected 6 tools before datasource deletion, got %v", before)
+	if len(before) != 7 {
+		t.Fatalf("expected 7 tools before datasource deletion, got %v", before)
 	}
 	if err := service.DeleteDatasource(ctx); err != nil {
 		t.Fatalf("DeleteDatasource: %v", err)
@@ -257,7 +259,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	readerTools := listToolNamesWithHeader(t, ctx, mcpClient, reader.APIKey)
-	if got, want := readerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools via header auth: got %v want %v", got, want)
 	}
 	readerAfterList, err := service.GetAgent(ctx, reader.ID)
@@ -327,6 +329,110 @@ func TestExecuteToolAllowsDDLAndReturnsExecuteResult(t *testing.T) {
 	}
 }
 
+func TestQueryToolDefaultsToTSVAndRecordsRenderStats(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	reader, err := service.CreateAgent(ctx, core.AgentInput{Name: "Reader", CanQuery: true})
+	if err != nil {
+		t.Fatalf("CreateAgent(reader): %v", err)
+	}
+
+	result, err := mcpClient.CallTool(withHTTPAuth(ctx, reader.APIKey), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "query",
+			Arguments: map[string]any{
+				"sql":    "SELECT table_name FROM information_schema.tables",
+				"limit":  10,
+				"offset": 5,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(query): %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("query returned error: %s", resultText(t, result))
+	}
+	text := resultText(t, result)
+	if !strings.HasPrefix(text, "#") || !strings.Contains(text, "table_name") {
+		t.Fatalf("expected TSV response with metadata and header, got %q", text)
+	}
+	if !strings.Contains(text, "table_name\naccounts\n") {
+		t.Fatalf("expected TSV data row, got %q", text)
+	}
+
+	page, err := service.ListMCPToolEvents(ctx, storepkg.ListMCPToolEventOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("expected one recorded query event, got %#v", page)
+	}
+	event, err := service.GetMCPToolEvent(ctx, page.Items[0].ID)
+	if err != nil || event == nil {
+		t.Fatalf("GetMCPToolEvent: %v, %v", event, err)
+	}
+	if got := event.ResultSummary["result_format"]; got != "tsv" {
+		t.Fatalf("expected tsv result summary, got %#v", event.ResultSummary)
+	}
+	if got := event.ResultSummary["response_bytes"]; got == nil {
+		t.Fatalf("expected response_bytes summary, got %#v", event.ResultSummary)
+	}
+	if got := event.ResultSummary["estimated_tokens"]; got == nil {
+		t.Fatalf("expected estimated_tokens summary, got %#v", event.ResultSummary)
+	}
+	if got := event.ResultSummary["offset"]; got != float64(5) && got != 5 {
+		t.Fatalf("expected offset=5 summary, got %#v", event.ResultSummary)
+	}
+}
+
+func TestCountRowsToolSupportsRawAndApprovedQueries(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	query, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Countable contacts",
+		SQLQuery:              "SELECT contact_id FROM contacts WHERE region = {{region}}",
+		Parameters:            []models.QueryParameter{{Name: "region", Type: "string", Required: true}},
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery: %v", err)
+	}
+	reader, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:               "Reader",
+		CanQuery:           true,
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected,
+		ApprovedQueryIDs:   []string{query.ID},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(reader): %v", err)
+	}
+
+	rawPayload := callToolJSONWithHeader(t, ctx, mcpClient, "count_rows", map[string]any{
+		"sql": "SELECT contact_id FROM contacts",
+	}, reader.APIKey)
+	if got := rawPayload["row_count"]; got != float64(42) && got != 42 {
+		t.Fatalf("expected raw count row_count=42, got %#v", rawPayload)
+	}
+	if exact, ok := rawPayload["exact"].(bool); !ok || !exact {
+		t.Fatalf("expected raw count exact=true, got %#v", rawPayload)
+	}
+
+	approvedPayload := callToolJSONWithHeader(t, ctx, mcpClient, "count_rows", map[string]any{
+		"query_id":   query.ID,
+		"parameters": map[string]any{"region": "emea"},
+	}, reader.APIKey)
+	if got := approvedPayload["row_count"]; got != float64(42) && got != 42 {
+		t.Fatalf("expected approved count row_count=42, got %#v", approvedPayload)
+	}
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "count_rows", map[string]any{
+		"sql":      "SELECT contact_id FROM contacts",
+		"query_id": query.ID,
+	}, reader.APIKey, "provide exactly one of sql or query_id")
+}
+
 func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
@@ -341,7 +447,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
-	if got, want := managerTools, []string{"create_query", "delete_query", "execute_query", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+	if got, want := managerTools, []string{"count_rows", "create_query", "delete_query", "execute_query", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
 	}
 
@@ -424,11 +530,11 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	consumerTools := listToolNamesWithHeader(t, ctx, mcpClient, consumer.APIKey)
-	if got, want := consumerTools, []string{"execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
+	if got, want := consumerTools, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected consumer tools via header auth: got %v want %v", got, want)
 	}
 
-	executePayload := callToolJSONWithHeader(t, ctx, mcpClient, "execute_query", map[string]any{"query_id": consumerQuery.ID}, consumer.APIKey)
+	executePayload := callToolJSONWithHeader(t, ctx, mcpClient, "execute_query", map[string]any{"query_id": consumerQuery.ID, "result_format": "json"}, consumer.APIKey)
 	if got := executePayload["row_count"]; got != float64(1) && got != 1 {
 		t.Fatalf("expected execute_query row_count=1, got %#v", got)
 	}
@@ -498,7 +604,7 @@ func TestSelectedScopeLosesExecuteToolWhenMembershipsCascadeAway(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	before := listToolNamesWithHeader(t, ctx, mcpClient, agent.APIKey)
-	if got, want := before, []string{"execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
+	if got, want := before, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected tools before membership cascade: got %v want %v", got, want)
 	}
 

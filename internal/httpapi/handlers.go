@@ -83,6 +83,7 @@ type queryRequest struct {
 type executeRequest struct {
 	Parameters map[string]any `json:"parameters,omitempty"`
 	Limit      int            `json:"limit,omitempty"`
+	Offset     int            `json:"offset,omitempty"`
 }
 
 type validateRequest struct {
@@ -97,6 +98,7 @@ type queryTestRequest struct {
 	ParameterValues    map[string]any          `json:"parameter_values,omitempty"`
 	AllowsModification bool                    `json:"allows_modification"`
 	Limit              int                     `json:"limit,omitempty"`
+	Offset             int                     `json:"offset,omitempty"`
 }
 
 type pingResponse struct {
@@ -202,7 +204,7 @@ func (a *API) handleTestQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	result, err := a.service.TestDraftQuery(r.Context(), req.SQLQuery, req.Parameters, req.ParameterValues, req.AllowsModification, req.Limit)
+	result, err := a.service.TestDraftQuery(r.Context(), req.SQLQuery, req.Parameters, req.ParameterValues, req.AllowsModification, core.QueryOptions{Limit: req.Limit, Offset: req.Offset})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -278,7 +280,7 @@ func (a *API) handleExecuteQuery(w http.ResponseWriter, r *http.Request, id stri
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	result, err := a.service.ExecuteStoredQuery(r.Context(), id, req.Parameters, req.Limit)
+	result, err := a.service.ExecuteStoredQuery(r.Context(), id, req.Parameters, core.QueryOptions{Limit: req.Limit, Offset: req.Offset})
 	if err != nil {
 		writeError(w, err)
 		return

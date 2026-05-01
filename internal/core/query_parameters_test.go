@@ -187,7 +187,7 @@ func TestExecuteStoredQueryRejectsInjectionBeforeDatasourceCall(t *testing.T) {
 		t.Fatalf("CreateQuery: %v", err)
 	}
 
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_id": "'; DROP TABLE users--"}, 100)
+	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_id": "'; DROP TABLE users--"}, QueryOptions{Limit: 100})
 	if err == nil || !strings.Contains(err.Error(), "SQL injection") {
 		t.Fatalf("expected injection error, got %v", err)
 	}
@@ -210,7 +210,7 @@ func TestExecuteStoredQueryRejectsSQLServerArrayParameters(t *testing.T) {
 		t.Fatalf("CreateQuery: %v", err)
 	}
 
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_ids": "1,2,3"}, 100)
+	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_ids": "1,2,3"}, QueryOptions{Limit: 100})
 	if err == nil || !strings.Contains(err.Error(), "SQL Server") {
 		t.Fatalf("expected SQL Server array-parameter error, got %v", err)
 	}

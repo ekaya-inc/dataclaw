@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -23,38 +24,61 @@ func NewQueryExecutor(ctx context.Context, config map[string]any) (*QueryExecuto
 	return &QueryExecutor{adapter: adapter}, nil
 }
 
-func (e *QueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*datasource.QueryResult, error) {
-	prepared := prepareQuery(sqlQuery, limit)
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, nil, limit)
+func (e *QueryExecutor) Query(ctx context.Context, sqlQuery string, options datasource.QueryOptions) (*datasource.QueryResult, error) {
+	prepared, err := prepareQuery(sqlQuery, options)
+	if err != nil {
+		return nil, err
+	}
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, nil, queryRowsOptions(options))
 }
 
-func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options datasource.QueryOptions) (*datasource.QueryResult, error) {
 	preparedSQL, params, err := datasource.PrepareReadOnlyParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
 	convertedQuery, namedArgs := convertParams(preparedSQL, params)
-	finalQuery := prepareQuery(convertedQuery, limit)
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, finalQuery, namedArgs, limit)
+	finalQuery, err := prepareQuery(convertedQuery, options)
+	if err != nil {
+		return nil, err
+	}
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, finalQuery, namedArgs, queryRowsOptions(options))
 }
 
-func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options datasource.QueryOptions) (*datasource.QueryResult, error) {
 	preparedSQL, params, err := datasource.PrepareDMLParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
 	convertedQuery, namedArgs := convertParams(preparedSQL, params)
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, convertedQuery, namedArgs, limit)
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, convertedQuery, namedArgs, options)
 }
 
-func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*datasource.ExecuteResult, error) {
+func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, options datasource.QueryOptions) (*datasource.ExecuteResult, error) {
 	if !datasource.SupportsExecuteStatement(sqlQuery) {
 		return nil, datasource.ErrExecuteStatementType
 	}
 	if isOutputStatement(sqlQuery) {
-		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, limit)
+		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, options)
 	}
 	return datasource.ExecuteStatement(ctx, e.adapter.db, sqlQuery, nil)
+}
+
+func (e *QueryExecutor) CountRows(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any) (*datasource.CountResult, error) {
+	query := sqlQuery
+	var args []any
+	if len(paramDefs) > 0 {
+		preparedSQL, params, err := datasource.PrepareReadOnlyParameterizedQuery(sqlQuery, paramDefs, values)
+		if err != nil {
+			return nil, err
+		}
+		query, args = convertParams(preparedSQL, params)
+	}
+	countSQL, err := prepareCountQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	return datasource.ExecuteCountRows(ctx, e.adapter.db, countSQL, args)
 }
 
 func (e *QueryExecutor) Close() error {
@@ -64,15 +88,68 @@ func (e *QueryExecutor) Close() error {
 	return e.adapter.Close()
 }
 
-func wrapQuery(sqlQuery string, limit int) string {
-	return fmt.Sprintf("SELECT TOP (%d) * FROM (%s) AS _limited", datasource.NormalizeLimit(limit), sqlQuery)
+func wrapQuery(sqlQuery string, options datasource.QueryOptions) string {
+	return fmt.Sprintf("SELECT TOP (%d) * FROM (%s) AS _limited", datasource.FetchLimit(options), sqlQuery)
 }
 
-func prepareQuery(sqlQuery string, limit int) string {
-	if startsWithKeyword(sqlQuery, "WITH") {
-		return sqlQuery
+func prepareQuery(sqlQuery string, options datasource.QueryOptions) (string, error) {
+	callerProvidedLimit := options.Limit > 0
+	callerProvidedOffset := options.Offset != 0
+	options = datasource.NormalizeQueryOptions(options)
+	if hasTopLevelKeyword(sqlQuery, "OFFSET") || hasTopLevelKeyword(sqlQuery, "FETCH") {
+		if callerProvidedLimit || callerProvidedOffset {
+			return "", errors.New("sql server query already defines OFFSET/FETCH; remove it to use adapter pagination")
+		}
+		return sqlQuery, nil
 	}
-	return wrapQuery(sqlQuery, limit)
+	if hasTopLevelKeyword(sqlQuery, "TOP") {
+		if callerProvidedLimit || callerProvidedOffset {
+			return "", errors.New("sql server query with TOP cannot also use adapter pagination")
+		}
+		return sqlQuery, nil
+	}
+	if hasTopLevelOrderBy(sqlQuery) {
+		return appendOffsetFetch(sqlQuery, options), nil
+	}
+	if options.Offset > 0 {
+		return "", errors.New("sql server offset pagination requires a top-level ORDER BY clause")
+	}
+	if startsWithKeyword(sqlQuery, "WITH") {
+		return "", errors.New("sql server CTE queries require a top-level ORDER BY clause for adapter pagination")
+	}
+	return wrapQuery(sqlQuery, options), nil
+}
+
+func prepareCountQuery(sqlQuery string) (string, error) {
+	if startsWithKeyword(sqlQuery, "WITH") {
+		return "", errors.New("sql server count_rows does not support CTE queries")
+	}
+	if hasTopLevelKeyword(sqlQuery, "OFFSET") || hasTopLevelKeyword(sqlQuery, "FETCH") {
+		return "", errors.New("sql server count_rows does not support queries that already define OFFSET/FETCH")
+	}
+	counted := trimTrailingSemicolon(sqlQuery)
+	if hasTopLevelOrderBy(counted) && !hasTopLevelKeyword(counted, "TOP") {
+		counted = strings.TrimSpace(counted[:topLevelOrderByIndex(counted)])
+	}
+	if counted == "" {
+		return "", errors.New("sql is required")
+	}
+	return fmt.Sprintf("SELECT COUNT(*) AS row_count FROM (%s) AS _counted", counted), nil
+}
+
+func appendOffsetFetch(sqlQuery string, options datasource.QueryOptions) string {
+	base := trimTrailingSemicolon(sqlQuery)
+	return fmt.Sprintf("%s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", base, options.Offset, options.Limit+1)
+}
+
+func trimTrailingSemicolon(sqlQuery string) string {
+	return strings.TrimRight(strings.TrimSpace(sqlQuery), "; \t\r\n")
+}
+
+func queryRowsOptions(options datasource.QueryOptions) datasource.QueryOptions {
+	options = datasource.NormalizeQueryOptions(options)
+	options.OffsetAlreadyApplied = true
+	return options
 }
 
 func isOutputStatement(sqlQuery string) bool {
@@ -107,8 +184,47 @@ func hasReturningOutputClause(sqlQuery string) bool {
 	return true
 }
 
+type topLevelToken struct {
+	value string
+	start int
+	end   int
+}
+
 func scanTopLevelKeywords(sqlQuery string) []string {
-	keywords := make([]string, 0, 16)
+	tokens := scanTopLevelTokens(sqlQuery)
+	keywords := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		keywords = append(keywords, token.value)
+	}
+	return keywords
+}
+
+func hasTopLevelKeyword(sqlQuery string, keyword string) bool {
+	keyword = strings.ToUpper(keyword)
+	for _, token := range scanTopLevelTokens(sqlQuery) {
+		if token.value == keyword {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTopLevelOrderBy(sqlQuery string) bool {
+	return topLevelOrderByIndex(sqlQuery) >= 0
+}
+
+func topLevelOrderByIndex(sqlQuery string) int {
+	tokens := scanTopLevelTokens(sqlQuery)
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i].value == "ORDER" && tokens[i+1].value == "BY" {
+			return tokens[i].start
+		}
+	}
+	return -1
+}
+
+func scanTopLevelTokens(sqlQuery string) []topLevelToken {
+	tokens := make([]topLevelToken, 0, 16)
 	depth := 0
 	for i := 0; i < len(sqlQuery); {
 		switch {
@@ -145,11 +261,11 @@ func scanTopLevelKeywords(sqlQuery string) []string {
 				i++
 			}
 			if depth == 0 {
-				keywords = append(keywords, strings.ToUpper(sqlQuery[start:i]))
+				tokens = append(tokens, topLevelToken{value: strings.ToUpper(sqlQuery[start:i]), start: start, end: i})
 			}
 		}
 	}
-	return keywords
+	return tokens
 }
 
 func convertParams(query string, args []any) (string, []any) {

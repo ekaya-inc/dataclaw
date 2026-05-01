@@ -25,10 +25,11 @@ type DatasourceIntrospector interface {
 }
 
 type QueryExecutor interface {
-	Query(ctx context.Context, sqlQuery string, limit int) (*QueryResult, error)
-	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
-	ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*QueryResult, error)
-	Execute(ctx context.Context, sqlQuery string, limit int) (*ExecuteResult, error)
+	Query(ctx context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error)
+	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error)
+	ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error)
+	Execute(ctx context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error)
+	CountRows(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any) (*CountResult, error)
 	Close() error
 }
 
@@ -68,10 +69,20 @@ type QueryColumn struct {
 	Type string `json:"type"`
 }
 
+type QueryOptions struct {
+	Limit                int  `json:"limit,omitempty"`
+	Offset               int  `json:"offset,omitempty"`
+	OffsetAlreadyApplied bool `json:"-"`
+}
+
 type QueryResult struct {
-	Columns  []QueryColumn    `json:"columns"`
-	Rows     []map[string]any `json:"rows"`
-	RowCount int              `json:"row_count"`
+	Columns    []QueryColumn    `json:"columns"`
+	Rows       []map[string]any `json:"rows"`
+	RowCount   int              `json:"row_count"`
+	Limit      int              `json:"limit"`
+	Offset     int              `json:"offset"`
+	HasMore    bool             `json:"has_more"`
+	NextOffset int              `json:"next_offset,omitempty"`
 }
 
 type ExecuteResult struct {
@@ -79,4 +90,13 @@ type ExecuteResult struct {
 	Rows         []map[string]any `json:"rows"`
 	RowCount     int              `json:"row_count"`
 	RowsAffected int64            `json:"rows_affected"`
+	Limit        int              `json:"limit,omitempty"`
+	Offset       int              `json:"offset,omitempty"`
+	HasMore      bool             `json:"has_more,omitempty"`
+	NextOffset   int              `json:"next_offset,omitempty"`
+}
+
+type CountResult struct {
+	RowCount int64 `json:"row_count"`
+	Exact    bool  `json:"exact"`
 }
