@@ -13,8 +13,16 @@ import (
 )
 
 func TestWrapQueryUsesBoundedDefaultLimit(t *testing.T) {
-	got := wrapQuery("SELECT * FROM accounts", 0)
-	want := "SELECT * FROM (SELECT * FROM accounts) AS _limited LIMIT 100"
+	got := wrapQuery("SELECT * FROM accounts", datasource.QueryOptions{})
+	want := "SELECT * FROM (SELECT * FROM accounts) AS _limited LIMIT 101 OFFSET 0"
+	if got != want {
+		t.Fatalf("unexpected wrapped query:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestWrapQueryIncludesOffsetAndSentinelRow(t *testing.T) {
+	got := wrapQuery("SELECT * FROM accounts", datasource.QueryOptions{Limit: 25, Offset: 50})
+	want := "SELECT * FROM (SELECT * FROM accounts) AS _limited LIMIT 26 OFFSET 50"
 	if got != want {
 		t.Fatalf("unexpected wrapped query:\n got: %q\nwant: %q", got, want)
 	}
@@ -142,7 +150,7 @@ func TestExecuteUsesQueryForReturningStatements(t *testing.T) {
 	}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) VALUES (7) RETURNING id", 25)
+	result, err := executor.Execute(context.Background(), "INSERT INTO scratch_execute (id) VALUES (7) RETURNING id", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute RETURNING: %v", err)
 	}
@@ -161,7 +169,7 @@ func TestExecuteUsesExecForNonReturningStatements(t *testing.T) {
 	state := &executeDriverState{rowsAffected: 2}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "DELETE FROM scratch_execute WHERE id > 10", 25)
+	result, err := executor.Execute(context.Background(), "DELETE FROM scratch_execute WHERE id > 10", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute non-returning DML: %v", err)
 	}
@@ -177,7 +185,7 @@ func TestExecuteUsesExecForDDLStatements(t *testing.T) {
 	state := &executeDriverState{rowsAffected: 0}
 	executor := &QueryExecutor{adapter: &Adapter{db: newExecuteTestDB(t, state)}}
 
-	result, err := executor.Execute(context.Background(), "CREATE TABLE scratch_execute (id integer)", 25)
+	result, err := executor.Execute(context.Background(), "CREATE TABLE scratch_execute (id integer)", datasource.QueryOptions{Limit: 25})
 	if err != nil {
 		t.Fatalf("Execute DDL: %v", err)
 	}

@@ -24,7 +24,23 @@ func NormalizeLimit(limit int) int {
 	return limit
 }
 
-func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any, limit int) (*QueryResult, error) {
+func NormalizeQueryOptions(options QueryOptions) QueryOptions {
+	normalized := QueryOptions{
+		Limit:                NormalizeLimit(options.Limit),
+		Offset:               options.Offset,
+		OffsetAlreadyApplied: options.OffsetAlreadyApplied,
+	}
+	if normalized.Offset < 0 {
+		normalized.Offset = 0
+	}
+	return normalized
+}
+
+func FetchLimit(options QueryOptions) int {
+	return NormalizeQueryOptions(options).Limit + 1
+}
+
+func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any, options QueryOptions) (*QueryResult, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -45,12 +61,17 @@ func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any,
 		columns[i] = QueryColumn{Name: name, Type: normalizeColumnType(colTypes[i].DatabaseTypeName())}
 	}
 
-	result := &QueryResult{Columns: columns, Rows: make([]map[string]any, 0)}
-	limit = NormalizeLimit(limit)
+	options = NormalizeQueryOptions(options)
+	result := &QueryResult{
+		Columns: columns,
+		Rows:    make([]map[string]any, 0, options.Limit),
+		Limit:   options.Limit,
+		Offset:  options.Offset,
+	}
+	fetchLimit := options.Limit + 1
+	pageSeen := 0
+	skipped := 0
 	for rows.Next() {
-		if len(result.Rows) >= limit {
-			break
-		}
 		values := make([]any, len(colNames))
 		ptrs := make([]any, len(colNames))
 		for i := range values {
@@ -63,7 +84,19 @@ func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any,
 		for i, name := range colNames {
 			rowMap[name] = normalizeValue(values[i])
 		}
-		result.Rows = append(result.Rows, rowMap)
+		if !options.OffsetAlreadyApplied && skipped < options.Offset {
+			skipped++
+			continue
+		}
+		pageSeen++
+		if pageSeen <= options.Limit {
+			result.Rows = append(result.Rows, rowMap)
+		}
+		if pageSeen >= fetchLimit {
+			result.HasMore = true
+			result.NextOffset = options.Offset + len(result.Rows)
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -72,7 +105,7 @@ func ExecuteQueryRows(ctx context.Context, db *sql.DB, query string, args []any,
 	return result, nil
 }
 
-func ExecuteReturningRows(ctx context.Context, db *sql.DB, query string, args []any, limit int) (*ExecuteResult, error) {
+func ExecuteReturningRows(ctx context.Context, db *sql.DB, query string, args []any, options QueryOptions) (*ExecuteResult, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -93,11 +126,17 @@ func ExecuteReturningRows(ctx context.Context, db *sql.DB, query string, args []
 		columns[i] = QueryColumn{Name: name, Type: normalizeColumnType(colTypes[i].DatabaseTypeName())}
 	}
 
+	options = NormalizeQueryOptions(options)
 	result := &ExecuteResult{
 		Columns: columns,
-		Rows:    make([]map[string]any, 0),
+		Rows:    make([]map[string]any, 0, options.Limit),
+		Limit:   options.Limit,
+		Offset:  options.Offset,
 	}
-	limit = NormalizeLimit(limit)
+	fetchLimit := options.Limit + 1
+	pageSeen := 0
+	skipped := 0
+	rowsAffected := int64(0)
 	for rows.Next() {
 		values := make([]any, len(colNames))
 		ptrs := make([]any, len(colNames))
@@ -111,15 +150,25 @@ func ExecuteReturningRows(ctx context.Context, db *sql.DB, query string, args []
 		for i, name := range colNames {
 			rowMap[name] = normalizeValue(values[i])
 		}
-		if len(result.Rows) < limit {
+		rowsAffected++
+		if !options.OffsetAlreadyApplied && skipped < options.Offset {
+			skipped++
+			continue
+		}
+		pageSeen++
+		if pageSeen <= options.Limit {
 			result.Rows = append(result.Rows, rowMap)
 		}
-		result.RowsAffected++
+		if pageSeen >= fetchLimit {
+			result.HasMore = true
+			result.NextOffset = options.Offset + len(result.Rows)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	result.RowCount = len(result.Rows)
+	result.RowsAffected = rowsAffected
 	return result, nil
 }
 
@@ -138,6 +187,14 @@ func ExecuteStatement(ctx context.Context, db *sql.DB, query string, args []any)
 		RowCount:     0,
 		RowsAffected: rowsAffected,
 	}, nil
+}
+
+func ExecuteCountRows(ctx context.Context, db *sql.DB, query string, args []any) (*CountResult, error) {
+	var count int64
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return nil, err
+	}
+	return &CountResult{RowCount: count, Exact: true}, nil
 }
 
 func normalizeValue(v any) any {

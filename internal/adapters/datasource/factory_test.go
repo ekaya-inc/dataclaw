@@ -22,17 +22,20 @@ func (testDatasourceIntrospector) GetDatasourceInfo(context.Context) (*Datasourc
 }
 func (testDatasourceIntrospector) Close() error { return nil }
 
-func (testQueryExecutor) Query(context.Context, string, int) (*QueryResult, error) {
+func (testQueryExecutor) Query(context.Context, string, QueryOptions) (*QueryResult, error) {
 	return &QueryResult{}, nil
 }
-func (testQueryExecutor) QueryWithParameters(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error) {
+func (testQueryExecutor) QueryWithParameters(context.Context, string, []models.QueryParameter, map[string]any, QueryOptions) (*QueryResult, error) {
 	return &QueryResult{}, nil
 }
-func (testQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*QueryResult, error) {
+func (testQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, QueryOptions) (*QueryResult, error) {
 	return &QueryResult{}, nil
 }
-func (testQueryExecutor) Execute(context.Context, string, int) (*ExecuteResult, error) {
+func (testQueryExecutor) Execute(context.Context, string, QueryOptions) (*ExecuteResult, error) {
 	return &ExecuteResult{}, nil
+}
+func (testQueryExecutor) CountRows(context.Context, string, []models.QueryParameter, map[string]any) (*CountResult, error) {
+	return &CountResult{}, nil
 }
 func (testQueryExecutor) Close() error { return nil }
 

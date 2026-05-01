@@ -20,36 +20,50 @@ func NewQueryExecutor(ctx context.Context, config map[string]any) (*QueryExecuto
 	return &QueryExecutor{adapter: adapter}, nil
 }
 
-func (e *QueryExecutor) Query(ctx context.Context, sqlQuery string, limit int) (*datasource.QueryResult, error) {
-	wrapped := wrapQuery(sqlQuery, limit)
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, nil, limit)
+func (e *QueryExecutor) Query(ctx context.Context, sqlQuery string, options datasource.QueryOptions) (*datasource.QueryResult, error) {
+	wrapped := wrapQuery(sqlQuery, options)
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, nil, queryRowsOptions(options))
 }
 
-func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+func (e *QueryExecutor) QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options datasource.QueryOptions) (*datasource.QueryResult, error) {
 	prepared, params, err := datasource.PrepareReadOnlyParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
-	wrapped := wrapQuery(prepared, limit)
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, params, limit)
+	wrapped := wrapQuery(prepared, options)
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, wrapped, params, queryRowsOptions(options))
 }
 
-func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, limit int) (*datasource.QueryResult, error) {
+func (e *QueryExecutor) ExecuteDMLQuery(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options datasource.QueryOptions) (*datasource.QueryResult, error) {
 	prepared, params, err := datasource.PrepareDMLParameterizedQuery(sqlQuery, paramDefs, values)
 	if err != nil {
 		return nil, err
 	}
-	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, params, limit)
+	return datasource.ExecuteQueryRows(ctx, e.adapter.db, prepared, params, options)
 }
 
-func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, limit int) (*datasource.ExecuteResult, error) {
+func (e *QueryExecutor) Execute(ctx context.Context, sqlQuery string, options datasource.QueryOptions) (*datasource.ExecuteResult, error) {
 	if !datasource.SupportsExecuteStatement(sqlQuery) {
 		return nil, datasource.ErrExecuteStatementType
 	}
 	if isReturningStatement(sqlQuery) {
-		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, limit)
+		return datasource.ExecuteReturningRows(ctx, e.adapter.db, sqlQuery, nil, options)
 	}
 	return datasource.ExecuteStatement(ctx, e.adapter.db, sqlQuery, nil)
+}
+
+func (e *QueryExecutor) CountRows(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any) (*datasource.CountResult, error) {
+	query := sqlQuery
+	var args []any
+	if len(paramDefs) > 0 {
+		prepared, params, err := datasource.PrepareReadOnlyParameterizedQuery(sqlQuery, paramDefs, values)
+		if err != nil {
+			return nil, err
+		}
+		query = prepared
+		args = params
+	}
+	return datasource.ExecuteCountRows(ctx, e.adapter.db, countQuery(query), args)
 }
 
 func (e *QueryExecutor) Close() error {
@@ -59,8 +73,19 @@ func (e *QueryExecutor) Close() error {
 	return e.adapter.Close()
 }
 
-func wrapQuery(sqlQuery string, limit int) string {
-	return fmt.Sprintf("SELECT * FROM (%s) AS _limited LIMIT %d", sqlQuery, datasource.NormalizeLimit(limit))
+func wrapQuery(sqlQuery string, options datasource.QueryOptions) string {
+	options = datasource.NormalizeQueryOptions(options)
+	return fmt.Sprintf("SELECT * FROM (%s) AS _limited LIMIT %d OFFSET %d", sqlQuery, options.Limit+1, options.Offset)
+}
+
+func queryRowsOptions(options datasource.QueryOptions) datasource.QueryOptions {
+	options = datasource.NormalizeQueryOptions(options)
+	options.OffsetAlreadyApplied = true
+	return options
+}
+
+func countQuery(sqlQuery string) string {
+	return fmt.Sprintf("SELECT COUNT(*) AS row_count FROM (%s) AS _counted", sqlQuery)
 }
 
 func isReturningStatement(sqlQuery string) bool {
