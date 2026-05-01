@@ -53,7 +53,7 @@ type queryToolRequest struct {
 	Constraints           string                  `json:"constraints"`
 }
 
-const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC\nLIMIT {{page_size}} OFFSET {{page_offset}}"
+const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding LIMIT/OFFSET/TOP. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
 
 func New(version string, service *core.Service) *Server {
 	mcpServer := buildMCPServer(version, service)
@@ -80,6 +80,7 @@ func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 	registerUpdateQueryTool(mcpServer, service)
 	registerDeleteQueryTool(mcpServer, service)
 	registerExecuteQueryTool(mcpServer, service)
+	registerCountRowsTool(mcpServer, service)
 	return mcpServer
 }
 
@@ -144,6 +145,8 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithDescription("Execute read-only SQL SELECT statements against the configured datasource when the authenticated agent has raw query access."),
 		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL SELECT statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -157,8 +160,7 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return nil, err
 		}
-		limit := extractLimit(req, 100)
-		return service.TestRawQuery(ctx, sqlQuery, limit)
+		return service.TestRawQuery(ctx, sqlQuery, extractQueryOptions(req))
 	}))
 }
 
@@ -167,6 +169,8 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithDescription("Execute ad-hoc DDL or DML against the configured datasource when the authenticated agent has raw execute access."),
 		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based returned-row offset when the statement returns rows.")),
+		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: json (default) or tsv.")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -180,8 +184,7 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return nil, err
 		}
-		limit := extractLimit(req, 100)
-		return service.ExecuteRawStatement(ctx, sqlQuery, limit)
+		return service.ExecuteRawStatement(ctx, sqlQuery, extractQueryOptions(req))
 	}))
 }
 
@@ -290,6 +293,8 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
 		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -305,8 +310,49 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 		if err != nil {
 			return nil, err
 		}
-		limit := extractLimit(req, 100)
-		return service.ExecuteStoredQueryForAgent(ctx, agent, queryID, values, limit)
+		return service.ExecuteStoredQueryForAgent(ctx, agent, queryID, values, extractQueryOptions(req))
+	}))
+}
+
+func registerCountRowsTool(srv *server.MCPServer, service *core.Service) {
+	tool := mcp.NewTool("count_rows",
+		mcp.WithDescription("Return an exact row count for one read-only raw SQL SELECT or one accessible read-only approved query. Provide exactly one of sql or query_id."),
+		mcp.WithString("sql", mcp.Description("Raw SQL SELECT statement to count. Requires raw query access.")),
+		mcp.WithString("query_id", mcp.Description("Approved query ID to count. Requires access to that approved query.")),
+		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name. Only valid with query_id.")),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+	)
+	srv.AddTool(tool, trackedToolHandler(service, "count_rows", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
+		args, _ := req.Params.Arguments.(map[string]any)
+		if args == nil {
+			args = map[string]any{}
+		}
+		sqlQuery, _ := args["sql"].(string)
+		queryID, _ := args["query_id"].(string)
+		sqlQuery = strings.TrimSpace(sqlQuery)
+		queryID = strings.TrimSpace(queryID)
+		hasSQL := sqlQuery != ""
+		hasQueryID := queryID != ""
+		if hasSQL == hasQueryID {
+			return nil, errors.New("provide exactly one of sql or query_id")
+		}
+		if hasSQL {
+			if _, hasParams := args["parameters"]; hasParams {
+				return nil, errors.New("parameters are only supported with query_id")
+			}
+			if !agent.CanQuery {
+				return nil, errors.New("agent is not allowed to use raw query")
+			}
+			return service.CountRows(ctx, sqlQuery)
+		}
+		values, err := parseParameterValues(args["parameters"])
+		if err != nil {
+			return nil, err
+		}
+		return service.CountStoredQueryForAgent(ctx, agent, queryID, values)
 	}))
 }
 
@@ -332,6 +378,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 	allowed[datasourceInformationToolName] = true
 	if agent.CanQuery {
 		allowed["query"] = true
+		allowed["count_rows"] = true
 	}
 	if agent.CanExecute {
 		allowed["execute"] = true
@@ -346,6 +393,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 		allowed["list_queries"] = true
 		if agent.ApprovedQueryScope == storepkg.ApprovedQueryScopeAll || len(agent.ApprovedQueryIDs) > 0 {
 			allowed["execute_query"] = true
+			allowed["count_rows"] = true
 		}
 	}
 	return allowed
@@ -378,14 +426,17 @@ func authorizedAgentFromContext(ctx context.Context) (*storepkg.Agent, bool) {
 	return agent, ok
 }
 
-func extractLimit(req mcp.CallToolRequest, fallback int) int {
-	limit := fallback
+func extractQueryOptions(req mcp.CallToolRequest) core.QueryOptions {
+	options := core.QueryOptions{}
 	if args, ok := req.Params.Arguments.(map[string]any); ok {
-		if raw, ok := args["limit"].(float64); ok {
-			limit = int(raw)
+		if limit, ok := intValue(args["limit"]); ok {
+			options.Limit = limit
+		}
+		if offset, ok := intValue(args["offset"]); ok {
+			options.Offset = offset
 		}
 	}
-	return limit
+	return options
 }
 
 func parseParameterValues(raw any) (map[string]any, error) {

@@ -1,8 +1,10 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,18 +52,23 @@ func trackedToolHandler(service *core.Service, toolName string, run func(context
 			return mcp.NewToolResultError(callErr.Error()), nil
 		}
 
+		body, resultFormat, err := renderToolResult(toolName, result, req)
+		if err != nil {
+			event.EventType = storepkg.MCPToolEventTypeError
+			event.ErrorMessage = err.Error()
+			event.WasSuccessful = false
+			_ = service.RecordAgentToolEvent(ctx, event, false)
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		event.EventType = storepkg.MCPToolEventTypeCall
 		event.WasSuccessful = true
 		event.ResultSummary = summarizeToolResult(toolName, result)
+		addRenderedResultSummary(event.ResultSummary, resultFormat, body)
 		if err := service.RecordAgentToolEvent(ctx, event, true); err != nil {
 			_ = service.RecordAgentToolUse(ctx, agent.ID)
 		}
-
-		body, err := json.Marshal(result)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(body), nil
 	}
 }
 
@@ -103,6 +110,14 @@ func resolveToolAudit(ctx context.Context, service *core.Service, toolName strin
 				sqlText = existingSQL
 			}
 		}
+	case "count_rows":
+		if sqlQuery, ok := args["sql"].(string); ok {
+			sqlText = strings.TrimSpace(sqlQuery)
+		}
+		if existingName, existingSQL, ok := lookupStoredQuery(ctx, service, args["query_id"]); ok {
+			queryName = existingName
+			sqlText = existingSQL
+		}
 	}
 	return queryName, sqlText
 }
@@ -129,6 +144,14 @@ func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]a
 	if limit, ok := intValue(args["limit"]); ok {
 		summary["limit"] = limit
 	}
+	if offset, ok := intValue(args["offset"]); ok {
+		summary["offset"] = offset
+	}
+	if format, ok := stringValue(args["result_format"]); ok {
+		summary["result_format"] = format
+	} else if format, ok := stringValue(args["format"]); ok {
+		summary["result_format"] = format
+	}
 
 	switch toolName {
 	case "query", "execute":
@@ -141,17 +164,17 @@ func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]a
 		if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
 			summary["query_id"] = queryID
 		}
-		if values, ok := args["parameters"].(map[string]any); ok {
-			keys := make([]string, 0, len(values))
-			for key := range values {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			if len(keys) > 0 {
-				summary["parameter_count"] = len(keys)
-				summary["parameter_keys"] = keys
+		addParameterSummary(summary, args["parameters"])
+	case "count_rows":
+		if sqlQuery, ok := args["sql"].(string); ok {
+			if statementType := sqlStatementType(sqlQuery); statementType != "" {
+				summary["statement_type"] = statementType
 			}
 		}
+		if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
+			summary["query_id"] = queryID
+		}
+		addParameterSummary(summary, args["parameters"])
 	case "create_query", "update_query":
 		if toolName == "update_query" {
 			if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
@@ -273,6 +296,21 @@ func summarizeQueryResult(value any) map[string]any {
 	if rowsAffected, ok := intValue(payload["rows_affected"]); ok {
 		summary["rows_affected"] = rowsAffected
 	}
+	if limit, ok := intValue(payload["limit"]); ok {
+		summary["limit"] = limit
+	}
+	if offset, ok := intValue(payload["offset"]); ok {
+		summary["offset"] = offset
+	}
+	if hasMore, ok := payload["has_more"].(bool); ok {
+		summary["has_more"] = hasMore
+	}
+	if nextOffset, ok := intValue(payload["next_offset"]); ok {
+		summary["next_offset"] = nextOffset
+	}
+	if exact, ok := payload["exact"].(bool); ok {
+		summary["exact"] = exact
+	}
 	return summary
 }
 
@@ -336,6 +374,23 @@ func arrayLength(raw any) (int, bool) {
 	return len(values), true
 }
 
+func addParameterSummary(summary map[string]any, raw any) {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return
+	}
+	summary["parameter_count"] = len(keys)
+	summary["parameter_keys"] = keys
+}
+
 func sqlStatementType(sqlQuery string) string {
 	for _, token := range strings.Fields(sqlQuery) {
 		trimmed := strings.Trim(token, "();")
@@ -372,6 +427,187 @@ func intValue(raw any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func stringValue(raw any) (string, bool) {
+	value, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	value = strings.TrimSpace(strings.ToLower(value))
+	return value, value != ""
+}
+
+func addRenderedResultSummary(summary map[string]any, format string, body string) {
+	if summary == nil {
+		return
+	}
+	summary["result_format"] = format
+	summary["response_bytes"] = len(body)
+	summary["estimated_tokens"] = (len(body) + 3) / 4
+}
+
+func renderToolResult(toolName string, value any, req mcp.CallToolRequest) (body string, format string, err error) {
+	format, err = requestedResultFormat(toolName, req)
+	if err != nil {
+		return "", "", err
+	}
+	if format == "tsv" {
+		if rendered, ok := renderTabularTSV(value); ok {
+			return rendered, format, nil
+		}
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", "", err
+	}
+	return string(raw), "json", nil
+}
+
+func requestedResultFormat(toolName string, req mcp.CallToolRequest) (string, error) {
+	defaultFormat := "json"
+	switch toolName {
+	case "query", "execute_query":
+		defaultFormat = "tsv"
+	}
+	args, _ := req.Params.Arguments.(map[string]any)
+	if args == nil {
+		return defaultFormat, nil
+	}
+	format, ok := stringValue(args["result_format"])
+	if !ok {
+		format, ok = stringValue(args["format"])
+	}
+	if !ok {
+		return defaultFormat, nil
+	}
+	switch format {
+	case "json", "tsv":
+		return format, nil
+	default:
+		return "", fmt.Errorf("result_format must be one of json or tsv")
+	}
+}
+
+func renderTabularTSV(value any) (string, bool) {
+	switch result := value.(type) {
+	case *core.QueryResult:
+		return renderRowsTSV(result.Columns, result.Rows, map[string]any{
+			"row_count":   result.RowCount,
+			"limit":       result.Limit,
+			"offset":      result.Offset,
+			"has_more":    result.HasMore,
+			"next_offset": result.NextOffset,
+		}), true
+	case *core.ExecuteResult:
+		if len(result.Columns) == 0 && len(result.Rows) == 0 {
+			return "", false
+		}
+		return renderRowsTSV(result.Columns, result.Rows, map[string]any{
+			"row_count":     result.RowCount,
+			"rows_affected": result.RowsAffected,
+			"limit":         result.Limit,
+			"offset":        result.Offset,
+			"has_more":      result.HasMore,
+			"next_offset":   result.NextOffset,
+		}), true
+	default:
+		return "", false
+	}
+}
+
+func renderRowsTSV(columns []core.QueryColumn, rows []map[string]any, metadata map[string]any) string {
+	columnNames := columnNamesForTSV(columns, rows)
+	var out bytes.Buffer
+	out.WriteString("#")
+	keys := make([]string, 0, len(metadata))
+	for key, value := range metadata {
+		if key == "next_offset" {
+			if next, ok := intValue(value); !ok || next == 0 {
+				continue
+			}
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		out.WriteByte('\t')
+		out.WriteString(key)
+		out.WriteByte('=')
+		out.WriteString(tsvCell(metadata[key]))
+	}
+	out.WriteByte('\n')
+	for i, name := range columnNames {
+		if i > 0 {
+			out.WriteByte('\t')
+		}
+		out.WriteString(tsvCell(name))
+	}
+	out.WriteByte('\n')
+	for _, row := range rows {
+		for i, name := range columnNames {
+			if i > 0 {
+				out.WriteByte('\t')
+			}
+			out.WriteString(tsvCell(row[name]))
+		}
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
+
+func columnNamesForTSV(columns []core.QueryColumn, rows []map[string]any) []string {
+	names := make([]string, 0, len(columns))
+	for _, column := range columns {
+		name := strings.TrimSpace(column.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) > 0 || len(rows) == 0 {
+		return names
+	}
+	for name := range rows[0] {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func tsvCell(value any) string {
+	if value == nil {
+		return ""
+	}
+	var text string
+	switch typed := value.(type) {
+	case string:
+		text = typed
+	case fmt.Stringer:
+		text = typed.String()
+	case bool:
+		if typed {
+			text = "true"
+		} else {
+			text = "false"
+		}
+	default:
+		raw, err := json.Marshal(typed)
+		if err == nil {
+			text = string(raw)
+			if strings.HasPrefix(text, "\"") && strings.HasSuffix(text, "\"") {
+				var decoded string
+				if json.Unmarshal(raw, &decoded) == nil {
+					text = decoded
+				}
+			}
+		} else {
+			text = fmt.Sprint(typed)
+		}
+	}
+	text = strings.ReplaceAll(text, "\r", `\r`)
+	text = strings.ReplaceAll(text, "\n", `\n`)
+	text = strings.ReplaceAll(text, "\t", `\t`)
+	return text
 }
 
 func normalizeToolPayload(value any) (map[string]any, error) {

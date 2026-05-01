@@ -129,23 +129,29 @@ func (f fakeMCPDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsad
 
 func (f fakeMCPDatasourceIntrospector) Close() error { return nil }
 
-func (fakeMCPQueryExecutor) Query(context.Context, string, int) (*dsadapter.QueryResult, error) {
+func (fakeMCPQueryExecutor) Query(_ context.Context, _ string, options dsadapter.QueryOptions) (*dsadapter.QueryResult, error) {
+	options = dsadapter.NormalizeQueryOptions(options)
 	return &dsadapter.QueryResult{
 		Columns:  []dsadapter.QueryColumn{{Name: "table_name", Type: "text"}},
 		Rows:     []map[string]any{{"table_name": "accounts"}},
 		RowCount: 1,
+		Limit:    options.Limit,
+		Offset:   options.Offset,
 	}, nil
 }
 
-func (fakeMCPQueryExecutor) QueryWithParameters(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, _ int) (*dsadapter.QueryResult, error) {
+func (fakeMCPQueryExecutor) QueryWithParameters(_ context.Context, _ string, _ []models.QueryParameter, values map[string]any, options dsadapter.QueryOptions) (*dsadapter.QueryResult, error) {
+	options = dsadapter.NormalizeQueryOptions(options)
 	return &dsadapter.QueryResult{
 		Columns:  []dsadapter.QueryColumn{{Name: "parameter_count", Type: "integer"}},
 		Rows:     []map[string]any{{"parameter_count": len(values)}},
 		RowCount: 1,
+		Limit:    options.Limit,
+		Offset:   options.Offset,
 	}, nil
 }
 
-func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, int) (*dsadapter.QueryResult, error) {
+func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.QueryParameter, map[string]any, dsadapter.QueryOptions) (*dsadapter.QueryResult, error) {
 	return &dsadapter.QueryResult{
 		Columns:  []dsadapter.QueryColumn{{Name: "rows_affected", Type: "integer"}},
 		Rows:     []map[string]any{{"rows_affected": 1}},
@@ -153,13 +159,17 @@ func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.Qu
 	}, nil
 }
 
-func (fakeMCPQueryExecutor) Execute(context.Context, string, int) (*dsadapter.ExecuteResult, error) {
+func (fakeMCPQueryExecutor) Execute(context.Context, string, dsadapter.QueryOptions) (*dsadapter.ExecuteResult, error) {
 	return &dsadapter.ExecuteResult{
 		Columns:      []dsadapter.QueryColumn{},
 		Rows:         []map[string]any{},
 		RowCount:     0,
 		RowsAffected: 1,
 	}, nil
+}
+
+func (fakeMCPQueryExecutor) CountRows(context.Context, string, []models.QueryParameter, map[string]any) (*dsadapter.CountResult, error) {
+	return &dsadapter.CountResult{RowCount: 42, Exact: true}, nil
 }
 
 func (fakeMCPQueryExecutor) Close() error { return nil }
