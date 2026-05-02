@@ -16,6 +16,7 @@ func Registration() datasource.Registration {
 			SQLDialect:  "MSSQL",
 			Capabilities: datasource.AdapterCapabilities{
 				SupportsArrayParameters: false,
+				SupportsSchemaExplore:   true,
 			},
 		},
 		ConnectionTesterFactory: func(ctx context.Context, config map[string]any) (datasource.ConnectionTester, error) {
@@ -23,6 +24,9 @@ func Registration() datasource.Registration {
 		},
 		DatasourceIntrospectorFactory: func(ctx context.Context, config map[string]any) (datasource.DatasourceIntrospector, error) {
 			return NewDatasourceIntrospector(ctx, config)
+		},
+		SchemaExplorerFactory: func(ctx context.Context, config map[string]any) (datasource.SchemaExplorer, error) {
+			return NewSchemaExplorer(ctx, config)
 		},
 		QueryExecutorFactory: func(ctx context.Context, config map[string]any) (datasource.QueryExecutor, error) {
 			return NewQueryExecutor(ctx, config)

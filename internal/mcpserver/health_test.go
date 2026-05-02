@@ -15,6 +15,7 @@ type fakeMCPAdapterFactory struct {
 	supported       map[string]bool
 	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
 	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newSchema       func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
 	newQuery        func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
 	typeInfo        map[string]dsadapter.AdapterInfo
 }
@@ -26,6 +27,10 @@ type fakeMCPConnectionTester struct {
 type fakeMCPDatasourceIntrospector struct {
 	info *dsadapter.DatasourceInfo
 	err  error
+}
+
+type fakeMCPSchemaExplorer struct {
+	explore func(context.Context, dsadapter.SchemaExploreRequest) (*dsadapter.SchemaExploreResult, error)
 }
 
 type fakeMCPQueryExecutor struct{}
@@ -51,11 +56,17 @@ func newFakeMCPAdapterFactory() *fakeMCPAdapterFactory {
 		newQuery: func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error) {
 			return fakeMCPQueryExecutor{}, nil
 		},
+		newSchema: func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error) {
+			return fakeMCPSchemaExplorer{}, nil
+		},
 		typeInfo: map[string]dsadapter.AdapterInfo{
 			"postgres": {
 				Type:        "postgres",
 				DisplayName: "PostgreSQL",
 				SQLDialect:  "PostgreSQL",
+				Capabilities: dsadapter.AdapterCapabilities{
+					SupportsSchemaExplore: true,
+				},
 			},
 		},
 	}
@@ -80,6 +91,16 @@ func (f *fakeMCPAdapterFactory) NewDatasourceIntrospector(ctx context.Context, d
 		return nil, errors.New("unsupported datasource type: " + dsType)
 	}
 	return f.newIntrospector(ctx, dsType, config)
+}
+
+func (f *fakeMCPAdapterFactory) NewSchemaExplorer(ctx context.Context, dsType string, config map[string]any) (dsadapter.SchemaExplorer, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	if f.newSchema == nil {
+		return nil, errors.New("schema exploration unsupported")
+	}
+	return f.newSchema(ctx, dsType, config)
 }
 
 func (f *fakeMCPAdapterFactory) ConfigFingerprint(dsType string, config map[string]any) (string, error) {
@@ -129,6 +150,43 @@ func (f fakeMCPDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsad
 
 func (f fakeMCPDatasourceIntrospector) Close() error { return nil }
 
+func (f fakeMCPSchemaExplorer) ExploreSchema(ctx context.Context, request dsadapter.SchemaExploreRequest) (*dsadapter.SchemaExploreResult, error) {
+	if f.explore != nil {
+		return f.explore(ctx, request)
+	}
+	request = request.Normalized()
+	nullable := true
+	object := dsadapter.SchemaObject{
+		SchemaName:  "public",
+		Name:        "accounts",
+		Kind:        dsadapter.SchemaObjectKindTable,
+		ColumnCount: 2,
+	}
+	if request.SchemaName != "" {
+		object.SchemaName = request.SchemaName
+	}
+	if request.ObjectName != "" {
+		object.Name = request.ObjectName
+	}
+	if request.DetailMode == dsadapter.SchemaDetailModeFull {
+		object.Columns = []dsadapter.SchemaColumn{
+			{Name: "account_id", Type: "uuid", Nullable: &nullable, OrdinalPosition: 1},
+			{Name: "account_name", Type: "text", Nullable: &nullable, OrdinalPosition: 2},
+		}
+	}
+	return &dsadapter.SchemaExploreResult{
+		DetailMode: request.DetailMode,
+		Summary: dsadapter.SchemaExploreSummary{
+			SchemaCount: 1,
+			ObjectCount: 1,
+			ColumnCount: 2,
+		},
+		Objects: []dsadapter.SchemaObject{object},
+	}, nil
+}
+
+func (f fakeMCPSchemaExplorer) Close() error { return nil }
+
 func (fakeMCPQueryExecutor) Query(_ context.Context, _ string, options dsadapter.QueryOptions) (*dsadapter.QueryResult, error) {
 	options = dsadapter.NormalizeQueryOptions(options)
 	return &dsadapter.QueryResult{
@@ -159,7 +217,18 @@ func (fakeMCPQueryExecutor) ExecuteDMLQuery(context.Context, string, []models.Qu
 	}, nil
 }
 
-func (fakeMCPQueryExecutor) Execute(context.Context, string, dsadapter.QueryOptions) (*dsadapter.ExecuteResult, error) {
+func (fakeMCPQueryExecutor) Execute(_ context.Context, sqlQuery string, options dsadapter.QueryOptions) (*dsadapter.ExecuteResult, error) {
+	options = dsadapter.NormalizeQueryOptions(options)
+	if strings.Contains(strings.ToUpper(sqlQuery), "RETURNING") {
+		return &dsadapter.ExecuteResult{
+			Columns:      []dsadapter.QueryColumn{{Name: "id", Type: "integer"}},
+			Rows:         []map[string]any{{"id": 7}},
+			RowCount:     1,
+			RowsAffected: 1,
+			Limit:        options.Limit,
+			Offset:       options.Offset,
+		}, nil
+	}
 	return &dsadapter.ExecuteResult{
 		Columns:      []dsadapter.QueryColumn{},
 		Rows:         []map[string]any{},

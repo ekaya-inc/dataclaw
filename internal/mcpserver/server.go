@@ -73,6 +73,7 @@ func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true), server.WithHooks(hooks))
 	registerHealthTool(mcpServer, version, service)
 	registerDatasourceInformationTool(mcpServer, service)
+	registerSchemaExplorationTool(mcpServer, service)
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
@@ -145,7 +146,7 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithDescription("Execute read-only SQL SELECT statements against the configured datasource when the authenticated agent has raw query access."),
 		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL SELECT statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
-		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. Use a stable top-level ORDER BY when offset is greater than zero.")),
 		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -170,7 +171,7 @@ func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
 		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
 		mcp.WithNumber("offset", mcp.Description("Zero-based returned-row offset when the statement returns rows.")),
-		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: json (default) or tsv.")),
+		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -293,7 +294,7 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
 		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
-		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. Use a stable top-level ORDER BY when offset is greater than zero.")),
 		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
@@ -377,6 +378,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 	allowed["health"] = true
 	allowed[datasourceInformationToolName] = true
 	if agent.CanQuery {
+		allowed[schemaExplorationToolName] = true
 		allowed["query"] = true
 		allowed["count_rows"] = true
 	}

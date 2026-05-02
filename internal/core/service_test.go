@@ -18,6 +18,7 @@ type fakeAdapterFactory struct {
 	supported       map[string]bool
 	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
 	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newSchema       func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
 	newExecutor     func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
 	fingerprint     func(string, map[string]any) (string, error)
 	typeInfo        map[string]dsadapter.AdapterInfo
@@ -30,6 +31,11 @@ type fakeConnectionTester struct {
 type fakeDatasourceIntrospector struct {
 	info *dsadapter.DatasourceInfo
 	err  error
+}
+
+type fakeSchemaExplorer struct {
+	explore func(context.Context, dsadapter.SchemaExploreRequest) (*dsadapter.SchemaExploreResult, error)
+	close   func() error
 }
 
 type fakeQueryExecutor struct {
@@ -109,6 +115,16 @@ func (f *fakeAdapterFactory) NewDatasourceIntrospector(ctx context.Context, dsTy
 	return f.newIntrospector(ctx, dsType, config)
 }
 
+func (f *fakeAdapterFactory) NewSchemaExplorer(ctx context.Context, dsType string, config map[string]any) (dsadapter.SchemaExplorer, error) {
+	if !f.SupportsType(dsType) {
+		return nil, errors.New("unsupported datasource type: " + dsType)
+	}
+	if f.newSchema == nil {
+		return nil, errors.New("schema exploration unsupported")
+	}
+	return f.newSchema(ctx, dsType, config)
+}
+
 func (f *fakeAdapterFactory) ConfigFingerprint(dsType string, config map[string]any) (string, error) {
 	if !f.SupportsType(dsType) {
 		return "", errors.New("unsupported datasource type: " + dsType)
@@ -155,6 +171,20 @@ func (f fakeDatasourceIntrospector) GetDatasourceInfo(context.Context) (*dsadapt
 }
 
 func (f fakeDatasourceIntrospector) Close() error { return nil }
+
+func (f fakeSchemaExplorer) ExploreSchema(ctx context.Context, request dsadapter.SchemaExploreRequest) (*dsadapter.SchemaExploreResult, error) {
+	if f.explore != nil {
+		return f.explore(ctx, request)
+	}
+	return &dsadapter.SchemaExploreResult{}, nil
+}
+
+func (f fakeSchemaExplorer) Close() error {
+	if f.close != nil {
+		return f.close()
+	}
+	return nil
+}
 
 func (f fakeQueryExecutor) Query(ctx context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error) {
 	if f.query != nil {

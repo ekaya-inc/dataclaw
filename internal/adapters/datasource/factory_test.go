@@ -12,6 +12,8 @@ type testConnectionTester struct{}
 
 type testDatasourceIntrospector struct{}
 
+type testSchemaExplorer struct{}
+
 type testQueryExecutor struct{}
 
 func (testConnectionTester) TestConnection(context.Context) error { return nil }
@@ -21,6 +23,11 @@ func (testDatasourceIntrospector) GetDatasourceInfo(context.Context) (*Datasourc
 	return &DatasourceInfo{DatabaseName: "warehouse"}, nil
 }
 func (testDatasourceIntrospector) Close() error { return nil }
+
+func (testSchemaExplorer) ExploreSchema(context.Context, SchemaExploreRequest) (*SchemaExploreResult, error) {
+	return &SchemaExploreResult{}, nil
+}
+func (testSchemaExplorer) Close() error { return nil }
 
 func (testQueryExecutor) Query(context.Context, string, QueryOptions) (*QueryResult, error) {
 	return &QueryResult{}, nil
@@ -49,6 +56,9 @@ func TestFactoryResolvesRegisteredAdapters(t *testing.T) {
 		DatasourceIntrospectorFactory: func(context.Context, map[string]any) (DatasourceIntrospector, error) {
 			return testDatasourceIntrospector{}, nil
 		},
+		SchemaExplorerFactory: func(context.Context, map[string]any) (SchemaExplorer, error) {
+			return testSchemaExplorer{}, nil
+		},
 		QueryExecutorFactory: func(context.Context, map[string]any) (QueryExecutor, error) {
 			return testQueryExecutor{}, nil
 		},
@@ -69,6 +79,14 @@ func TestFactoryResolvesRegisteredAdapters(t *testing.T) {
 	}
 	if _, ok := introspector.(testDatasourceIntrospector); !ok {
 		t.Fatalf("unexpected introspector type: %T", introspector)
+	}
+
+	explorer, err := factory.(*registryFactory).NewSchemaExplorer(context.Background(), "example", nil)
+	if err != nil {
+		t.Fatalf("NewSchemaExplorer: %v", err)
+	}
+	if _, ok := explorer.(testSchemaExplorer); !ok {
+		t.Fatalf("unexpected schema explorer type: %T", explorer)
 	}
 
 	executor, err := factory.NewQueryExecutor(context.Background(), "example", nil)
@@ -93,6 +111,22 @@ func TestFactoryRejectsUnsupportedType(t *testing.T) {
 	}
 	if factory.SupportsType("missing") {
 		t.Fatal("expected missing adapter type to be unsupported")
+	}
+}
+
+func TestSchemaExplorerFactoryRejectsUnsupportedAndUnavailableTypes(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(Registration{Info: AdapterInfo{Type: "without-schema-explorer"}})
+	factory := NewFactory(registry).(SchemaExplorerFactory)
+
+	_, err := factory.NewSchemaExplorer(context.Background(), "missing", nil)
+	if err == nil || !strings.Contains(err.Error(), "unsupported datasource type") {
+		t.Fatalf("expected unsupported type error, got %v", err)
+	}
+
+	_, err = factory.NewSchemaExplorer(context.Background(), "without-schema-explorer", nil)
+	if err == nil || !strings.Contains(err.Error(), "schema exploration unsupported") {
+		t.Fatalf("expected schema exploration unsupported error, got %v", err)
 	}
 }
 

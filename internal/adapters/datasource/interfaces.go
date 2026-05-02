@@ -24,6 +24,11 @@ type DatasourceIntrospector interface {
 	Close() error
 }
 
+type SchemaExplorer interface {
+	ExploreSchema(ctx context.Context, request SchemaExploreRequest) (*SchemaExploreResult, error)
+	Close() error
+}
+
 type QueryExecutor interface {
 	Query(ctx context.Context, sqlQuery string, options QueryOptions) (*QueryResult, error)
 	QueryWithParameters(ctx context.Context, sqlQuery string, paramDefs []models.QueryParameter, values map[string]any, options QueryOptions) (*QueryResult, error)
@@ -35,6 +40,7 @@ type QueryExecutor interface {
 
 type AdapterCapabilities struct {
 	SupportsArrayParameters bool `json:"supports_array_parameters"`
+	SupportsSchemaExplore   bool `json:"supports_schema_explore"`
 }
 
 type AdapterInfo struct {
@@ -50,8 +56,13 @@ type Registration struct {
 	Info                          AdapterInfo
 	ConnectionTesterFactory       func(ctx context.Context, config map[string]any) (ConnectionTester, error)
 	DatasourceIntrospectorFactory func(ctx context.Context, config map[string]any) (DatasourceIntrospector, error)
+	SchemaExplorerFactory         func(ctx context.Context, config map[string]any) (SchemaExplorer, error)
 	QueryExecutorFactory          func(ctx context.Context, config map[string]any) (QueryExecutor, error)
 	ConfigFingerprint             func(config map[string]any) (string, error)
+}
+
+type SchemaExplorerFactory interface {
+	NewSchemaExplorer(ctx context.Context, dsType string, config map[string]any) (SchemaExplorer, error)
 }
 
 type Factory interface {
