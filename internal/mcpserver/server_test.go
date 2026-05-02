@@ -94,7 +94,7 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	if !strings.Contains(createTool.Description, "SELECT order_id, user_id, status, created_at, num_of_item") {
 		t.Fatalf("expected create_query description to include SQL example, got %q", createTool.Description)
 	}
-	if !strings.Contains(createTool.Description, "Do not use :status, @status, or $1") {
+	if !strings.Contains(createTool.Description, "Do not use datasource-native placeholder styles") {
 		t.Fatalf("expected create_query description to warn about unsupported placeholder styles, got %q", createTool.Description)
 	}
 
@@ -138,6 +138,11 @@ func TestGenericMCPToolDescriptionsStayAdapterNeutral(t *testing.T) {
 		if toolName != schemaExplorationToolName {
 			assertNoGenericMCPAdapterReferences(t, toolName+" offset description", toolPropertyDescription(t, tool, "offset"))
 		}
+	}
+	for _, toolName := range []string{"create_query", "update_query"} {
+		tool := requireToolByName(t, (*result).Tools, toolName)
+		assertNoGenericMCPAdapterReferences(t, toolName+" description", tool.Description)
+		assertNoGenericMCPAdapterReferences(t, toolName+" sql_query description", toolPropertyDescription(t, tool, "sql_query"))
 	}
 }
 
@@ -403,7 +408,7 @@ func TestQueryToolDefaultsToTSVAndRecordsRenderStats(t *testing.T) {
 		Params: mcp.CallToolParams{
 			Name: "query",
 			Arguments: map[string]any{
-				"sql":    "SELECT table_name FROM information_schema.tables",
+				"sql":    "SELECT account_id FROM accounts",
 				"limit":  10,
 				"offset": 5,
 			},
@@ -851,7 +856,7 @@ func toolPropertyDescription(t *testing.T, tool mcp.Tool, propertyName string) s
 
 func assertNoGenericMCPAdapterReferences(t *testing.T, field, value string) {
 	t.Helper()
-	for _, forbidden := range []string{"sql server", "mssql", "t-sql"} {
+	for _, forbidden := range []string{"sql server", "mssql", "t-sql", "limit/offset/top", ":status", "@status", "$1"} {
 		if strings.Contains(strings.ToLower(value), forbidden) {
 			t.Fatalf("expected %s to stay adapter-neutral; found %q in %q", field, forbidden, value)
 		}

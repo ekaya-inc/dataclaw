@@ -53,7 +53,7 @@ type queryToolRequest struct {
 	Constraints           string                  `json:"constraints"`
 }
 
-const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding LIMIT/OFFSET/TOP. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
+const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use datasource-native placeholder styles in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding datasource-specific pagination clauses. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
 
 func New(version string, service *core.Service) *Server {
 	mcpServer := buildMCPServer(version, service)
