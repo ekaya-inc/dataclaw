@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +34,19 @@ const QUERY = {
   output_columns: [{ name: 'connected', type: 'boolean', description: 'True when the datasource responds.' }],
   constraints: 'Only run for smoke tests.',
   updated_at: '2026-04-18T09:30:00Z',
+};
+
+const TIMESTAMP_QUERY = {
+  ...QUERY,
+  parameters: [
+    {
+      name: 'start_date',
+      type: 'timestamp',
+      description: 'Inclusive lower bound.',
+      required: true,
+      default: '2020-04-01 00:00:00',
+    },
+  ],
 };
 
 function renderAt(entries: string[]): ReturnType<typeof render> {
@@ -94,21 +107,51 @@ describe('QueryDetailPage', () => {
 
     renderAt(['/queries/query_1']);
 
-    await userEvent.click(await screen.findByRole('button', { name: /^execute saved query$/i }));
-
-    const dialog = await screen.findByRole('dialog');
-    const parameterInput = await within(dialog).findByLabelText(/account_id/i);
+    const parameterInput = await screen.findByLabelText(/account_id/i);
     await userEvent.type(parameterInput, '550e8400-e29b-41d4-a716-446655440000');
-    await userEvent.click(within(dialog).getByRole('button', { name: /^execute$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^execute saved query$/i }));
 
     await waitFor(() => expect(screen.getByText(/returned 1 rows\./i)).toBeInTheDocument());
     expect(screen.getByText('true')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     const executeCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/api/queries/query_1/execute'));
     expect(JSON.parse(String(executeCall?.[1]?.body))).toEqual({
       parameters: { account_id: '550e8400-e29b-41d4-a716-446655440000' },
       limit: 100,
     });
+  });
+
+  it('shows the accepted timestamp format beside timestamp parameters', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/queries/query_1') return jsonResponse({ query: TIMESTAMP_QUERY });
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt(['/queries/query_1']);
+
+    expect(await screen.findByText(/\(timestamp, e\.g\. 2020-04-01T00:00:00Z\)/i)).toBeInTheDocument();
+  });
+
+  it('shows saved-query execution errors in the execute section', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+      if (url === '/api/queries/query_1' && !init?.method) return jsonResponse({ query: QUERY });
+      if (url === '/api/queries/query_1/execute' && init?.method === 'POST') {
+        return jsonResponse({ error: 'account_id is invalid' }, 400);
+      }
+      throw new Error(`Unhandled ${String(url)}`);
+    });
+
+    renderAt(['/queries/query_1']);
+
+    const parameterInput = await screen.findByLabelText(/account_id/i);
+    await userEvent.type(parameterInput, 'not-a-uuid');
+    await userEvent.click(screen.getByRole('button', { name: /^execute saved query$/i }));
+
+    expect(await screen.findByText(/account_id is invalid/i)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('deletes the saved query from the detail page', async () => {
@@ -166,12 +209,9 @@ describe('QueryDetailPage', () => {
 
     renderAt(['/queries/query_1']);
 
-    await userEvent.click(await screen.findByRole('button', { name: /^execute saved query$/i }));
-
-    const dialog = await screen.findByRole('dialog');
-    const parameterInput = await within(dialog).findByLabelText(/account_id/i);
+    const parameterInput = await screen.findByLabelText(/account_id/i);
     await userEvent.type(parameterInput, '550e8400-e29b-41d4-a716-446655440000');
-    await userEvent.click(within(dialog).getByRole('button', { name: /^execute$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^execute saved query$/i }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^delete$/i, hidden: true })).toBeDisabled());
   });

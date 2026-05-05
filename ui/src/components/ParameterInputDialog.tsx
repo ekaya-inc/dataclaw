@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import type { QueryParameter } from '../types/query';
 
-import { hasRequiredExecutionValues, ParameterInputForm } from './ParameterInputForm';
+import { hasRequiredExecutionValues, ParameterInputForm, pruneUnknownParameterValues } from './ParameterInputForm';
 import { Button } from './ui/Button';
 import {
   Dialog,
@@ -23,20 +23,6 @@ interface ParameterInputDialogProps {
   submitLabel?: string;
   submitting?: boolean;
   onSubmit: (values: Record<string, unknown>) => void;
-}
-
-function pruneUnknownKeys(
-  values: Record<string, unknown>,
-  parameters: QueryParameter[],
-): Record<string, unknown> {
-  const allowed = new Set(parameters.map((parameter) => parameter.name));
-  const next: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(values)) {
-    if (allowed.has(key)) {
-      next[key] = value;
-    }
-  }
-  return next;
 }
 
 interface ContentProps {
@@ -60,7 +46,7 @@ function ParameterInputDialogContent({
   onCancel,
   onSubmit,
 }: ContentProps): JSX.Element {
-  const [values, setValues] = useState<Record<string, unknown>>(() => pruneUnknownKeys(initialValues, parameters));
+  const [values, setValues] = useState<Record<string, unknown>>(() => pruneUnknownParameterValues(initialValues, parameters));
   const canSubmit = useMemo(() => hasRequiredExecutionValues(parameters, values), [parameters, values]);
 
   return (
