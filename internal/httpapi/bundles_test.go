@@ -81,6 +81,9 @@ func TestBundleManifestAndDownloadRequireCodesButAllowReuseWithinExpiry(t *testi
 	if values["DATACLAW_BASE_URL"] != "http://127.0.0.1:18790" {
 		t.Fatalf("unexpected DATACLAW_BASE_URL: %#v", values["DATACLAW_BASE_URL"])
 	}
+	if values["DATACLAW_MCP_BASE_URL"] != "http://127.0.0.1:18790" {
+		t.Fatalf("unexpected DATACLAW_MCP_BASE_URL: %#v", values["DATACLAW_MCP_BASE_URL"])
+	}
 	if values["DATACLAW_API_KEY"] != apiKey {
 		t.Fatalf("expected DATACLAW_API_KEY to match created api key")
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,6 +33,18 @@ func Run(version string) error {
 		return err
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
+	for _, warning := range cfg.Warnings {
+		slog.Warn(warning)
+	}
+	if cfg.Admin.PasswordDefaulted {
+		slog.Warn("admin password default is active; set DATACLAW_ADMIN_PASSWORD or admin.password in config.json")
+	}
+	if cfg.Admin.TLS && !cfg.Admin.ServesTLS() {
+		slog.Info("admin listener advertises https for reverse proxy; serving plain HTTP because cert/key files are not configured")
+	}
+	if cfg.MCP.TLS && !cfg.MCP.ServesTLS() {
+		slog.Info("mcp listener advertises https for reverse proxy; serving plain HTTP because cert/key files are not configured")
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return err
 	}
@@ -45,47 +58,105 @@ func Run(version string) error {
 		return err
 	}
 	defer store.Close()
-	ln, port, err := runtime.ListenIncrement(cfg.BindAddr, cfg.Port, 100)
+	adminLn, mcpLn, err := runtime.ListenPair(
+		runtime.ListenerRequest{Name: "admin", BindAddr: cfg.Admin.BindAddr, Port: cfg.Admin.Port},
+		runtime.ListenerRequest{Name: "mcp", BindAddr: cfg.MCP.BindAddr, Port: cfg.MCP.Port},
+		100,
+	)
 	if err != nil {
 		return err
 	}
-	baseURL := cfg.UIBaseURL(port)
-	service := core.New(store, secret, version, func() string { return baseURL }, dsadapter.NewFactory(dsadapter.DefaultRegistry()))
+	adminBaseURL := cfg.AdminBaseURL(adminLn.Port)
+	mcpBaseURL := cfg.MCPBaseURL(mcpLn.Port)
+	service := core.NewWithBaseURLs(
+		store,
+		secret,
+		version,
+		func() string { return adminBaseURL },
+		func() string { return mcpBaseURL },
+		dsadapter.NewFactory(dsadapter.DefaultRegistry()),
+	)
 	defer service.Close()
 	api := httpapi.New(service)
 	mcpSrv := mcpserver.New(version, service)
-	mux := http.NewServeMux()
-	api.Register(mux)
-	mux.Handle("/mcp", mcpSrv.Handler())
-	mux.Handle("/mcp/", mcpSrv.Handler())
+	adminAuth, err := NewAdminAuth(AdminAuthOptions{
+		Password:       cfg.Admin.Password,
+		Secret:         secret,
+		AdminBaseURL:   adminBaseURL,
+		SessionTTL:     cfg.Admin.SessionTTL,
+		LongSessionTTL: cfg.Admin.SessionLongTTL,
+	})
+	if err != nil {
+		_ = adminLn.Listener.Close()
+		_ = mcpLn.Listener.Close()
+		return err
+	}
+
 	uiFS, err := uifs.Load()
 	if err != nil {
+		_ = adminLn.Listener.Close()
+		_ = mcpLn.Listener.Close()
 		return fmt.Errorf("load ui: %w", err)
 	}
-	registerUIRoutes(mux, uiFS)
-	server := &http.Server{Handler: logRequests(mux)}
-	slog.Info("starting dataclaw", "base_url", baseURL, "mcp_url", baseURL+"/mcp", "sqlite", cfg.SQLitePath, "ui_source", uifs.Source())
-	slog.Info("dataclaw", "version", version, "open", baseURL)
+	adminMux := BuildAdminMux(api, adminAuth, uiFS)
+	mcpMux := BuildMCPMux(mcpSrv)
+	adminServer := &http.Server{Handler: logRequests(adminMux)}
+	mcpServer := &http.Server{Handler: logRequests(mcpMux)}
+	errCh := make(chan error, 2)
+	slog.Info(
+		"starting dataclaw",
+		"admin_base_url", adminBaseURL,
+		"mcp_url", mcpBaseURL+"/mcp",
+		"sqlite", cfg.SQLitePath,
+		"ui_source", uifs.Source(),
+	)
+	slog.Info("dataclaw", "version", version, "open", adminBaseURL)
 	shutdownDone := make(chan struct{})
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sig)
 		<-sig
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+		shutdownServers(adminServer, mcpServer)
 		close(shutdownDone)
 	}()
-	err = server.Serve(ln)
-	if err != nil && err != http.ErrServerClosed {
-		return err
-	}
+	go serveHTTPServer("admin", adminServer, adminLn.Listener, cfg.Admin.ListenerConfig, errCh)
+	go serveHTTPServer("mcp", mcpServer, mcpLn.Listener, cfg.MCP, errCh)
+
 	select {
+	case err := <-errCh:
+		shutdownServers(adminServer, mcpServer)
+		if err != nil {
+			return err
+		}
+		return nil
 	case <-shutdownDone:
-	default:
+		return nil
 	}
-	return nil
+}
+
+func serveHTTPServer(name string, server *http.Server, ln net.Listener, listenerCfg config.ListenerConfig, errCh chan<- error) {
+	var err error
+	if listenerCfg.ServesTLS() {
+		err = server.ServeTLS(ln, listenerCfg.TLSCertFile, listenerCfg.TLSKeyFile)
+	} else {
+		err = server.Serve(ln)
+	}
+	if err != nil && err != http.ErrServerClosed {
+		errCh <- fmt.Errorf("%s server: %w", name, err)
+		return
+	}
+	errCh <- nil
+}
+
+func shutdownServers(servers ...*http.Server) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, server := range servers {
+		if server != nil {
+			_ = server.Shutdown(shutdownCtx)
+		}
+	}
 }
 
 func registerUIRoutes(mux *http.ServeMux, uiFS fs.FS) {

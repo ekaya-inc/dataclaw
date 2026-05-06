@@ -1,11 +1,32 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createAgent, executeSavedQuery, getDatasource, getDatasourceTypes, getQuery, listMCPEvents, testQuery, validateQuery } from './api';
+import {
+  AUTH_UNAUTHORIZED_EVENT,
+  UnauthorizedError,
+  createAgent,
+  executeSavedQuery,
+  getAuthSession,
+  getDatasource,
+  getDatasourceTypes,
+  getQuery,
+  listMCPEvents,
+  logout,
+  signin,
+  testQuery,
+  validateQuery,
+} from './api';
 import type { QueryParameter } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function errorResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -24,6 +45,7 @@ describe('api service contracts', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] ?? [];
     expect(init?.method).toBe('POST');
+    expect(init?.credentials).toBe('same-origin');
     expect(JSON.parse(String(init?.body))).toEqual({
       sql_query: 'SELECT * FROM accounts WHERE id = {{account_id}}',
       parameters,
@@ -41,6 +63,7 @@ describe('api service contracts', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] ?? [];
     expect(input).toBe('/api/queries/test');
+    expect(init?.credentials).toBe('same-origin');
     expect(JSON.parse(String(init?.body))).toEqual({
       sql_query: 'SELECT 1',
       parameters: [],
@@ -70,7 +93,7 @@ describe('api service contracts', () => {
     const query = await getQuery('query_1');
 
     expect(query.id).toBe('query_1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/queries/query_1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/queries/query_1', { credentials: 'same-origin' });
   });
 
   it('sends parameters and limit to the saved-query execute endpoint', async () => {
@@ -83,6 +106,7 @@ describe('api service contracts', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] ?? [];
     expect(input).toBe('/api/queries/query_1/execute');
+    expect(init?.credentials).toBe('same-origin');
     expect(JSON.parse(String(init?.body))).toEqual({
       parameters: { account_id: '550e8400-e29b-41d4-a716-446655440000' },
       limit: 25,
@@ -105,7 +129,8 @@ describe('api service contracts', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [input] = fetchMock.mock.calls[0] ?? [];
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.credentials).toBe('same-origin');
     const url = new URL(String(input), 'http://localhost');
     expect(url.pathname).toBe('/api/mcp-events');
     expect(url.searchParams.get('range')).toBe('24h');
@@ -145,6 +170,7 @@ describe('api service contracts', () => {
     expect(created.apiKey).toBe('dclw-live-secret');
     const [, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(init?.method).toBe('POST');
+    expect(init?.credentials).toBe('same-origin');
     expect(JSON.parse(String(init?.body))).toEqual({
       name: 'Warehouse analyst',
       can_query: true,
@@ -205,5 +231,51 @@ describe('api service contracts', () => {
         capabilities: { supportsArrayParameters: true },
       },
     ]);
+  });
+
+  it('checks, signs in, and logs out with same-origin credentials', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ success: true, data: { authenticated: true, expires_at: '2026-05-06T12:00:00Z' } }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, data: { authenticated: true, csrf_token: 'csrf-token-1' } }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, data: { valid: true } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(getAuthSession()).resolves.toEqual({
+      authenticated: true,
+      expiresAt: '2026-05-06T12:00:00Z',
+    });
+    await expect(signin('admin-password', true)).resolves.toEqual({
+      authenticated: true,
+      csrfToken: 'csrf-token-1',
+    });
+    await validateQuery('SELECT 1', [], false);
+    await logout();
+
+    expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([
+      '/api/auth/session',
+      '/api/auth/signin',
+      '/api/queries/validate',
+      '/api/auth/logout',
+    ]);
+    const signinInit = fetchMock.mock.calls[1]?.[1];
+    expect(signinInit?.credentials).toBe('same-origin');
+    expect(signinInit?.method).toBe('POST');
+    expect(JSON.parse(String(signinInit?.body))).toEqual({ password: 'admin-password', remember: true });
+    const validateInit = fetchMock.mock.calls[2]?.[1];
+    expect(new Headers(validateInit?.headers).get('X-CSRF-Token')).toBe('csrf-token-1');
+    expect(fetchMock.mock.calls[3]?.[1]?.credentials).toBe('same-origin');
+  });
+
+  it('raises a typed unauthorized error and emits the auth event on 401', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      errorResponse(401, { success: false, error: 'unauthorized' }),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, listener);
+
+    await expect(getAuthSession()).rejects.toBeInstanceOf(UnauthorizedError);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, listener);
   });
 });

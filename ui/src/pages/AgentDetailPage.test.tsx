@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as ReactRouterDom from 'react-router-dom';
 
-import AgentDetailPage, { endpointUrl } from './AgentDetailPage';
+import AgentDetailPage, { bundleUrl, endpointUrl } from './AgentDetailPage';
 import { ToastProvider } from '../components/ui/Toast';
 
 vi.mock('react-router-dom', async () => {
@@ -68,6 +68,19 @@ describe('AgentDetailPage', () => {
         mcpUrl: 'http://sparktwo:18790/mcp',
       }),
     ).toBe('http://sparktwo:18790/mcp');
+  });
+
+  it('uses split listener URLs when explicit MCP URL is absent', () => {
+    const runtime = {
+      adminBaseUrl: 'http://admin.local:18790',
+      mcpBaseUrl: 'http://mcp.local:18791',
+      adminPort: 18790,
+      mcpPort: 18791,
+      listenerSplit: true,
+    };
+
+    expect(endpointUrl(runtime)).toBe('http://mcp.local:18791/mcp');
+    expect(bundleUrl('warehouse-analyst', runtime)).toBe('http://admin.local:18790/bundles/warehouse-analyst');
   });
 
   it('reveals the plaintext API key from router state on first load', async () => {
