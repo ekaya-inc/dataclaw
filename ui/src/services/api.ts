@@ -16,6 +16,18 @@ const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+export const AUTH_UNAUTHORIZED_EVENT = 'dataclaw:auth-unauthorized';
+const CSRF_HEADER = 'X-CSRF-Token';
+
+let currentCSRFToken: string | undefined;
+
+export class UnauthorizedError extends Error {
+  constructor(message = 'unauthorized') {
+    super(message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -39,6 +51,53 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function isUnsafeMethod(method: string | undefined): boolean {
+  const normalized = (method ?? 'GET').toUpperCase();
+  return normalized !== 'GET' && normalized !== 'HEAD' && normalized !== 'OPTIONS';
+}
+
+function requestMethod(input: RequestInfo | URL, init: RequestInit): string {
+  if (init.method) return init.method;
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.method;
+  return 'GET';
+}
+
+function requestURL(input: RequestInfo | URL): URL | null {
+  const base =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost';
+  const raw = typeof Request !== 'undefined' && input instanceof Request ? input.url : String(input);
+  try {
+    return new URL(raw, base);
+  } catch {
+    return null;
+  }
+}
+
+function isSameOriginAdminAPIRequest(input: RequestInfo | URL): boolean {
+  const url = requestURL(input);
+  if (!url) return false;
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : url.origin;
+  return url.origin === origin && url.pathname.startsWith('/api/');
+}
+
+function rememberAuthSession(session: AuthSession): AuthSession {
+  if (session.authenticated && session.csrfToken) {
+    currentCSRFToken = session.csrfToken;
+  } else if (!session.authenticated) {
+    currentCSRFToken = undefined;
+  }
+  return session;
+}
+
+function forgetAuthSession(): void {
+  currentCSRFToken = undefined;
+}
+
 function pick(record: JsonRecord | null, ...keys: string[]): unknown {
   if (!record) return undefined;
   for (const key of keys) {
@@ -49,11 +108,19 @@ function pick(record: JsonRecord | null, ...keys: string[]): unknown {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const isJson = response.headers.get('content-type')?.includes('application/json');
-  const payload: ApiEnvelope<T> | T | null = isJson ? (await response.json()) as ApiEnvelope<T> | T : null;
+  const text = isJson ? await response.text() : '';
+  const payload: ApiEnvelope<T> | T | null = text.trim() ? JSON.parse(text) as ApiEnvelope<T> | T : null;
   const payloadRecord = asRecord(payload);
 
   if (!response.ok) {
     const message = asString(pick(payloadRecord, 'message', 'error')) ?? response.statusText ?? 'Request failed';
+    if (response.status === 401) {
+      forgetAuthSession();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+      }
+      throw new UnauthorizedError(message);
+    }
     throw new Error(message);
   }
 
@@ -62,6 +129,23 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   return payload as T;
+}
+
+async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const requestInit: RequestInit = {
+    ...init,
+    credentials: init.credentials ?? 'same-origin',
+  };
+  if (currentCSRFToken && isUnsafeMethod(requestMethod(input, init)) && isSameOriginAdminAPIRequest(input)) {
+    const headers = new Headers(init.headers);
+    if (!headers.has(CSRF_HEADER)) {
+      headers.set(CSRF_HEADER, currentCSRFToken);
+    }
+    requestInit.headers = headers;
+  }
+  return fetch(input, {
+    ...requestInit,
+  });
 }
 
 function toTemplateSyntaxHints(raw: unknown): TemplateSyntaxHints | undefined {
@@ -300,6 +384,25 @@ function agentPayload(values: AgentFormValues): Record<string, unknown> {
   };
 }
 
+export interface AuthSession {
+  authenticated: boolean;
+  expiresAt?: string | undefined;
+  csrfToken?: string | undefined;
+}
+
+function toAuthSession(raw: unknown): AuthSession {
+  const record = asRecord(raw);
+  const session: AuthSession = {
+    authenticated: asBoolean(pick(record, 'authenticated', 'isAuthenticated', 'is_authenticated')) ?? false,
+    expiresAt: asString(pick(record, 'expiresAt', 'expires_at')),
+  };
+  const csrfToken = asString(pick(record, 'csrfToken', 'csrf_token'));
+  if (csrfToken) {
+    session.csrfToken = csrfToken;
+  }
+  return session;
+}
+
 export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<MCPToolEventPage> {
   const params = new URLSearchParams();
   if (filters.range) params.set('range', filters.range);
@@ -310,7 +413,7 @@ export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<
   if (filters.offset !== undefined) params.set('offset', String(filters.offset));
 
   const query = params.toString();
-  const data = await parseResponse<unknown>(await fetch(query ? `/api/mcp-events?${query}` : '/api/mcp-events'));
+  const data = await parseResponse<unknown>(await apiFetch(query ? `/api/mcp-events?${query}` : '/api/mcp-events'));
   const record = asRecord(data);
   const items = Array.isArray(record?.items) ? record.items : [];
   return {
@@ -322,33 +425,65 @@ export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<
 }
 
 export async function getMCPEvent(id: string): Promise<MCPToolEventDetails> {
-  const data = await parseResponse<unknown>(await fetch(`/api/mcp-events/${encodeURIComponent(id)}`));
+  const data = await parseResponse<unknown>(await apiFetch(`/api/mcp-events/${encodeURIComponent(id)}`));
   const record = asRecord(data);
   return toMCPToolEventDetails(record?.event);
 }
 
+export async function getAuthSession(): Promise<AuthSession> {
+  const data = await parseResponse<unknown>(await apiFetch('/api/auth/session'));
+  return rememberAuthSession(toAuthSession(data));
+}
+
+export async function signin(password: string, remember: boolean): Promise<AuthSession> {
+  const data = await parseResponse<unknown>(
+    await apiFetch('/api/auth/signin', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ password, remember }),
+    }),
+  );
+  return rememberAuthSession(toAuthSession(data));
+}
+
+export async function logout(): Promise<void> {
+  await parseResponse<void>(
+    await apiFetch('/api/auth/logout', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({}),
+    }),
+  );
+  forgetAuthSession();
+}
+
 export async function getStatus(): Promise<RuntimeStatus | null> {
-  const data = await parseResponse<unknown>(await fetch('/api/status'));
+  const data = await parseResponse<unknown>(await apiFetch('/api/status'));
   const record = asRecord(data);
   return {
     version: asString(pick(record, 'version')),
     baseUrl: asString(pick(record, 'baseUrl', 'base_url', 'serverUrl', 'server_url')),
+    adminBaseUrl: asString(pick(record, 'adminBaseUrl', 'admin_base_url')),
+    mcpBaseUrl: asString(pick(record, 'mcpBaseUrl', 'mcp_base_url')),
     mcpUrl: asString(pick(record, 'mcpUrl', 'mcp_url')),
     port: asNumber(pick(record, 'port')),
+    adminPort: asNumber(pick(record, 'adminPort', 'admin_port')),
+    mcpPort: asNumber(pick(record, 'mcpPort', 'mcp_port')),
+    listenerSplit: asBoolean(pick(record, 'listenerSplit', 'listener_split')),
     datasourceConfigured: asBoolean(pick(record, 'datasourceConfigured', 'datasource_configured')),
     agentCount: asNumber(pick(record, 'agentCount', 'agent_count')),
   };
 }
 
 export async function getDatasource(): Promise<DatasourceRecord | null> {
-  const data = await parseResponse<unknown>(await fetch('/api/datasource'));
+  const data = await parseResponse<unknown>(await apiFetch('/api/datasource'));
   const record = asRecord(data);
   const datasource = record && 'datasource' in record ? record.datasource : data;
   return toDatasourceRecord(datasource);
 }
 
 export async function getDatasourceTypes(): Promise<DatasourceAdapterInfo[]> {
-  const data = await parseResponse<unknown>(await fetch('/api/datasource/types'));
+  const data = await parseResponse<unknown>(await apiFetch('/api/datasource/types'));
   const record = asRecord(data);
   const types = Array.isArray(record?.types) ? record.types : [];
   return types.map(toDatasourceAdapterInfo).filter((type): type is DatasourceAdapterInfo => type !== null);
@@ -356,7 +491,7 @@ export async function getDatasourceTypes(): Promise<DatasourceAdapterInfo[]> {
 
 export async function saveDatasource(values: DatasourceFormValues): Promise<DatasourceRecord> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/datasource', {
+    await apiFetch('/api/datasource', {
       method: 'PUT',
       headers: JSON_HEADERS,
       body: JSON.stringify(datasourcePayload(values)),
@@ -381,7 +516,7 @@ export async function saveDatasource(values: DatasourceFormValues): Promise<Data
 
 export async function testDatasource(values: DatasourceFormValues): Promise<TestConnectionResult> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/datasource/test', {
+    await apiFetch('/api/datasource/test', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(datasourcePayload(values)),
@@ -395,18 +530,18 @@ export async function testDatasource(values: DatasourceFormValues): Promise<Test
 }
 
 export async function deleteDatasource(): Promise<void> {
-  await parseResponse<void>(await fetch('/api/datasource', { method: 'DELETE' }));
+  await parseResponse<void>(await apiFetch('/api/datasource', { method: 'DELETE' }));
 }
 
 export async function listQueries(): Promise<SavedQuery[]> {
-  const data = await parseResponse<unknown>(await fetch('/api/queries'));
+  const data = await parseResponse<unknown>(await apiFetch('/api/queries'));
   const record = asRecord(data);
   const queries = Array.isArray(record?.queries) ? record.queries : Array.isArray(data) ? data : [];
   return queries.map(toQuery);
 }
 
 export async function getQuery(id: string): Promise<SavedQuery> {
-  const data = await parseResponse<unknown>(await fetch(`/api/queries/${id}`));
+  const data = await parseResponse<unknown>(await apiFetch(`/api/queries/${id}`));
   const record = asRecord(data);
   return toQuery(record && 'query' in record ? record.query : data);
 }
@@ -425,7 +560,7 @@ function approvedQueryPayload(query: Omit<SavedQuery, 'id'>): Record<string, unk
 
 export async function createQuery(query: Omit<SavedQuery, 'id'>): Promise<SavedQuery> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/queries', {
+    await apiFetch('/api/queries', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(approvedQueryPayload(query)),
@@ -437,7 +572,7 @@ export async function createQuery(query: Omit<SavedQuery, 'id'>): Promise<SavedQ
 
 export async function updateQuery(id: string, query: Omit<SavedQuery, 'id'>): Promise<SavedQuery> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/queries/${id}`, {
+    await apiFetch(`/api/queries/${id}`, {
       method: 'PUT',
       headers: JSON_HEADERS,
       body: JSON.stringify(approvedQueryPayload(query)),
@@ -448,12 +583,12 @@ export async function updateQuery(id: string, query: Omit<SavedQuery, 'id'>): Pr
 }
 
 export async function deleteQuery(id: string): Promise<void> {
-  await parseResponse<void>(await fetch(`/api/queries/${id}`, { method: 'DELETE' }));
+  await parseResponse<void>(await apiFetch(`/api/queries/${id}`, { method: 'DELETE' }));
 }
 
 export async function validateQuery(sql: string, parameters: QueryParameter[], allowsModification: boolean): Promise<QueryValidationResult> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/queries/validate', {
+    await apiFetch('/api/queries/validate', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ sql_query: sql, parameters, allows_modification: allowsModification }),
@@ -481,7 +616,7 @@ export async function testQuery(
     body.parameter_values = values;
   }
   const data = await parseResponse<unknown>(
-    await fetch('/api/queries/test', {
+    await apiFetch('/api/queries/test', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
@@ -493,7 +628,7 @@ export async function testQuery(
 
 export async function executeSavedQuery(id: string, parameters?: Record<string, unknown>, limit = 100): Promise<QueryExecutionResult> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/queries/${id}/execute`, {
+    await apiFetch(`/api/queries/${id}/execute`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -507,21 +642,21 @@ export async function executeSavedQuery(id: string, parameters?: Record<string, 
 }
 
 export async function listAgents(): Promise<AgentRecord[]> {
-  const data = await parseResponse<unknown>(await fetch('/api/agents'));
+  const data = await parseResponse<unknown>(await apiFetch('/api/agents'));
   const record = asRecord(data);
   const agents = Array.isArray(record?.agents) ? record.agents : [];
   return agents.map(toAgentRecord);
 }
 
 export async function getAgent(id: string): Promise<AgentRecord> {
-  const data = await parseResponse<unknown>(await fetch(`/api/agents/${id}`));
+  const data = await parseResponse<unknown>(await apiFetch(`/api/agents/${id}`));
   const record = asRecord(data);
   return toAgentRecord(record && 'agent' in record ? record.agent : data);
 }
 
 export async function createAgent(values: AgentFormValues): Promise<AgentRecord> {
   const data = await parseResponse<unknown>(
-    await fetch('/api/agents', {
+    await apiFetch('/api/agents', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(agentPayload(values)),
@@ -533,7 +668,7 @@ export async function createAgent(values: AgentFormValues): Promise<AgentRecord>
 
 export async function updateAgent(id: string, values: AgentFormValues): Promise<AgentRecord> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/agents/${id}`, {
+    await apiFetch(`/api/agents/${id}`, {
       method: 'PUT',
       headers: JSON_HEADERS,
       body: JSON.stringify(agentPayload(values)),
@@ -544,12 +679,12 @@ export async function updateAgent(id: string, values: AgentFormValues): Promise<
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  await parseResponse<void>(await fetch(`/api/agents/${id}`, { method: 'DELETE' }));
+  await parseResponse<void>(await apiFetch(`/api/agents/${id}`, { method: 'DELETE' }));
 }
 
 export async function revealAgentKey(id: string): Promise<AgentRecord> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/agents/${id}/reveal-key`, {
+    await apiFetch(`/api/agents/${id}/reveal-key`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({}),
@@ -561,7 +696,7 @@ export async function revealAgentKey(id: string): Promise<AgentRecord> {
 
 export async function rotateAgentKey(id: string): Promise<AgentRecord> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/agents/${id}/rotate-key`, {
+    await apiFetch(`/api/agents/${id}/rotate-key`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({}),
@@ -573,7 +708,7 @@ export async function rotateAgentKey(id: string): Promise<AgentRecord> {
 
 export async function createAgentBundleInstallLink(id: string): Promise<AgentBundleInstallLink> {
   const data = await parseResponse<unknown>(
-    await fetch(`/api/agents/${id}/bundle-code`, {
+    await apiFetch(`/api/agents/${id}/bundle-code`, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({}),

@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, Menu } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, LogOut, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
@@ -30,9 +30,10 @@ interface AppShellProps {
   status: RuntimeStatus | null;
   completion: Completion;
   outletContext: AppOutletContext;
+  onLogout: () => void;
 }
 
-export function AppShell({ status, completion, outletContext }: AppShellProps): JSX.Element {
+export function AppShell({ status, completion, outletContext, onLogout }: AppShellProps): JSX.Element {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [supportDismissed] = useSupportDismissed();
   const visibleNavItems = NAV_ITEMS.filter((item) => {
@@ -99,6 +100,14 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
               {status.version}
             </div>
           ) : null}
+          <button
+            type="button"
+            className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+            onClick={onLogout}
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </aside>
         <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:ml-0">
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">

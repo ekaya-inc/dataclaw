@@ -4,14 +4,31 @@ import { afterEach, vi } from 'vitest';
 
 import App from './App';
 
-function mockFetch(routes: Record<string, unknown>): void {
-  vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+type MockRoute =
+  | unknown
+  | {
+      status: number;
+      body: unknown;
+    };
+
+function isMockResponse(value: MockRoute): value is { status: number; body: unknown } {
+  return typeof value === 'object' && value !== null && 'status' in value && 'body' in value;
+}
+
+function mockFetch(routes: Record<string, MockRoute>) {
+  const allRoutes: Record<string, MockRoute> = {
+    '/api/auth/session': { authenticated: true },
+    ...routes,
+  };
+  return vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
     const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const url = new URL(rawUrl, 'http://localhost');
     const key = `${url.pathname}${url.search}`;
-    const body = key in routes ? routes[key] : routes[url.pathname];
+    const route = key in allRoutes ? allRoutes[key] : allRoutes[url.pathname];
+    const status = isMockResponse(route) ? route.status : 200;
+    const body = isMockResponse(route) ? route.body : (route ?? {});
     return new Response(JSON.stringify(body), {
-      status: 200,
+      status,
       headers: { 'Content-Type': 'application/json' },
     });
   });
@@ -111,5 +128,61 @@ describe('App shell', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     await waitFor(() => expect(screen.queryByRole('button', { name: /edit display name/i })).not.toBeInTheDocument());
+  });
+
+  it('routes unauthenticated admin sessions to signin with the current path as next', async () => {
+    window.history.pushState({}, '', '/agents');
+    mockFetch({
+      '/api/auth/session': { status: 401, body: { success: false, error: 'unauthorized' } },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /sign in to dataclaw/i })).toBeInTheDocument());
+    expect(window.location.pathname).toBe('/signin');
+    expect(new URLSearchParams(window.location.search).get('next')).toBe('/agents');
+  });
+
+  it('signs in with the admin password and does not persist it in localStorage', async () => {
+    window.history.pushState({}, '', '/signin?next=%2Fagents');
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const fetchMock = mockFetch({
+      '/api/auth/session': { status: 401, body: { success: false, error: 'unauthorized' } },
+      '/api/auth/signin': { success: true, data: { authenticated: true } },
+      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: true },
+      '/api/queries': { queries: [] },
+      '/api/agents': { agents: [] },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /sign in to dataclaw/i })).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText(/admin password/i), 'admin-password');
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/agents'));
+    const signinCall = fetchMock.mock.calls.find(([input]) => input === '/api/auth/signin');
+    expect(signinCall?.[1]?.credentials).toBe('same-origin');
+    expect(JSON.parse(String(signinCall?.[1]?.body))).toEqual({ password: 'admin-password', remember: false });
+    expect(setItemSpy).not.toHaveBeenCalledWith(expect.stringMatching(/password|session/i), expect.any(String));
+  });
+
+  it('logs out through the auth API and returns to signin', async () => {
+    window.history.pushState({}, '', '/');
+    const fetchMock = mockFetch({
+      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: false },
+      '/api/queries': { queries: [] },
+      '/api/auth/logout': { success: true },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /sign out/i }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/signin'));
+    const logoutCall = fetchMock.mock.calls.find(([input]) => input === '/api/auth/logout');
+    expect(logoutCall?.[1]?.method).toBe('POST');
+    expect(logoutCall?.[1]?.credentials).toBe('same-origin');
   });
 });
