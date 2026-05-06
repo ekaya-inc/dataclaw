@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -23,7 +21,9 @@ type Service struct {
 	store         *storepkg.Store
 	secret        []byte
 	adapters      dsadapter.Factory
-	uiBaseURL     func() string
+	adminBaseURL  func() string
+	mcpBaseURL    func() string
+	listenerSplit bool
 	version       string
 	now           func() time.Time
 	bundleCodeTTL time.Duration
@@ -32,14 +32,30 @@ type Service struct {
 }
 
 func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() string, adapters dsadapter.Factory) *Service {
+	return newService(store, secret, version, uiBaseURL, uiBaseURL, false, adapters)
+}
+
+func NewWithBaseURLs(store *storepkg.Store, secret []byte, version string, adminBaseURL func() string, mcpBaseURL func() string, adapters dsadapter.Factory) *Service {
+	return newService(store, secret, version, adminBaseURL, mcpBaseURL, true, adapters)
+}
+
+func newService(store *storepkg.Store, secret []byte, version string, adminBaseURL func() string, mcpBaseURL func() string, listenerSplit bool, adapters dsadapter.Factory) *Service {
 	if adapters == nil {
 		adapters = dsadapter.NewFactory(dsadapter.DefaultRegistry())
+	}
+	if adminBaseURL == nil {
+		adminBaseURL = func() string { return "" }
+	}
+	if mcpBaseURL == nil {
+		mcpBaseURL = adminBaseURL
 	}
 	return &Service{
 		store:         store,
 		secret:        secret,
 		adapters:      adapters,
-		uiBaseURL:     uiBaseURL,
+		adminBaseURL:  adminBaseURL,
+		mcpBaseURL:    mcpBaseURL,
+		listenerSplit: listenerSplit,
 		version:       version,
 		now:           func() time.Time { return time.Now().UTC() },
 		bundleCodeTTL: 20 * time.Minute,
@@ -50,6 +66,12 @@ func New(store *storepkg.Store, secret []byte, version string, uiBaseURL func() 
 func (s *Service) Close() error { return nil }
 
 func (s *Service) Version() string { return s.version }
+
+func (s *Service) AdminBaseURL() string { return cleanBaseURL(s.adminBaseURL) }
+
+func (s *Service) MCPBaseURL() string { return cleanBaseURL(s.mcpBaseURL) }
+
+func (s *Service) MCPURL() string { return appendURLPath(s.MCPBaseURL(), "mcp") }
 
 func (s *Service) DatasourceTypes() []dsadapter.AdapterInfo {
 	if s.adapters == nil {
@@ -66,19 +88,24 @@ func (s *Service) DatasourceTypeInfo(dsType string) (dsadapter.AdapterInfo, bool
 }
 
 func (s *Service) Status() map[string]any {
-	baseURL := s.uiBaseURL()
-	port := 0
-	if parsed, err := url.Parse(baseURL); err == nil {
-		port, _ = strconv.Atoi(parsed.Port())
-	}
+	adminBaseURL := s.AdminBaseURL()
+	mcpBaseURL := s.MCPBaseURL()
+	adminPort := portFromBaseURL(adminBaseURL)
+	mcpPort := portFromBaseURL(mcpBaseURL)
 	ds, _ := s.store.GetDatasource(context.Background())
 	agentCount, _ := s.store.CountAgents(context.Background())
 	return map[string]any{
 		"name":                  "dataclaw",
 		"version":               s.version,
-		"base_url":              baseURL,
-		"mcp_url":               baseURL + "/mcp",
-		"port":                  port,
+		"admin_base_url":        adminBaseURL,
+		"mcp_base_url":          mcpBaseURL,
+		"mcp_url":               s.MCPURL(),
+		"admin_port":            adminPort,
+		"mcp_port":              mcpPort,
+		"base_url":              adminBaseURL,
+		"port":                  adminPort,
+		"listener_split":        s.listenerSplit,
+		"compatibility":         map[string]string{"base_url_alias": "admin_base_url", "port_alias": "admin_port"},
 		"datasource_configured": ds != nil,
 		"agent_count":           agentCount,
 	}

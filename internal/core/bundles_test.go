@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,5 +95,65 @@ func TestBundleInstallCodeIsReusableUntilExpiry(t *testing.T) {
 	now = now.Add(21 * time.Minute)
 	if _, err := service.BuildAgentBundleManifestByCode(ctx, "marketing", expiringCode.Code); err != ErrBundleCodeExpired {
 		t.Fatalf("expected expired code to fail with ErrBundleCodeExpired, got %v", err)
+	}
+}
+
+func TestBundleURLsSeparateAdminDownloadsFromMCPManifestEndpoints(t *testing.T) {
+	ctx := context.Background()
+	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	secret, err := security.LoadOrCreateSecret(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatalf("load secret: %v", err)
+	}
+
+	adminBaseURL := "https://admin.example.test:18790"
+	mcpBaseURL := "https://mcp.example.test:18791"
+	service := NewWithBaseURLs(
+		store,
+		secret,
+		"test",
+		func() string { return adminBaseURL + "/" },
+		func() string { return mcpBaseURL + "/" },
+		dsadapter.NewFactory(dsadapter.DefaultRegistry()),
+	)
+
+	created, err := service.CreateAgent(ctx, AgentInput{Name: "Marketing", CanQuery: true})
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	manifestCode, err := service.CreateBundleInstallCode(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("CreateBundleInstallCode: %v", err)
+	}
+	if !strings.HasPrefix(manifestCode.BundleURL, adminBaseURL+"/bundles/marketing?code=") {
+		t.Fatalf("expected admin bundle URL, got %q", manifestCode.BundleURL)
+	}
+
+	manifestBundle, err := service.BuildAgentBundleManifestByCode(ctx, "marketing", manifestCode.Code)
+	if err != nil {
+		t.Fatalf("BuildAgentBundleManifestByCode: %v", err)
+	}
+	if !strings.HasPrefix(manifestBundle.Manifest.DownloadURL, adminBaseURL+"/bundles/marketing/download?code=") {
+		t.Fatalf("expected admin download URL, got %q", manifestBundle.Manifest.DownloadURL)
+	}
+	mcpServer := manifestBundle.Manifest.Install.MCPServers["dataclaw-marketing"]
+	if mcpServer.URL != mcpBaseURL+"/mcp/marketing" {
+		t.Fatalf("expected MCP server URL to use MCP base URL, got %q", mcpServer.URL)
+	}
+	if len(manifestBundle.Manifest.Install.EnvFiles) != 1 {
+		t.Fatalf("expected one env file, got %#v", manifestBundle.Manifest.Install.EnvFiles)
+	}
+	values := manifestBundle.Manifest.Install.EnvFiles[0].Values
+	if values["DATACLAW_BASE_URL"] != mcpBaseURL {
+		t.Fatalf("expected compatibility DATACLAW_BASE_URL to use MCP base URL, got %q", values["DATACLAW_BASE_URL"])
+	}
+	if values["DATACLAW_MCP_BASE_URL"] != mcpBaseURL {
+		t.Fatalf("expected DATACLAW_MCP_BASE_URL to use MCP base URL, got %q", values["DATACLAW_MCP_BASE_URL"])
 	}
 }

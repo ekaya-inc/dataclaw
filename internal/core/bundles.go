@@ -128,11 +128,11 @@ func (s *Service) CreateBundleInstallCode(ctx context.Context, id string) (*Bund
 	if err != nil {
 		return nil, err
 	}
-	baseURL := strings.TrimRight(s.uiBaseURL(), "/")
+	adminBaseURL := s.AdminBaseURL()
 	return &BundleInstallCode{
 		Slug:      slug,
 		Code:      code,
-		BundleURL: baseURL + "/bundles/" + slug + "?code=" + code,
+		BundleURL: appendURLPath(adminBaseURL, "bundles/"+slug) + "?code=" + code,
 		ExpiresAt: expiresAt,
 	}, nil
 }
@@ -145,8 +145,7 @@ func (s *Service) BuildAgentBundleManifestByCode(ctx context.Context, slug, code
 	if err != nil {
 		return nil, err
 	}
-	baseURL := strings.TrimRight(s.uiBaseURL(), "/")
-	downloadURL := baseURL + "/bundles/" + strings.TrimSpace(slug) + "/download?code=" + downloadCode
+	downloadURL := appendURLPath(s.AdminBaseURL(), "bundles/"+strings.TrimSpace(slug)+"/download") + "?code=" + downloadCode
 	return s.buildAgentBundle(ctx, slug, downloadURL)
 }
 
@@ -168,13 +167,14 @@ func (s *Service) buildAgentBundle(ctx context.Context, slug string, downloadURL
 		return nil, err
 	}
 
-	baseURL := strings.TrimRight(s.uiBaseURL(), "/")
+	adminBaseURL := s.AdminBaseURL()
+	mcpBaseURL := s.MCPBaseURL()
 	bundleName := bundleRootPrefix + slug
 	skillPath := "skills/" + bundleName
 	if strings.TrimSpace(downloadURL) == "" {
-		downloadURL = baseURL + "/bundles/" + slug + "/download"
+		downloadURL = appendURLPath(adminBaseURL, "bundles/"+slug+"/download")
 	}
-	mcpURL := baseURL + "/mcp/" + slug
+	mcpURL := appendURLPath(mcpBaseURL, "mcp/"+slug)
 
 	datasource, err := s.GetDatasource(ctx)
 	if err != nil {
@@ -216,8 +216,9 @@ func (s *Service) buildAgentBundle(ctx context.Context, slug string, downloadURL
 					Target: ".env",
 					Mode:   "merge",
 					Values: map[string]string{
-						"DATACLAW_BASE_URL": baseURL,
-						"DATACLAW_API_KEY":  plainKey,
+						"DATACLAW_BASE_URL":     mcpBaseURL,
+						"DATACLAW_MCP_BASE_URL": mcpBaseURL,
+						"DATACLAW_API_KEY":      plainKey,
 					},
 				},
 			},

@@ -241,6 +241,50 @@ func newTestServiceWithFactory(t *testing.T, factory dsadapter.Factory) *Service
 	return New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 }
 
+func newSplitURLTestService(t *testing.T, adminBaseURL, mcpBaseURL string) *Service {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	secret, err := security.LoadOrCreateSecret(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatalf("load secret: %v", err)
+	}
+	return NewWithBaseURLs(st, secret, "test", func() string { return adminBaseURL }, func() string { return mcpBaseURL }, newFakeAdapterFactory())
+}
+
+func TestStatusIncludesSplitListenerFields(t *testing.T) {
+	service := newSplitURLTestService(t, "http://127.0.0.1:18790/", "https://mcp.example.test:18791")
+	defer service.store.Close()
+
+	status := service.Status()
+	assertStatusValue(t, status, "admin_base_url", "http://127.0.0.1:18790")
+	assertStatusValue(t, status, "mcp_base_url", "https://mcp.example.test:18791")
+	assertStatusValue(t, status, "mcp_url", "https://mcp.example.test:18791/mcp")
+	assertStatusValue(t, status, "admin_port", 18790)
+	assertStatusValue(t, status, "mcp_port", 18791)
+	assertStatusValue(t, status, "base_url", "http://127.0.0.1:18790")
+	assertStatusValue(t, status, "port", 18790)
+	assertStatusValue(t, status, "listener_split", true)
+
+	compatibility, ok := status["compatibility"].(map[string]string)
+	if !ok {
+		t.Fatalf("expected compatibility aliases, got %#v", status["compatibility"])
+	}
+	if compatibility["base_url_alias"] != "admin_base_url" || compatibility["port_alias"] != "admin_port" {
+		t.Fatalf("unexpected compatibility aliases: %#v", compatibility)
+	}
+}
+
+func assertStatusValue(t *testing.T, status map[string]any, key string, want any) {
+	t.Helper()
+	if got := status[key]; got != want {
+		t.Fatalf("status[%q] = %#v, want %#v", key, got, want)
+	}
+}
+
 func TestDatasourceConfigIsEncryptedAtRest(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
