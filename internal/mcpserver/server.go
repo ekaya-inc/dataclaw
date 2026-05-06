@@ -56,6 +56,7 @@ type queryToolRequest struct {
 const (
 	approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use datasource-native placeholder styles in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding datasource-specific pagination clauses. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
 	parameterValuesDescription   = "Parameter values keyed by parameter name. Use native JSON values when possible: strings for string, date (YYYY-MM-DD), timestamp (RFC3339), and uuid; numbers or numeric strings for integer and decimal; booleans or parseable boolean strings for boolean; JSON arrays or comma-separated strings for string[] and integer[]. Array parameters require a datasource adapter that supports arrays."
+	rawSQLDiscoveryDescription   = " Check the active datasource dialect before writing SQL: tools/list includes it on this argument when available; call get_datasource_information, and explore_schema when available, for datasource metadata and table shape."
 )
 
 var supportedQueryParameterTypes = []string{
@@ -164,7 +165,7 @@ func tokenHint(token string) string {
 func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("query",
 		mcp.WithDescription("Execute one read-only SQL SELECT or WITH statement against the configured datasource when the authenticated agent has raw query access. Call get_datasource_information, and explore_schema when available, first when you need the SQL dialect, schema, or table shape."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to execute. Semicolon-separated batches are rejected.")),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to execute. Semicolon-separated batches are rejected."+rawSQLDiscoveryDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
 		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. Use a stable top-level ORDER BY when offset is greater than zero.")),
 		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
@@ -187,8 +188,8 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute",
-		mcp.WithDescription("Execute one ad-hoc DDL or DML statement against the configured datasource when the authenticated agent has raw execute access. Multiple semicolon-separated statements are rejected. Call get_datasource_information, and explore_schema when available, first when you need the SQL dialect, schema, or table shape."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect DDL or DML statement to execute. Semicolon-separated batches are rejected.")),
+		mcp.WithDescription("Execute one ad-hoc DDL or DML statement against the configured datasource when the authenticated agent has raw execute access. One statement per call: semicolon-separated batches are rejected, while datasource-valid procedural DDL bodies are allowed when they form one statement. Call get_datasource_information, and explore_schema when available, first when you need the SQL dialect, schema, or table shape."),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect DDL or DML statement to execute. One statement per call: semicolon-separated batches are rejected, while datasource-valid procedural DDL bodies are allowed when they form one statement."+rawSQLDiscoveryDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
 		mcp.WithNumber("offset", mcp.Description("Zero-based returned-row offset when the statement returns rows.")),
 		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: tsv (default) or json.")),
@@ -310,7 +311,7 @@ func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute_query",
-		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Inspect list_queries for allows_modification before calling: read-only approved queries run as SELECT/WITH, while allows_modification=true queries run as mutating DML. Parameters are validated, coerced, and bound before execution."),
+		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Inspect list_queries for allows_modification before calling: read-only approved queries run as SELECT/WITH, while allows_modification=true queries run as mutating DML. Pass parameters as an object keyed by parameter name; values are validated, coerced, and bound according to the approved query's parameter definitions before execution."),
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
 		mcp.WithObject("parameters", mcp.Description(parameterValuesDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
@@ -338,7 +339,7 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 func registerCountRowsTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("count_rows",
 		mcp.WithDescription("Return an exact row count for one read-only raw SQL SELECT or one accessible read-only approved query. Provide exactly one of sql or query_id."),
-		mcp.WithString("sql", mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to count. Requires raw query access. Semicolon-separated batches are rejected.")),
+		mcp.WithString("sql", mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to count. Requires raw query access. Semicolon-separated batches are rejected."+rawSQLDiscoveryDescription)),
 		mcp.WithString("query_id", mcp.Description("Approved query ID to count. Requires access to that approved query.")),
 		mcp.WithObject("parameters", mcp.Description(parameterValuesDescription+" Only valid with query_id.")),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -545,7 +546,7 @@ func queryParameterItemSchema() map[string]any {
 			"type": map[string]any{
 				"type":        "string",
 				"enum":        supportedQueryParameterTypes,
-				"description": "DataClaw parameter type used for validation and value coercion. Use SQL casts in sql_query when the datasource needs a more specific SQL type.",
+				"description": "DataClaw parameter type used for validation and value coercion. Supported values: string, integer, decimal, boolean, date, timestamp, uuid, string[], integer[]. Use SQL casts in sql_query when the datasource needs a more specific SQL type.",
 			},
 			"description": map[string]any{"type": "string"},
 			"required":    map[string]any{"type": "boolean"},
@@ -565,7 +566,7 @@ func outputColumnItemSchema() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"name":        map[string]any{"type": "string"},
-			"type":        map[string]any{"type": "string", "description": "Documentation-only result column type. Prefer the DataClaw parameter type vocabulary when it fits, or the datasource-native column type when that is clearer."},
+			"type":        map[string]any{"type": "string", "description": "Documentation-only result column type; it is not used for validation or coercion. Prefer the DataClaw parameter type vocabulary when it fits, or the datasource-native column type when that is clearer."},
 			"description": map[string]any{"type": "string"},
 		},
 		"additionalProperties": true,

@@ -292,6 +292,19 @@ func TestRawSQLToolDescriptionsAdvertiseActiveDatasourceDialect(t *testing.T) {
 				t.Fatalf("expected %s.sql description to include %q, got %q", toolName, expected, toolPropertyDescription(t, tool, "sql"))
 			}
 		}
+		if expected := "Check the active datasource dialect before writing SQL"; !strings.Contains(toolPropertyDescription(t, tool, "sql"), expected) {
+			t.Fatalf("expected %s.sql description to include %q, got %q", toolName, expected, toolPropertyDescription(t, tool, "sql"))
+		}
+	}
+
+	executeTool := requireToolByName(t, (*result).Tools, "execute")
+	for _, expected := range []string{"One statement per call", "semicolon-separated batches are rejected", "procedural DDL bodies are allowed"} {
+		if !strings.Contains(executeTool.Description, expected) {
+			t.Fatalf("expected execute description to include %q, got %q", expected, executeTool.Description)
+		}
+		if !strings.Contains(toolPropertyDescription(t, executeTool, "sql"), expected) {
+			t.Fatalf("expected execute.sql description to include %q, got %q", expected, toolPropertyDescription(t, executeTool, "sql"))
+		}
 	}
 }
 
@@ -322,16 +335,25 @@ func TestApprovedQueryToolSchemaDocumentsParameterTypesAndValues(t *testing.T) {
 	if got := schemaStringSlice(t, typeSchema["enum"]); !equalStrings(got, supportedQueryParameterTypes) {
 		t.Fatalf("unexpected parameter type enum: got %v want %v", got, supportedQueryParameterTypes)
 	}
-	if description, _ := typeSchema["description"].(string); !strings.Contains(description, "SQL casts") {
-		t.Fatalf("expected parameter type description to mention SQL casts, got %q", description)
+	if description, _ := typeSchema["description"].(string); !strings.Contains(description, "Supported values: string, integer, decimal, boolean, date, timestamp, uuid, string[], integer[]") || !strings.Contains(description, "SQL casts") {
+		t.Fatalf("expected parameter type description to list supported values and mention SQL casts, got %q", description)
+	}
+	outputTypeSchema := nestedSchemaProperty(t, createTool, "output_columns", "type")
+	if description, _ := outputTypeSchema["description"].(string); !strings.Contains(description, "Documentation-only") || !strings.Contains(description, "not used for validation or coercion") {
+		t.Fatalf("expected output column type description to document non-enforcement semantics, got %q", description)
 	}
 	if description := toolPropertyDescription(t, createTool, "allows_modification"); !strings.Contains(description, "false requires a read-only SELECT/WITH") || !strings.Contains(description, "true requires INSERT, UPDATE, or DELETE") {
 		t.Fatalf("expected allows_modification description to document enforcement semantics, got %q", description)
 	}
 
 	executeTool := requireToolByName(t, (*result).Tools, "execute_query")
+	for _, expected := range []string{"Inspect list_queries for allows_modification", "parameters as an object keyed by parameter name", "validated, coerced, and bound"} {
+		if !strings.Contains(executeTool.Description, expected) {
+			t.Fatalf("expected execute_query description to include %q, got %q", expected, executeTool.Description)
+		}
+	}
 	parameterDescription := toolPropertyDescription(t, executeTool, "parameters")
-	for _, expected := range []string{"YYYY-MM-DD", "RFC3339", "JSON arrays"} {
+	for _, expected := range []string{"keyed by parameter name", "YYYY-MM-DD", "RFC3339", "JSON arrays"} {
 		if !strings.Contains(parameterDescription, expected) {
 			t.Fatalf("expected execute_query parameter description to include %q, got %q", expected, parameterDescription)
 		}
