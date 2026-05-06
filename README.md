@@ -40,11 +40,20 @@ Download the latest `.zip` from [GitHub Releases](https://github.com/ekaya-inc/d
 dataclaw
 ```
 
-DataClaw starts on `http://127.0.0.1:18790` by default. If that port is busy, it increments to the next free localhost port and logs the actual URL to open in your browser.
+DataClaw starts two loopback listeners by default: the admin web UI/API on `http://127.0.0.1:18790` and MCP on `http://127.0.0.1:18791/mcp`. If either preferred port is busy, DataClaw probes upward independently and logs the actual admin and MCP URLs.
 
-## Environment variables
+## Runtime configuration
 
-See [.env.example](./.env.example) for documented defaults and shell-friendly examples.
+See [.env.example](./.env.example) for shell-friendly examples. DataClaw does not auto-load dotenv files; export the variables in your shell or source them before starting `dataclaw`.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `DATACLAW_BIND_ADDR` | `127.0.0.1` | Bind address for the local HTTP server. v1 normalizes every value back to loopback. |
+| `DATACLAW_PORT` | `18790` | Preferred HTTP port. If busy, DataClaw increments to the next free port. |
+| `DATACLAW_DATA_DIR` | `~/.dataclaw` | Base data directory for local DataClaw state. |
+| `DATACLAW_DB_PATH` | `$DATACLAW_DATA_DIR/dataclaw.sqlite` | SQLite metadata database path. |
+| `DATACLAW_SECRET_PATH` | `$DATACLAW_DATA_DIR/secret.key` | Encryption key path for stored datasource credentials. |
+| `DATACLAW_LOG_LEVEL` | `info` | Structured log level: `debug`, `info`, `warn`, `warning`, or `error` (case-insensitive). |
 
 ## ClawHub
 
