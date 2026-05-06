@@ -8,6 +8,8 @@ import (
 	datasource "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 )
 
+const maxSchemaExploreObjects = 200
+
 type SchemaExplorer struct {
 	adapter *Adapter
 }
@@ -27,15 +29,27 @@ func (e *SchemaExplorer) ExploreSchema(ctx context.Context, request datasource.S
 		Limitations: postgresSchemaExploreLimitations(),
 	}
 
-	objects, err := e.fetchSchemaObjects(ctx, request)
+	objects, truncated, err := e.fetchSchemaObjects(ctx, request)
 	if err != nil {
 		result.UnavailableReason = err.Error()
 		return result, nil
 	}
 	result.Objects = objects
 	result.Summary = summarizeSchemaObjects(objects)
+	if truncated {
+		result.Truncated = true
+		result.TruncatedReason = fmt.Sprintf("schema exploration returns at most %d objects; filter by schema_name or object_name for more detail", maxSchemaExploreObjects)
+	}
 
 	if request.DetailMode != datasource.SchemaDetailModeFull || len(objects) == 0 {
+		return result, nil
+	}
+	if truncated {
+		result.DetailMode = datasource.SchemaDetailModeCompact
+		result.Limitations = append(result.Limitations, datasource.SchemaExploreLimitation{
+			Feature:           "full_detail",
+			UnavailableReason: "full column detail is omitted when object results are truncated",
+		})
 		return result, nil
 	}
 	if err := e.populateSchemaColumns(ctx, request, result.Objects); err != nil {
@@ -53,27 +67,33 @@ func (e *SchemaExplorer) Close() error {
 	return e.adapter.Close()
 }
 
-func (e *SchemaExplorer) fetchSchemaObjects(ctx context.Context, request datasource.SchemaExploreRequest) ([]datasource.SchemaObject, error) {
+func (e *SchemaExplorer) fetchSchemaObjects(ctx context.Context, request datasource.SchemaExploreRequest) ([]datasource.SchemaObject, bool, error) {
 	rows, err := e.adapter.db.QueryContext(ctx, postgresSchemaObjectsSQL, request.SchemaName, request.ObjectName)
 	if err != nil {
-		return nil, fmt.Errorf("postgres schema objects unavailable: %w", err)
+		return nil, false, fmt.Errorf("postgres schema objects unavailable: %w", err)
 	}
 	defer rows.Close()
 
 	objects := []datasource.SchemaObject{}
+	truncated := false
 	for rows.Next() {
 		var object datasource.SchemaObject
 		var kind string
 		if err := rows.Scan(&object.SchemaName, &object.Name, &kind, &object.ColumnCount); err != nil {
-			return nil, fmt.Errorf("scan postgres schema object: %w", err)
+			return nil, false, fmt.Errorf("scan postgres schema object: %w", err)
 		}
 		object.Kind = datasource.SchemaObjectKind(kind)
 		objects = append(objects, object)
+		if len(objects) > maxSchemaExploreObjects {
+			truncated = true
+			objects = objects[:maxSchemaExploreObjects]
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate postgres schema objects: %w", err)
+		return nil, false, fmt.Errorf("iterate postgres schema objects: %w", err)
 	}
-	return objects, nil
+	return objects, truncated, nil
 }
 
 func (e *SchemaExplorer) populateSchemaColumns(ctx context.Context, request datasource.SchemaExploreRequest, objects []datasource.SchemaObject) error {
@@ -157,7 +177,7 @@ func postgresSchemaExploreLimitations() []datasource.SchemaExploreLimitation {
 	}
 }
 
-const postgresSchemaObjectsSQL = `
+var postgresSchemaObjectsSQL = fmt.Sprintf(`
 SELECT
 	n.nspname AS schema_name,
 	c.relname AS object_name,
@@ -177,7 +197,8 @@ WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
 	AND ($1 = '' OR n.nspname = $1)
 	AND ($2 = '' OR c.relname = $2)
 GROUP BY n.nspname, c.relname, c.relkind
-ORDER BY n.nspname, c.relname`
+ORDER BY n.nspname, c.relname
+LIMIT %d`, maxSchemaExploreObjects+1)
 
 const postgresSchemaColumnsSQL = `
 SELECT

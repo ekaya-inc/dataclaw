@@ -207,6 +207,43 @@ func TestSchemaExplorerFullPopulatesColumns(t *testing.T) {
 	}
 }
 
+func TestSchemaExplorerTruncatesLargeFullRequestsToCompactSummary(t *testing.T) {
+	rows := make([][]driver.Value, maxSchemaExploreObjects+1)
+	for i := range rows {
+		rows[i] = []driver.Value{"public", fmt.Sprintf("table_%03d", i), "table", int64(1)}
+	}
+	state := &schemaExplorerDriverState{
+		responses: []schemaExplorerResponse{{
+			columns: []string{"schema_name", "object_name", "object_kind", "column_count"},
+			rows:    rows,
+		}},
+	}
+	explorer := &SchemaExplorer{adapter: &Adapter{db: newSchemaExplorerTestDB(t, state)}}
+
+	result, err := explorer.ExploreSchema(context.Background(), datasource.SchemaExploreRequest{DetailMode: datasource.SchemaDetailModeFull})
+	if err != nil {
+		t.Fatalf("ExploreSchema truncated: %v", err)
+	}
+	if !result.Truncated || result.TruncatedReason == "" {
+		t.Fatalf("expected truncated result with reason, got %#v", result)
+	}
+	if result.DetailMode != datasource.SchemaDetailModeCompact {
+		t.Fatalf("expected full request to fall back to compact when truncated, got %q", result.DetailMode)
+	}
+	if len(result.Objects) != maxSchemaExploreObjects {
+		t.Fatalf("expected %d objects, got %d", maxSchemaExploreObjects, len(result.Objects))
+	}
+	if !hasLimitation(result.Limitations, "full_detail") {
+		t.Fatalf("expected full_detail limitation, got %#v", result.Limitations)
+	}
+	if len(state.queries) != 1 {
+		t.Fatalf("truncated full request should not fetch columns, got queries %#v", state.queries)
+	}
+	if !strings.Contains(state.queries[0].sql, "LIMIT 201") {
+		t.Fatalf("expected object query to cap scan at max+1, got %q", state.queries[0].sql)
+	}
+}
+
 func TestSchemaExplorerReturnsStructuredUnavailableReasonOnQueryFailure(t *testing.T) {
 	state := &schemaExplorerDriverState{queryErr: errors.New("permission denied")}
 	explorer := &SchemaExplorer{adapter: &Adapter{db: newSchemaExplorerTestDB(t, state)}}
