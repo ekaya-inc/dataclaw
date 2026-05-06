@@ -18,6 +18,11 @@ func Registration() datasource.Registration {
 				SupportsArrayParameters: true,
 				SupportsSchemaExplore:   true,
 			},
+			TemplateSyntaxHints: datasource.TemplateSyntaxHints{
+				PlaceholderAntiExamples: []string{"$1", "$2"},
+				PaginationAntiExamples:  []string{"LIMIT 10 OFFSET 20"},
+				Notes:                   "PostgreSQL native bind markers ($1, $2, ...) and LIMIT/OFFSET pagination clauses are applied by DataClaw at execution time. Use {{parameter_name}} placeholders and the tool's limit/offset arguments instead.",
+			},
 		},
 		ConnectionTesterFactory: func(ctx context.Context, config map[string]any) (datasource.ConnectionTester, error) {
 			return NewAdapter(ctx, config)

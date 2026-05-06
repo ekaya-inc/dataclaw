@@ -43,13 +43,24 @@ type AdapterCapabilities struct {
 	SupportsSchemaExplore   bool `json:"supports_schema_explore"`
 }
 
+type TemplateSyntaxHints struct {
+	PlaceholderAntiExamples []string `json:"placeholder_anti_examples,omitempty"`
+	PaginationAntiExamples  []string `json:"pagination_anti_examples,omitempty"`
+	Notes                   string   `json:"notes,omitempty"`
+}
+
+func (h TemplateSyntaxHints) IsZero() bool {
+	return len(h.PlaceholderAntiExamples) == 0 && len(h.PaginationAntiExamples) == 0 && h.Notes == ""
+}
+
 type AdapterInfo struct {
-	Type         string              `json:"type"`
-	DisplayName  string              `json:"display_name"`
-	Description  string              `json:"description,omitempty"`
-	Icon         string              `json:"icon,omitempty"`
-	SQLDialect   string              `json:"sql_dialect,omitempty"`
-	Capabilities AdapterCapabilities `json:"capabilities,omitempty"`
+	Type                string              `json:"type"`
+	DisplayName         string              `json:"display_name"`
+	Description         string              `json:"description,omitempty"`
+	Icon                string              `json:"icon,omitempty"`
+	SQLDialect          string              `json:"sql_dialect,omitempty"`
+	Capabilities        AdapterCapabilities `json:"capabilities,omitempty"`
+	TemplateSyntaxHints TemplateSyntaxHints `json:"template_syntax_hints,omitempty"`
 }
 
 type Registration struct {

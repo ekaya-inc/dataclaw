@@ -18,6 +18,11 @@ func Registration() datasource.Registration {
 				SupportsArrayParameters: false,
 				SupportsSchemaExplore:   true,
 			},
+			TemplateSyntaxHints: datasource.TemplateSyntaxHints{
+				PlaceholderAntiExamples: []string{"@status", "@name"},
+				PaginationAntiExamples:  []string{"TOP 10", "OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY"},
+				Notes:                   "SQL Server named bind markers (@name) and TOP/OFFSET-FETCH pagination clauses are applied by DataClaw at execution time. Use {{parameter_name}} placeholders and the tool's limit/offset arguments instead.",
+			},
 		},
 		ConnectionTesterFactory: func(ctx context.Context, config map[string]any) (datasource.ConnectionTester, error) {
 			return NewAdapter(ctx, config)

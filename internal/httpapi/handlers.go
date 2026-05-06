@@ -373,6 +373,9 @@ func (a *API) flattenDatasource(ds *storepkg.Datasource) map[string]any {
 		"created_at": ds.CreatedAt,
 		"updated_at": ds.UpdatedAt,
 	}
+	if !typeInfo.TemplateSyntaxHints.IsZero() {
+		out["template_syntax_hints"] = typeInfo.TemplateSyntaxHints
+	}
 	return out
 }
 

@@ -6,6 +6,12 @@ export interface DatasourceAdapterCapabilities {
   supportsArrayParameters?: boolean | undefined;
 }
 
+export interface TemplateSyntaxHints {
+  placeholderAntiExamples: string[];
+  paginationAntiExamples: string[];
+  notes?: string | undefined;
+}
+
 export interface DatasourceAdapterInfo {
   type: DatasourceType;
   displayName: string;
@@ -13,6 +19,7 @@ export interface DatasourceAdapterInfo {
   icon?: string | undefined;
   sqlDialect?: string | undefined;
   capabilities?: DatasourceAdapterCapabilities | undefined;
+  templateSyntaxHints?: TemplateSyntaxHints | undefined;
 }
 
 export interface DatasourceRecord {
@@ -30,6 +37,7 @@ export interface DatasourceRecord {
   options?: Record<string, unknown> | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
+  templateSyntaxHints?: TemplateSyntaxHints | undefined;
 }
 
 export interface DatasourceFormValues {

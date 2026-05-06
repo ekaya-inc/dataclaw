@@ -11,14 +11,28 @@ import (
 var ErrNoDatasourceConfigured = errors.New("no datasource configured")
 
 type DatasourceInformation struct {
-	Name         string         `json:"name,omitempty"`
-	Type         string         `json:"type,omitempty"`
-	SQLDialect   string         `json:"sql_dialect,omitempty"`
-	DatabaseName string         `json:"database_name,omitempty"`
-	SchemaName   string         `json:"schema_name,omitempty"`
-	CurrentUser  string         `json:"current_user,omitempty"`
-	Version      string         `json:"version,omitempty"`
-	Extra        map[string]any `json:"extra,omitempty"`
+	Name                string                         `json:"name,omitempty"`
+	Type                string                         `json:"type,omitempty"`
+	SQLDialect          string                         `json:"sql_dialect,omitempty"`
+	DatabaseName        string                         `json:"database_name,omitempty"`
+	SchemaName          string                         `json:"schema_name,omitempty"`
+	CurrentUser         string                         `json:"current_user,omitempty"`
+	Version             string                         `json:"version,omitempty"`
+	Extra               map[string]any                 `json:"extra,omitempty"`
+	TemplateSyntaxHints *dsadapter.TemplateSyntaxHints `json:"template_syntax_hints,omitempty"`
+}
+
+func (s *Service) ActiveDatasourceTemplateSyntaxHints(ctx context.Context) (*dsadapter.TemplateSyntaxHints, error) {
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	adapterInfo, ok := s.DatasourceTypeInfo(ds.Type)
+	if !ok || adapterInfo.TemplateSyntaxHints.IsZero() {
+		return nil, nil
+	}
+	hints := adapterInfo.TemplateSyntaxHints
+	return &hints, nil
 }
 
 func (s *Service) GetDatasourceInformation(ctx context.Context) (*DatasourceInformation, error) {
@@ -33,6 +47,10 @@ func (s *Service) GetDatasourceInformation(ctx context.Context) (*DatasourceInfo
 	}
 	if adapterInfo, ok := s.DatasourceTypeInfo(ds.Type); ok {
 		info.SQLDialect = adapterInfo.SQLDialect
+		if !adapterInfo.TemplateSyntaxHints.IsZero() {
+			hints := adapterInfo.TemplateSyntaxHints
+			info.TemplateSyntaxHints = &hints
+		}
 	}
 
 	if s.adapters == nil {
