@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -56,7 +57,7 @@ func TestListToolsFiltersByAgentPermissions(t *testing.T) {
 	}
 
 	readerTools := listToolNames(t, withAuthorizedAgent(ctx, readerAgent), mcpClient)
-	if got, want := readerTools, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"count_rows", "execute_query", "explore_schema", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools: got %v want %v", got, want)
 	}
 
@@ -73,6 +74,8 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	manager, err := service.CreateAgent(ctx, core.AgentInput{
 		Name:                     "Manager",
 		CanManageApprovedQueries: true,
+		CanQuery:                 true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeAll,
 	})
 	if err != nil {
 		t.Fatalf("CreateAgent(manager): %v", err)
@@ -94,7 +97,7 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	if !strings.Contains(createTool.Description, "SELECT order_id, user_id, status, created_at, num_of_item") {
 		t.Fatalf("expected create_query description to include SQL example, got %q", createTool.Description)
 	}
-	if !strings.Contains(createTool.Description, "Do not use :status, @status, or $1") {
+	if !strings.Contains(createTool.Description, "Do not use datasource-native placeholder styles") {
 		t.Fatalf("expected create_query description to warn about unsupported placeholder styles, got %q", createTool.Description)
 	}
 
@@ -108,6 +111,252 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	}
 	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "CAST({{created_after}} AS TIMESTAMP)") {
 		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
+	}
+}
+
+func TestGenericMCPToolDescriptionsStayAdapterNeutral(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+		CanQuery:                 true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	for _, toolName := range []string{"execute_query", schemaExplorationToolName} {
+		tool := requireToolByName(t, (*result).Tools, toolName)
+		assertNoGenericMCPAdapterReferences(t, toolName+" description", tool.Description)
+		if toolName != schemaExplorationToolName {
+			assertNoGenericMCPAdapterReferences(t, toolName+" offset description", toolPropertyDescription(t, tool, "offset"))
+		}
+	}
+}
+
+func TestApprovedQueryTemplateBaseDescriptionStaysAdapterNeutral(t *testing.T) {
+	assertNoGenericMCPAdapterReferences(t, "approvedQueryTemplateExample", approvedQueryTemplateExample)
+}
+
+func TestApprovedQueryToolDescriptionsAdvertiseActiveDatasourceTokens(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	for _, toolName := range []string{"create_query", "update_query"} {
+		tool := requireToolByName(t, (*result).Tools, toolName)
+		for _, expected := range []string{"PostgreSQL", "$1", "LIMIT 10 OFFSET 20"} {
+			if !strings.Contains(tool.Description, expected) {
+				t.Fatalf("expected %s description to advertise active-datasource token %q, got %q", toolName, expected, tool.Description)
+			}
+			if !strings.Contains(toolPropertyDescription(t, tool, "sql_query"), expected) {
+				t.Fatalf("expected %s sql_query description to advertise active-datasource token %q, got %q", toolName, expected, toolPropertyDescription(t, tool, "sql_query"))
+			}
+		}
+	}
+}
+
+func TestApprovedQueryToolDescriptionEnrichmentIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	for range 2 {
+		result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+		if err != nil {
+			t.Fatalf("ListTools: %v", err)
+		}
+
+		createTool := requireToolByName(t, (*result).Tools, "create_query")
+		if got := strings.Count(createTool.Description, "For the active datasource"); got != 1 {
+			t.Fatalf("expected one active datasource suffix in create_query description, got %d: %q", got, createTool.Description)
+		}
+		sqlDescription := toolPropertyDescription(t, createTool, "sql_query")
+		if got := strings.Count(sqlDescription, "For the active datasource"); got != 1 {
+			t.Fatalf("expected one active datasource suffix in create_query.sql_query description, got %d: %q", got, sqlDescription)
+		}
+	}
+}
+
+func TestPropertyDescriptionEnrichmentCopiesSharedSchemaMaps(t *testing.T) {
+	baseTool := mcp.NewTool("create_query",
+		mcp.WithString("sql_query", mcp.Description("SQL body")),
+	)
+	descriptionFor := func(tool mcp.Tool) (string, bool) {
+		property, ok := tool.InputSchema.Properties["sql_query"].(map[string]any)
+		if !ok {
+			return "", false
+		}
+		description, ok := property["description"].(string)
+		return description, ok
+	}
+	baseDescription, ok := descriptionFor(baseTool)
+	if !ok {
+		t.Fatalf("expected base tool sql_query description")
+	}
+	const suffix = " suffix"
+
+	var wg sync.WaitGroup
+	errs := make(chan string, 32)
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			copiedTool := baseTool
+			appendPropertyDescriptionSuffix(&copiedTool, "sql_query", suffix)
+			if got, ok := descriptionFor(copiedTool); !ok || got != baseDescription+suffix {
+				errs <- "copied tool description was not enriched exactly once"
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for errMsg := range errs {
+		t.Fatal(errMsg)
+	}
+	if got, ok := descriptionFor(baseTool); !ok || got != baseDescription {
+		t.Fatalf("expected base tool schema description to remain unchanged, got %q want %q", got, baseDescription)
+	}
+}
+
+func TestRawSQLToolDescriptionsAdvertiseActiveDatasourceDialect(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:               "Manager",
+		CanQuery:           true,
+		CanExecute:         true,
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	for _, toolName := range []string{"query", "execute", "count_rows"} {
+		tool := requireToolByName(t, (*result).Tools, toolName)
+		for _, expected := range []string{"Active datasource dialect: PostgreSQL", "get_datasource_information", "explore_schema"} {
+			if !strings.Contains(tool.Description, expected) {
+				t.Fatalf("expected %s description to include %q, got %q", toolName, expected, tool.Description)
+			}
+			if !strings.Contains(toolPropertyDescription(t, tool, "sql"), expected) {
+				t.Fatalf("expected %s.sql description to include %q, got %q", toolName, expected, toolPropertyDescription(t, tool, "sql"))
+			}
+		}
+		if expected := "Check the active datasource dialect before writing SQL"; !strings.Contains(toolPropertyDescription(t, tool, "sql"), expected) {
+			t.Fatalf("expected %s.sql description to include %q, got %q", toolName, expected, toolPropertyDescription(t, tool, "sql"))
+		}
+	}
+
+	executeTool := requireToolByName(t, (*result).Tools, "execute")
+	for _, expected := range []string{"One statement per call", "semicolon-separated batches are rejected", "procedural DDL bodies are allowed"} {
+		if !strings.Contains(executeTool.Description, expected) {
+			t.Fatalf("expected execute description to include %q, got %q", expected, executeTool.Description)
+		}
+		if !strings.Contains(toolPropertyDescription(t, executeTool, "sql"), expected) {
+			t.Fatalf("expected execute.sql description to include %q, got %q", expected, toolPropertyDescription(t, executeTool, "sql"))
+		}
+	}
+}
+
+func TestApprovedQueryToolSchemaDocumentsParameterTypesAndValues(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newTestMCPClient(t)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+		ApprovedQueryScope:       storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+	managerAgent, err := service.AuthenticateAgent(ctx, manager.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent(manager): %v", err)
+	}
+
+	result, err := mcpClient.ListTools(withAuthorizedAgent(ctx, managerAgent), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	createTool := requireToolByName(t, (*result).Tools, "create_query")
+	typeSchema := nestedSchemaProperty(t, createTool, "parameters", "type")
+	if got := schemaStringSlice(t, typeSchema["enum"]); !equalStrings(got, supportedQueryParameterTypes) {
+		t.Fatalf("unexpected parameter type enum: got %v want %v", got, supportedQueryParameterTypes)
+	}
+	if description, _ := typeSchema["description"].(string); !strings.Contains(description, "Supported values: string, integer, decimal, boolean, date, timestamp, uuid, string[], integer[]") || !strings.Contains(description, "SQL casts") {
+		t.Fatalf("expected parameter type description to list supported values and mention SQL casts, got %q", description)
+	}
+	outputTypeSchema := nestedSchemaProperty(t, createTool, "output_columns", "type")
+	if description, _ := outputTypeSchema["description"].(string); !strings.Contains(description, "Documentation-only") || !strings.Contains(description, "not used for validation or coercion") {
+		t.Fatalf("expected output column type description to document non-enforcement semantics, got %q", description)
+	}
+	if description := toolPropertyDescription(t, createTool, "allows_modification"); !strings.Contains(description, "false requires a read-only SELECT/WITH") || !strings.Contains(description, "true requires INSERT, UPDATE, or DELETE") {
+		t.Fatalf("expected allows_modification description to document enforcement semantics, got %q", description)
+	}
+
+	executeTool := requireToolByName(t, (*result).Tools, "execute_query")
+	for _, expected := range []string{"Inspect list_queries for allows_modification", "parameters as an object keyed by parameter name", "validated, coerced, and bound"} {
+		if !strings.Contains(executeTool.Description, expected) {
+			t.Fatalf("expected execute_query description to include %q, got %q", expected, executeTool.Description)
+		}
+	}
+	parameterDescription := toolPropertyDescription(t, executeTool, "parameters")
+	for _, expected := range []string{"keyed by parameter name", "YYYY-MM-DD", "RFC3339", "JSON arrays"} {
+		if !strings.Contains(parameterDescription, expected) {
+			t.Fatalf("expected execute_query parameter description to include %q, got %q", expected, parameterDescription)
+		}
 	}
 }
 
@@ -137,21 +386,22 @@ func TestToolAnnotationsMatchBehavior(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		readOnly    bool
-		destructive bool
-		idempotent  bool
-		openWorld   bool
+		readOnly    *bool
+		destructive *bool
+		idempotent  *bool
+		openWorld   *bool
 	}{
-		{name: "query", readOnly: true, destructive: false, idempotent: true, openWorld: false},
-		{name: "count_rows", readOnly: true, destructive: false, idempotent: true, openWorld: false},
-		{name: "execute", readOnly: false, destructive: true, idempotent: false, openWorld: false},
-		{name: "list_queries", readOnly: true, destructive: false, idempotent: true, openWorld: false},
-		{name: "create_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
-		{name: "update_query", readOnly: false, destructive: false, idempotent: true, openWorld: false},
-		{name: "delete_query", readOnly: false, destructive: false, idempotent: false, openWorld: false},
-		{name: "execute_query", readOnly: false, destructive: true, idempotent: false, openWorld: false},
-		{name: "get_datasource_information", readOnly: true, destructive: false, idempotent: true, openWorld: false},
-		{name: "health", readOnly: true, destructive: false, idempotent: true, openWorld: false},
+		{name: "query", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "count_rows", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "execute", readOnly: boolPtr(false), destructive: boolPtr(true), idempotent: boolPtr(false), openWorld: boolPtr(false)},
+		{name: "list_queries", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "create_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(false), openWorld: boolPtr(false)},
+		{name: "update_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "delete_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(false), openWorld: boolPtr(false)},
+		{name: "execute_query", readOnly: nil, destructive: nil, idempotent: boolPtr(false), openWorld: boolPtr(false)},
+		{name: schemaExplorationToolName, readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "get_datasource_information", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "health", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
 	}
 
 	for _, tt := range tests {
@@ -217,8 +467,8 @@ func TestDatasourceDeletionFailsClosedForToolDiscovery(t *testing.T) {
 	agentCtx := withAuthorizedAgent(ctx, agent)
 
 	before := listToolNames(t, agentCtx, mcpClient)
-	if len(before) != 7 {
-		t.Fatalf("expected 7 tools before datasource deletion, got %v", before)
+	if len(before) != 8 {
+		t.Fatalf("expected 8 tools before datasource deletion, got %v", before)
 	}
 	if err := service.DeleteDatasource(ctx); err != nil {
 		t.Fatalf("DeleteDatasource: %v", err)
@@ -259,7 +509,7 @@ func TestHTTPHeaderAuthMatrixAndLastUsedAt(t *testing.T) {
 	}
 
 	readerTools := listToolNamesWithHeader(t, ctx, mcpClient, reader.APIKey)
-	if got, want := readerTools, []string{"count_rows", "execute_query", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
+	if got, want := readerTools, []string{"count_rows", "execute_query", "explore_schema", "get_datasource_information", "health", "list_queries", "query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected reader tools via header auth: got %v want %v", got, want)
 	}
 	readerAfterList, err := service.GetAgent(ctx, reader.ID)
@@ -329,6 +579,36 @@ func TestExecuteToolAllowsDDLAndReturnsExecuteResult(t *testing.T) {
 	}
 }
 
+func TestExecuteToolDefaultsReturnedRowsToTSV(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	writer, err := service.CreateAgent(ctx, core.AgentInput{Name: "Writer", CanExecute: true})
+	if err != nil {
+		t.Fatalf("CreateAgent(writer): %v", err)
+	}
+
+	result, err := mcpClient.CallTool(withHTTPAuth(ctx, writer.APIKey), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "execute",
+			Arguments: map[string]any{
+				"sql":   "INSERT INTO scratch_execute (id) VALUES (7) RETURNING id",
+				"limit": 10,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(execute): %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("execute returned error: %s", resultText(t, result))
+	}
+	text := resultText(t, result)
+	if !strings.HasPrefix(text, "#") || !strings.Contains(text, "rows_affected=1") || !strings.Contains(text, "\nid\n7\n") {
+		t.Fatalf("expected returned rows as TSV with metadata, got %q", text)
+	}
+}
+
 func TestQueryToolDefaultsToTSVAndRecordsRenderStats(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
@@ -342,7 +622,7 @@ func TestQueryToolDefaultsToTSVAndRecordsRenderStats(t *testing.T) {
 		Params: mcp.CallToolParams{
 			Name: "query",
 			Arguments: map[string]any{
-				"sql":    "SELECT table_name FROM information_schema.tables",
+				"sql":    "SELECT account_id FROM accounts",
 				"limit":  10,
 				"offset": 5,
 			},
@@ -447,7 +727,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
-	if got, want := managerTools, []string{"count_rows", "create_query", "delete_query", "execute_query", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+	if got, want := managerTools, []string{"count_rows", "create_query", "delete_query", "execute_query", "explore_schema", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
 	}
 
@@ -775,20 +1055,93 @@ func requireToolByName(t *testing.T, tools []mcp.Tool, name string) mcp.Tool {
 	return mcp.Tool{}
 }
 
-func assertToolAnnotations(t *testing.T, tool mcp.Tool, readOnly, destructive, idempotent, openWorld bool) {
+func toolPropertyDescription(t *testing.T, tool mcp.Tool, propertyName string) string {
+	t.Helper()
+	property, ok := tool.InputSchema.Properties[propertyName].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s.%s schema to be an object, got %#v", tool.Name, propertyName, tool.InputSchema.Properties[propertyName])
+	}
+	description, ok := property["description"].(string)
+	if !ok {
+		t.Fatalf("expected %s.%s description to be a string, got %#v", tool.Name, propertyName, property["description"])
+	}
+	return description
+}
+
+func nestedSchemaProperty(t *testing.T, tool mcp.Tool, arrayPropertyName, nestedPropertyName string) map[string]any {
+	t.Helper()
+	property, ok := tool.InputSchema.Properties[arrayPropertyName].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s.%s schema to be an object, got %#v", tool.Name, arrayPropertyName, tool.InputSchema.Properties[arrayPropertyName])
+	}
+	items, ok := property["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s.%s items schema to be an object, got %#v", tool.Name, arrayPropertyName, property["items"])
+	}
+	properties, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s.%s items properties to be an object, got %#v", tool.Name, arrayPropertyName, items["properties"])
+	}
+	nested, ok := properties[nestedPropertyName].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s.%s.%s schema to be an object, got %#v", tool.Name, arrayPropertyName, nestedPropertyName, properties[nestedPropertyName])
+	}
+	return nested
+}
+
+func schemaStringSlice(t *testing.T, value any) []string {
+	t.Helper()
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		result := make([]string, len(typed))
+		for i, item := range typed {
+			value, ok := item.(string)
+			if !ok {
+				t.Fatalf("expected enum item to be string, got %#v", item)
+			}
+			result[i] = value
+		}
+		return result
+	default:
+		t.Fatalf("expected string enum slice, got %#v", value)
+		return nil
+	}
+}
+
+func assertNoGenericMCPAdapterReferences(t *testing.T, field, value string) {
+	t.Helper()
+	for _, forbidden := range []string{"sql server", "mssql", "t-sql", "limit/offset/top", ":status", "@status", "$1"} {
+		if strings.Contains(strings.ToLower(value), forbidden) {
+			t.Fatalf("expected %s to stay adapter-neutral; found %q in %q", field, forbidden, value)
+		}
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func assertToolAnnotations(t *testing.T, tool mcp.Tool, readOnly, destructive, idempotent, openWorld *bool) {
 	t.Helper()
 
-	if tool.Annotations.ReadOnlyHint == nil || *tool.Annotations.ReadOnlyHint != readOnly {
-		t.Fatalf("tool %q readOnlyHint: got %#v want %v", tool.Name, tool.Annotations.ReadOnlyHint, readOnly)
+	assertAnnotationBool(t, tool.Name, "readOnlyHint", tool.Annotations.ReadOnlyHint, readOnly)
+	assertAnnotationBool(t, tool.Name, "destructiveHint", tool.Annotations.DestructiveHint, destructive)
+	assertAnnotationBool(t, tool.Name, "idempotentHint", tool.Annotations.IdempotentHint, idempotent)
+	assertAnnotationBool(t, tool.Name, "openWorldHint", tool.Annotations.OpenWorldHint, openWorld)
+}
+
+func assertAnnotationBool(t *testing.T, toolName, field string, got, want *bool) {
+	t.Helper()
+	if got == nil || want == nil {
+		if got != want {
+			t.Fatalf("tool %q %s: got %#v want %#v", toolName, field, got, want)
+		}
+		return
 	}
-	if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint != destructive {
-		t.Fatalf("tool %q destructiveHint: got %#v want %v", tool.Name, tool.Annotations.DestructiveHint, destructive)
-	}
-	if tool.Annotations.IdempotentHint == nil || *tool.Annotations.IdempotentHint != idempotent {
-		t.Fatalf("tool %q idempotentHint: got %#v want %v", tool.Name, tool.Annotations.IdempotentHint, idempotent)
-	}
-	if tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint != openWorld {
-		t.Fatalf("tool %q openWorldHint: got %#v want %v", tool.Name, tool.Annotations.OpenWorldHint, openWorld)
+	if *got != *want {
+		t.Fatalf("tool %q %s: got %v want %v", toolName, field, *got, *want)
 	}
 }
 

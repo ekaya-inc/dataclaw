@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/core"
 )
 
@@ -24,16 +25,17 @@ var (
 )
 
 type datasourceInformationResult struct {
-	Name         string         `json:"name,omitempty"`
-	Type         string         `json:"type,omitempty"`
-	SQLDialect   string         `json:"sql_dialect,omitempty"`
-	Status       string         `json:"status"`
-	DatabaseName string         `json:"database_name,omitempty"`
-	SchemaName   string         `json:"schema_name,omitempty"`
-	CurrentUser  string         `json:"current_user,omitempty"`
-	Version      string         `json:"version,omitempty"`
-	Error        string         `json:"error,omitempty"`
-	Extra        map[string]any `json:"extra,omitempty"`
+	Name                string                         `json:"name,omitempty"`
+	Type                string                         `json:"type,omitempty"`
+	SQLDialect          string                         `json:"sql_dialect,omitempty"`
+	Status              string                         `json:"status"`
+	DatabaseName        string                         `json:"database_name,omitempty"`
+	SchemaName          string                         `json:"schema_name,omitempty"`
+	CurrentUser         string                         `json:"current_user,omitempty"`
+	Version             string                         `json:"version,omitempty"`
+	Error               string                         `json:"error,omitempty"`
+	Extra               map[string]any                 `json:"extra,omitempty"`
+	TemplateSyntaxHints *dsadapter.TemplateSyntaxHints `json:"template_syntax_hints,omitempty"`
 }
 
 type datasourceInfoDescriptionCache struct {
@@ -105,6 +107,7 @@ func buildDatasourceInformationResult(info *core.DatasourceInformation, status s
 		if len(info.Extra) > 0 {
 			result.Extra = maps.Clone(info.Extra)
 		}
+		result.TemplateSyntaxHints = info.TemplateSyntaxHints
 	}
 	if strings.TrimSpace(errMsg) != "" {
 		result.Error = strings.TrimSpace(errMsg)

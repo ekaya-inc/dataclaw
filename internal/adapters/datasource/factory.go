@@ -32,6 +32,17 @@ func (f *registryFactory) NewDatasourceIntrospector(ctx context.Context, dsType 
 	return reg.DatasourceIntrospectorFactory(ctx, config)
 }
 
+func (f *registryFactory) NewSchemaExplorer(ctx context.Context, dsType string, config map[string]any) (SchemaExplorer, error) {
+	reg, ok := f.registry.Get(dsType)
+	if !ok {
+		return nil, fmt.Errorf("unsupported datasource type: %s", dsType)
+	}
+	if reg.SchemaExplorerFactory == nil {
+		return nil, fmt.Errorf("schema exploration unsupported for datasource type: %s", dsType)
+	}
+	return reg.SchemaExplorerFactory(ctx, config)
+}
+
 func (f *registryFactory) NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (QueryExecutor, error) {
 	reg, ok := f.registry.Get(dsType)
 	if !ok || reg.QueryExecutorFactory == nil {
@@ -68,3 +79,4 @@ func (f *registryFactory) SupportsType(dsType string) bool {
 }
 
 var _ Factory = (*registryFactory)(nil)
+var _ SchemaExplorerFactory = (*registryFactory)(nil)

@@ -467,7 +467,7 @@ func renderToolResult(toolName string, value any, req mcp.CallToolRequest) (body
 func requestedResultFormat(toolName string, req mcp.CallToolRequest) (string, error) {
 	defaultFormat := "json"
 	switch toolName {
-	case "query", "execute_query":
+	case "query", "execute", "execute_query":
 		defaultFormat = "tsv"
 	}
 	args, _ := req.Params.Arguments.(map[string]any)

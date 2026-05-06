@@ -6,6 +6,7 @@ import type {
   DatasourceFormValues,
   DatasourceRecord,
   RuntimeStatus,
+  TemplateSyntaxHints,
   TestConnectionResult,
 } from '../types/datasource';
 import type { OutputColumn, QueryExecutionResult, QueryParameter, QueryValidationResult, SavedQuery } from '../types/query';
@@ -63,6 +64,26 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+function toTemplateSyntaxHints(raw: unknown): TemplateSyntaxHints | undefined {
+  const record = asRecord(raw);
+  if (!record) return undefined;
+  const placeholders = pick(record, 'placeholderAntiExamples', 'placeholder_anti_examples');
+  const pagination = pick(record, 'paginationAntiExamples', 'pagination_anti_examples');
+  const placeholderList = Array.isArray(placeholders)
+    ? placeholders.filter((value): value is string => typeof value === 'string')
+    : [];
+  const paginationList = Array.isArray(pagination)
+    ? pagination.filter((value): value is string => typeof value === 'string')
+    : [];
+  const notes = asString(pick(record, 'notes'));
+  if (placeholderList.length === 0 && paginationList.length === 0 && !notes) return undefined;
+  return {
+    placeholderAntiExamples: placeholderList,
+    paginationAntiExamples: paginationList,
+    notes,
+  };
+}
+
 function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
   const record = asRecord(raw);
   const type = asString(pick(record, 'type'));
@@ -79,6 +100,7 @@ function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
           supportsArrayParameters: asBoolean(pick(capabilities, 'supportsArrayParameters', 'supports_array_parameters')),
         }
       : undefined,
+    templateSyntaxHints: toTemplateSyntaxHints(pick(record, 'templateSyntaxHints', 'template_syntax_hints')),
   };
 }
 
@@ -109,6 +131,7 @@ function toDatasourceRecord(raw: unknown): DatasourceRecord | null {
     options: options ?? undefined,
     createdAt: asString(pick(record, 'createdAt', 'created_at')),
     updatedAt: asString(pick(record, 'updatedAt', 'updated_at')),
+    templateSyntaxHints: toTemplateSyntaxHints(pick(record, 'templateSyntaxHints', 'template_syntax_hints')),
   };
 }
 

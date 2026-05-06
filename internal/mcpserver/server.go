@@ -53,7 +53,23 @@ type queryToolRequest struct {
 	Constraints           string                  `json:"constraints"`
 }
 
-const approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use :status, @status, or $1 in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding LIMIT/OFFSET/TOP. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
+const (
+	approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use datasource-native placeholder styles in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding datasource-specific pagination clauses. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
+	parameterValuesDescription   = "Parameter values keyed by parameter name. Use native JSON values when possible: strings for string, date (YYYY-MM-DD), timestamp (RFC3339), and uuid; numbers or numeric strings for integer and decimal; booleans or parseable boolean strings for boolean; JSON arrays or comma-separated strings for string[] and integer[]. Array parameters require a datasource adapter that supports arrays."
+	rawSQLDiscoveryDescription   = " Check the active datasource dialect before writing SQL: tools/list includes it on this argument when available; call get_datasource_information, and explore_schema when available, for datasource metadata and table shape."
+)
+
+var supportedQueryParameterTypes = []string{
+	"string",
+	"integer",
+	"decimal",
+	"boolean",
+	"date",
+	"timestamp",
+	"uuid",
+	"string[]",
+	"integer[]",
+}
 
 func New(version string, service *core.Service) *Server {
 	mcpServer := buildMCPServer(version, service)
@@ -62,17 +78,23 @@ func New(version string, service *core.Service) *Server {
 
 func buildMCPServer(version string, service *core.Service) *server.MCPServer {
 	descriptionCache := newDatasourceInfoDescriptionCache()
+	templateSyntaxCache := newTemplateSyntaxHintsCache()
 	hooks := &server.Hooks{}
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 		if result == nil {
 			return
 		}
-		result.Tools = enrichDatasourceInformationToolDescriptions(ctx, service, descriptionCache, filterToolsForContext(ctx, service, result.Tools))
+		filtered := filterToolsForContext(ctx, service, result.Tools)
+		filtered = enrichDatasourceInformationToolDescriptions(ctx, service, descriptionCache, filtered)
+		filtered = enrichApprovedQueryToolDescriptions(ctx, service, templateSyntaxCache, filtered)
+		filtered = enrichActiveDatasourceSQLToolDescriptions(ctx, service, filtered)
+		result.Tools = filtered
 	})
 
 	mcpServer := server.NewMCPServer("dataclaw", version, server.WithToolCapabilities(true), server.WithHooks(hooks))
 	registerHealthTool(mcpServer, version, service)
 	registerDatasourceInformationTool(mcpServer, service)
+	registerSchemaExplorationTool(mcpServer, service)
 	registerQueryTool(mcpServer, service)
 	registerExecuteTool(mcpServer, service)
 	registerListQueriesTool(mcpServer, service)
@@ -142,10 +164,10 @@ func tokenHint(token string) string {
 
 func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("query",
-		mcp.WithDescription("Execute read-only SQL SELECT statements against the configured datasource when the authenticated agent has raw query access."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("SQL SELECT statement to execute")),
+		mcp.WithDescription("Execute one read-only SQL SELECT or WITH statement against the configured datasource when the authenticated agent has raw query access. Call get_datasource_information, and explore_schema when available, first when you need the SQL dialect, schema, or table shape."),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to execute. Semicolon-separated batches are rejected."+rawSQLDiscoveryDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
-		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. Use a stable top-level ORDER BY when offset is greater than zero.")),
 		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
@@ -166,11 +188,11 @@ func registerQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute",
-		mcp.WithDescription("Execute ad-hoc DDL or DML against the configured datasource when the authenticated agent has raw execute access."),
-		mcp.WithString("sql", mcp.Required(), mcp.Description("Single DDL or DML statement to execute")),
+		mcp.WithDescription("Execute one ad-hoc DDL or DML statement against the configured datasource when the authenticated agent has raw execute access. One statement per call: semicolon-separated batches are rejected, while datasource-valid procedural DDL bodies are allowed when they form one statement. Call get_datasource_information, and explore_schema when available, first when you need the SQL dialect, schema, or table shape."),
+		mcp.WithString("sql", mcp.Required(), mcp.Description("Single datasource-dialect DDL or DML statement to execute. One statement per call: semicolon-separated batches are rejected, while datasource-valid procedural DDL bodies are allowed when they form one statement."+rawSQLDiscoveryDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum returned rows when the statement returns rows (default 100, max 1000)")),
 		mcp.WithNumber("offset", mcp.Description("Zero-based returned-row offset when the statement returns rows.")),
-		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: json (default) or tsv.")),
+		mcp.WithString("result_format", mcp.Description("Response format when the statement returns rows: tsv (default) or json.")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
@@ -211,7 +233,7 @@ func registerCreateQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
 		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
 		mcp.WithString("sql_query", mcp.Required(), mcp.Description("SQL body for the approved query. "+approvedQueryTemplateExample)),
-		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
+		mcp.WithBoolean("allows_modification", mcp.Description("Controls validation and execution behavior: false requires a read-only SELECT/WITH query; true requires INSERT, UPDATE, or DELETE and executes through the mutating DML path.")),
 		mcp.WithArray("parameters", mcp.Description("Optional parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Optional documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
@@ -240,7 +262,7 @@ func registerUpdateQueryTool(srv *server.MCPServer, service *core.Service) {
 		mcp.WithString("natural_language_prompt", mcp.Required(), mcp.Description("Human-readable prompt describing when to use the query.")),
 		mcp.WithString("additional_context", mcp.Description("Optional usage notes or extra context for the query.")),
 		mcp.WithString("sql_query", mcp.Required(), mcp.Description("Full replacement SQL body for the approved query. "+approvedQueryTemplateExample)),
-		mcp.WithBoolean("allows_modification", mcp.Description("Whether the query intentionally performs mutations instead of read-only access.")),
+		mcp.WithBoolean("allows_modification", mcp.Description("Controls validation and execution behavior: false requires a read-only SELECT/WITH query; true requires INSERT, UPDATE, or DELETE and executes through the mutating DML path.")),
 		mcp.WithArray("parameters", mcp.Description("Full replacement parameter definitions for the query. Every defined parameter must be used in sql_query, and every {{parameter_name}} placeholder used in sql_query must have a matching definition."), mcp.Items(queryParameterItemSchema())),
 		mcp.WithArray("output_columns", mcp.Description("Full replacement documented output columns."), mcp.Items(outputColumnItemSchema())),
 		mcp.WithString("constraints", mcp.Description("Optional business constraints or caveats.")),
@@ -289,17 +311,17 @@ func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute_query",
-		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Parameters are validated and bound before execution."),
+		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Inspect list_queries for allows_modification before calling: read-only approved queries run as SELECT/WITH, while allows_modification=true queries run as mutating DML. Pass parameters as an object keyed by parameter name; values are validated, coerced, and bound according to the approved query's parameter definitions before execution."),
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
-		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name")),
+		mcp.WithObject("parameters", mcp.Description(parameterValuesDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),
-		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. SQL Server queries must include a top-level ORDER BY when offset is greater than zero.")),
+		mcp.WithNumber("offset", mcp.Description("Zero-based row offset for deterministic pagination. Use a stable top-level ORDER BY when offset is greater than zero.")),
 		mcp.WithString("result_format", mcp.Description("Response format for tabular results: tsv (default) or json.")),
-		mcp.WithReadOnlyHintAnnotation(false),
-		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(false),
 	)
+	tool.Annotations.ReadOnlyHint = nil
+	tool.Annotations.DestructiveHint = nil
 	srv.AddTool(tool, trackedToolHandler(service, "execute_query", func(ctx context.Context, agent *storepkg.Agent, req mcp.CallToolRequest) (any, error) {
 		queryID, err := req.RequireString("query_id")
 		if err != nil {
@@ -317,9 +339,9 @@ func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 func registerCountRowsTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("count_rows",
 		mcp.WithDescription("Return an exact row count for one read-only raw SQL SELECT or one accessible read-only approved query. Provide exactly one of sql or query_id."),
-		mcp.WithString("sql", mcp.Description("Raw SQL SELECT statement to count. Requires raw query access.")),
+		mcp.WithString("sql", mcp.Description("Single datasource-dialect SQL SELECT or WITH statement to count. Requires raw query access. Semicolon-separated batches are rejected."+rawSQLDiscoveryDescription)),
 		mcp.WithString("query_id", mcp.Description("Approved query ID to count. Requires access to that approved query.")),
-		mcp.WithObject("parameters", mcp.Description("Parameter values keyed by parameter name. Only valid with query_id.")),
+		mcp.WithObject("parameters", mcp.Description(parameterValuesDescription+" Only valid with query_id.")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -377,6 +399,7 @@ func allowedTools(agent *storepkg.Agent) map[string]bool {
 	allowed["health"] = true
 	allowed[datasourceInformationToolName] = true
 	if agent.CanQuery {
+		allowed[schemaExplorationToolName] = true
 		allowed["query"] = true
 		allowed["count_rows"] = true
 	}
@@ -516,12 +539,23 @@ func queryParameterItemSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"name":        map[string]any{"type": "string"},
-			"type":        map[string]any{"type": "string"},
+			"name": map[string]any{
+				"type":        "string",
+				"description": "Parameter name that appears in sql_query as {{parameter_name}}.",
+			},
+			"type": map[string]any{
+				"type":        "string",
+				"enum":        supportedQueryParameterTypes,
+				"description": "DataClaw parameter type used for validation and value coercion. Supported values: string, integer, decimal, boolean, date, timestamp, uuid, string[], integer[]. Use SQL casts in sql_query when the datasource needs a more specific SQL type.",
+			},
 			"description": map[string]any{"type": "string"},
 			"required":    map[string]any{"type": "boolean"},
-			"default":     map[string]any{},
-			"example":     map[string]any{},
+			"default": map[string]any{
+				"description": "Optional default value using the same JSON shape accepted by execute_query parameters.",
+			},
+			"example": map[string]any{
+				"description": "Example value using the same JSON shape accepted by execute_query parameters.",
+			},
 		},
 		"additionalProperties": true,
 	}
@@ -532,7 +566,7 @@ func outputColumnItemSchema() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"name":        map[string]any{"type": "string"},
-			"type":        map[string]any{"type": "string"},
+			"type":        map[string]any{"type": "string", "description": "Documentation-only result column type; it is not used for validation or coercion. Prefer the DataClaw parameter type vocabulary when it fits, or the datasource-native column type when that is clearer."},
 			"description": map[string]any{"type": "string"},
 		},
 		"additionalProperties": true,

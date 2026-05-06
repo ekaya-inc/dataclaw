@@ -20,6 +20,20 @@ export function hasRequiredExecutionValues(parameters: QueryParameter[], values:
   });
 }
 
+export function pruneUnknownParameterValues(
+  values: Record<string, unknown>,
+  parameters: QueryParameter[],
+): Record<string, unknown> {
+  const allowed = new Set(parameters.map((parameter) => parameter.name));
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (allowed.has(key)) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
 function inputValue(value: unknown, fallback: unknown): string {
   const effective = value ?? fallback;
   if (Array.isArray(effective)) {
@@ -34,6 +48,13 @@ function inputValue(value: unknown, fallback: unknown): string {
 function checkboxValue(value: unknown, fallback: unknown): boolean {
   const effective = value ?? fallback;
   return effective === true || effective === 'true' || effective === 1 || effective === '1';
+}
+
+function parameterTypeHint(parameter: QueryParameter): string {
+  if (parameter.type === 'timestamp') {
+    return 'timestamp, e.g. 2020-04-01T00:00:00Z';
+  }
+  return parameter.type;
 }
 
 export function ParameterInputForm({
@@ -61,7 +82,7 @@ export function ParameterInputForm({
       <Label htmlFor={`execute-parameter-${parameter.name}`}>
         {parameter.name}
         {parameter.required ? <span className="ml-1 text-red-500">*</span> : null}
-        <span className="ml-2 text-xs font-normal text-text-tertiary">({parameter.type})</span>
+        <span className="ml-2 text-xs font-normal text-text-tertiary">({parameterTypeHint(parameter)})</span>
       </Label>
       {parameter.description ? <p className="text-xs text-text-secondary">{parameter.description}</p> : null}
       {parameter.type === 'boolean' ? (
@@ -83,7 +104,7 @@ export function ParameterInputForm({
           onChange={(event) => updateValue(parameter.name, event.target.value)}
           placeholder={
             parameter.type === 'timestamp'
-              ? 'RFC3339 timestamp, e.g. 2026-04-16T12:30:00Z'
+              ? 'RFC3339 timestamp, e.g. 2020-04-01T00:00:00Z'
               : parameter.type === 'string[]'
                 ? 'Comma-separated values, e.g. pending,active'
                 : parameter.type === 'integer[]'
