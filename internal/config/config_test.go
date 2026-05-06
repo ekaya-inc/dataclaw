@@ -153,6 +153,128 @@ func TestLoadUsesJSONConfigAndEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadUsesExplicitJSONConfigPath(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "settings.json")
+	if err := os.WriteFile(configPath, []byte(`{
+		"config_version": 1,
+		"data_dir": " ~/configured-data ",
+		"secret_path": " ~/configured-secret.key ",
+		"admin": {
+			"bind_addr": " localhost ",
+			"port": 19010,
+			"advertised_base_url": " https://admin.example.com/ ",
+			"tls": false,
+			"tls_cert_file": " ~/admin.crt ",
+			"tls_key_file": " ~/admin.key ",
+			"password": "from-explicit-file"
+		},
+		"mcp": {
+			"bind_addr": " ::1 ",
+			"port": 19011,
+			"advertised_base_url": " http://mcp.example.com/ ",
+			"tls": true,
+			"tls_cert_file": " ~/mcp.crt ",
+			"tls_key_file": " ~/mcp.key "
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	setLoadEnv(t, map[string]string{
+		"HOME":                 home,
+		"DATACLAW_CONFIG_PATH": configPath,
+	})
+
+	cfg, err := Load("test")
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+
+	if cfg.DataDir != filepath.Join(home, "configured-data") {
+		t.Fatalf("DataDir = %q", cfg.DataDir)
+	}
+	if cfg.SQLitePath != filepath.Join(cfg.DataDir, "dataclaw.sqlite") {
+		t.Fatalf("SQLitePath = %q", cfg.SQLitePath)
+	}
+	if cfg.SecretPath != filepath.Join(home, "configured-secret.key") {
+		t.Fatalf("SecretPath = %q", cfg.SecretPath)
+	}
+	if cfg.Admin.BindAddr != "localhost" || cfg.Admin.Port != 19010 {
+		t.Fatalf("admin listener = %s:%d", cfg.Admin.BindAddr, cfg.Admin.Port)
+	}
+	if cfg.Admin.AdvertisedBaseURL != "https://admin.example.com" {
+		t.Fatalf("admin advertised base = %q", cfg.Admin.AdvertisedBaseURL)
+	}
+	if cfg.Admin.TLS || !cfg.Admin.ServesTLS() || !cfg.Admin.AdvertisesHTTPS() {
+		t.Fatalf("admin TLS serving/advertise state = %v/%v", cfg.Admin.ServesTLS(), cfg.Admin.AdvertisesHTTPS())
+	}
+	if cfg.Admin.TLSCertFile != filepath.Join(home, "admin.crt") || cfg.Admin.TLSKeyFile != filepath.Join(home, "admin.key") {
+		t.Fatalf("admin TLS files = %q/%q", cfg.Admin.TLSCertFile, cfg.Admin.TLSKeyFile)
+	}
+	if cfg.MCP.BindAddr != "::1" || cfg.MCP.Port != 19011 || !cfg.MCP.TLS {
+		t.Fatalf("mcp listener = %#v", cfg.MCP)
+	}
+	if cfg.MCP.AdvertisedBaseURL != "http://mcp.example.com" {
+		t.Fatalf("mcp advertised base = %q", cfg.MCP.AdvertisedBaseURL)
+	}
+}
+
+func TestLoadRejectsInvalidJSONConfig(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"unknown field", `{"config_version":1,"surprise":true}`, "unknown field"},
+		{"unsupported version", `{"config_version":2}`, "config_version = 2, want 1"},
+		{"invalid log level", `{"config_version":1,"log_level":"verbose"}`, "invalid DATACLAW_LOG_LEVEL"},
+		{"invalid admin ttl", `{"config_version":1,"admin":{"session_ttl":"forever"}}`, "parse admin.session_ttl"},
+		{"invalid long ttl", `{"config_version":1,"admin":{"session_long_ttl":"forever"}}`, "parse admin.session_long_ttl"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			configPath := filepath.Join(dir, "config.json")
+			if err := os.WriteFile(configPath, []byte(tc.content), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			setLoadEnv(t, map[string]string{
+				"HOME":                 t.TempDir(),
+				"DATACLAW_CONFIG_PATH": configPath,
+			})
+
+			_, err := Load("test")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsConfigPathErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"empty explicit path", " ", "DATACLAW_CONFIG_PATH is empty"},
+		{"missing explicit path", filepath.Join(t.TempDir(), "missing.json"), "does not exist"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setLoadEnv(t, map[string]string{
+				"HOME":                 t.TempDir(),
+				"DATACLAW_CONFIG_PATH": tc.path,
+			})
+
+			_, err := Load("test")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadUsesLegacyEnvAliasesForAdminOnly(t *testing.T) {
 	customDir := filepath.Join(t.TempDir(), "custom")
 	setLoadEnv(t, map[string]string{
@@ -193,6 +315,33 @@ func TestLoadUsesLegacyEnvAliasesForAdminOnly(t *testing.T) {
 	}
 	if cfg.LogLevel != slog.LevelWarn {
 		t.Fatalf("LogLevel = %v, want %v", cfg.LogLevel, slog.LevelWarn)
+	}
+}
+
+func TestLoadRejectsInvalidListenerEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"invalid admin port", map[string]string{"DATACLAW_ADMIN_PORT": "bad"}, "parse DATACLAW_ADMIN_PORT"},
+		{"invalid mcp port", map[string]string{"DATACLAW_MCP_PORT": "bad"}, "parse DATACLAW_MCP_PORT"},
+		{"invalid admin tls", map[string]string{"DATACLAW_ADMIN_TLS": "maybe"}, "parse DATACLAW_ADMIN_TLS"},
+		{"invalid mcp ttl", map[string]string{"DATACLAW_ADMIN_SESSION_TTL": "later"}, "parse DATACLAW_ADMIN_SESSION_TTL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]string{"HOME": t.TempDir()}
+			for key, value := range tc.env {
+				values[key] = value
+			}
+			setLoadEnv(t, values)
+
+			_, err := Load("test")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want substring %q", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -237,6 +386,11 @@ func TestLoadRejectsInvalidSecurityConfig(t *testing.T) {
 		{"empty admin password", map[string]string{"DATACLAW_ADMIN_PASSWORD": ""}, "DATACLAW_ADMIN_PASSWORD must not be empty"},
 		{"invalid admin base url", map[string]string{"DATACLAW_ADMIN_ADVERTISED_BASE_URL": "ftp://admin.example.com"}, "admin.advertised_base_url must use http or https"},
 		{"advertised host with port", map[string]string{"DATACLAW_MCP_ADVERTISED_HOST": "mcp.example.com:18791"}, "mcp.advertised_host must not include a port"},
+		{"advertised host with scheme", map[string]string{"DATACLAW_ADMIN_ADVERTISED_HOST": "https://admin.example.com"}, "admin.advertised_host must be a host name"},
+		{"advertised base url without host", map[string]string{"DATACLAW_ADMIN_ADVERTISED_BASE_URL": "https:///missing"}, "admin.advertised_base_url must include a host"},
+		{"advertised base url with query", map[string]string{"DATACLAW_ADMIN_ADVERTISED_BASE_URL": "https://admin.example.com?debug=1"}, "admin.advertised_base_url must not include query or fragment"},
+		{"advertised base url with path", map[string]string{"DATACLAW_ADMIN_ADVERTISED_BASE_URL": "https://admin.example.com/app"}, "admin.advertised_base_url must not include a path"},
+		{"invalid mcp port range", map[string]string{"DATACLAW_MCP_PORT": "70000"}, "mcp.port must be between 1 and 65535"},
 		{"partial tls pair", map[string]string{"DATACLAW_ADMIN_TLS_CERT_FILE": "cert.pem"}, "admin TLS cert/key must be configured together"},
 		{"too long session", map[string]string{"DATACLAW_ADMIN_SESSION_LONG_TTL": "2161h"}, "admin.session_long_ttl must be positive"},
 	}
@@ -276,6 +430,28 @@ func TestConfigBaseURLHelpers(t *testing.T) {
 	}
 	if got := cfg.MCPBaseURL(18791); got != "https://mcp.example.com" {
 		t.Fatalf("MCPBaseURL(advertised base) = %q", got)
+	}
+}
+
+func TestConfigHelpers(t *testing.T) {
+	t.Setenv("DATACLAW_TEST_INT", "")
+	if got, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err != nil || got != 42 {
+		t.Fatalf("intEnvOrDefault(empty) = %d, %v", got, err)
+	}
+
+	t.Setenv("DATACLAW_TEST_INT", " 17 ")
+	if got, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err != nil || got != 17 {
+		t.Fatalf("intEnvOrDefault(value) = %d, %v", got, err)
+	}
+	t.Setenv("DATACLAW_TEST_INT", "many")
+	if _, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err == nil || !strings.Contains(err.Error(), "parse DATACLAW_TEST_INT") {
+		t.Fatalf("intEnvOrDefault(invalid) error = %v", err)
+	}
+
+	cfg := &Config{DataDir: "/data"}
+	cfg.syncLegacyFields()
+	if cfg.SQLitePath != "/data/dataclaw.sqlite" || cfg.SecretPath != "/data/secret.key" {
+		t.Fatalf("syncLegacyFields paths = %q/%q", cfg.SQLitePath, cfg.SecretPath)
 	}
 }
 
