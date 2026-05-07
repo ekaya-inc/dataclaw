@@ -77,6 +77,19 @@ describe('useSupportDismissed', () => {
     expect(result.current[0]).toBe(false);
   });
 
+  it('ignores storage events for unrelated keys', () => {
+    const { result } = renderHook(() => useSupportDismissed());
+
+    expect(result.current[0]).toBe(false);
+
+    act(() => {
+      window.localStorage.setItem(STORAGE_KEY, '1');
+      window.dispatchEvent(new StorageEvent('storage', { key: 'unrelated', newValue: '1' }));
+    });
+
+    expect(result.current[0]).toBe(false);
+  });
+
   it('falls back safely when storage access fails', () => {
     const getItemSpy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
       throw new Error('storage unavailable');
