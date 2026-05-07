@@ -11,6 +11,7 @@ import AgentEditorPage from './pages/AgentEditorPage';
 import AgentsPage from './pages/AgentsPage';
 import QueryDetailPage from './pages/QueryDetailPage';
 import QueryEditorPage from './pages/QueryEditorPage';
+import SettingsPage from './pages/SettingsPage';
 import SignInPage from './pages/SignInPage';
 import SupportPage from './pages/SupportPage';
 import { AUTH_UNAUTHORIZED_EVENT, getAuthSession, getStatus, listQueries, logout } from './services/api';
@@ -33,7 +34,8 @@ function signinPathFor(location: ReturnType<typeof useLocation>): string {
 }
 
 function safeNextPath(search: string): string {
-  const value = new URLSearchParams(search).get('next');
+  const params = new URLSearchParams(search);
+  const value = params.get('next') ?? params.get('redirect');
   if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
   return value;
 }
@@ -130,6 +132,9 @@ function AuthenticatedApp({ onSignedOut }: { onSignedOut: () => void }): JSX.Ele
       onSignedOut();
     }
   }, [onSignedOut]);
+  const handleLogoutClick = useCallback((): void => {
+    void handleLogout();
+  }, [handleLogout]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -155,7 +160,7 @@ function AuthenticatedApp({ onSignedOut }: { onSignedOut: () => void }): JSX.Ele
             status={status}
             completion={completion}
             outletContext={outletContext}
-            onLogout={() => void handleLogout()}
+            onLogout={handleLogoutClick}
           />
         }
       >
@@ -169,6 +174,7 @@ function AuthenticatedApp({ onSignedOut }: { onSignedOut: () => void }): JSX.Ele
         <Route path="/agents/new" element={<AgentEditorPage />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
         <Route path="/agents/:id/edit" element={<AgentEditorPage />} />
+        <Route path="/settings" element={<SettingsPage status={status} onLogout={handleLogoutClick} />} />
         <Route path="/support" element={<SupportPage />} />
         <Route path="*" element={<Navigate to="/datasource" replace />} />
       </Route>

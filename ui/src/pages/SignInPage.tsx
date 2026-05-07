@@ -17,7 +17,7 @@ function safeNextPath(value: string | null): string {
 export default function SignInPage({ onSignedIn }: { onSignedIn: () => void }): JSX.Element {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const nextPath = useMemo(() => safeNextPath(searchParams.get('next')), [searchParams]);
+  const nextPath = useMemo(() => safeNextPath(searchParams.get('next') ?? searchParams.get('redirect')), [searchParams]);
 
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
@@ -54,6 +54,10 @@ export default function SignInPage({ onSignedIn }: { onSignedIn: () => void }): 
         </CardHeader>
         <CardContent>
           <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="admin-username">Username</Label>
+              <Input id="admin-username" name="username" type="text" value="admin" readOnly />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="admin-password">Admin password</Label>
               <Input

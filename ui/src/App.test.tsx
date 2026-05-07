@@ -17,7 +17,7 @@ function isMockResponse(value: MockRoute): value is { status: number; body: unkn
 
 function mockFetch(routes: Record<string, MockRoute>) {
   const allRoutes: Record<string, MockRoute> = {
-    '/api/auth/session': { authenticated: true },
+    '/api/auth/session': { authenticated: true, csrf_token: 'csrf-token' },
     ...routes,
   };
   return vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
@@ -157,6 +157,8 @@ describe('App shell', () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /sign in to dataclaw/i })).toBeInTheDocument());
+    expect(screen.getByLabelText(/username/i)).toHaveValue('admin');
+    expect(screen.getByLabelText(/username/i)).toHaveAttribute('readonly');
     await userEvent.type(screen.getByLabelText(/admin password/i), 'admin-password');
     await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
 
@@ -184,5 +186,31 @@ describe('App shell', () => {
     const logoutCall = fetchMock.mock.calls.find(([input]) => input === '/api/auth/logout');
     expect(logoutCall?.[1]?.method).toBe('POST');
     expect(logoutCall?.[1]?.credentials).toBe('same-origin');
+  });
+
+  it('shows settings and logs out from the settings screen', async () => {
+    window.history.pushState({}, '', '/settings');
+    const fetchMock = mockFetch({
+      '/api/status': {
+        admin_base_url: 'http://127.0.0.1:18790',
+        mcp_url: 'http://127.0.0.1:18791/mcp',
+        admin_port: 18790,
+        mcp_port: 18791,
+        listener_split: true,
+        agent_count: 0,
+        datasource_configured: false,
+      },
+      '/api/queries': { queries: [] },
+      '/api/auth/logout': { success: true },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /settings/i })).toBeInTheDocument());
+    expect(screen.getByText('http://127.0.0.1:18791/mcp')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /logout/i }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/signin'));
+    expect(fetchMock.mock.calls.find(([input]) => input === '/api/auth/logout')?.[1]?.method).toBe('POST');
   });
 });

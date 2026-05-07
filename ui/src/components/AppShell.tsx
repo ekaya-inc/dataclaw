@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, LogOut, Menu } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, LogOut, Menu, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
@@ -23,6 +23,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
   { to: '/agents', label: 'Agent Access', icon: Bot, completionKey: 'agent' },
+  { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/support', label: 'Support', icon: Heart },
 ];
 
