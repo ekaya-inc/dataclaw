@@ -193,29 +193,6 @@ func TestExecuteStoredQueryRejectsInjectionBeforeDatasourceCall(t *testing.T) {
 	}
 }
 
-func TestExecuteStoredQueryRejectsSQLServerArrayParameters(t *testing.T) {
-	service := newTestService(t)
-	defer service.store.Close()
-	seedDatasource(t, service, "mssql")
-
-	ctx := context.Background()
-	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		NaturalLanguagePrompt: "Find a set of accounts",
-		SQLQuery:              "SELECT * FROM accounts WHERE id IN ({{account_ids}})",
-		Parameters: []models.QueryParameter{
-			{Name: "account_ids", Type: "integer[]", Required: true},
-		},
-	})
-	if err != nil {
-		t.Fatalf("CreateQuery: %v", err)
-	}
-
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_ids": "1,2,3"}, QueryOptions{Limit: 100})
-	if err == nil || !strings.Contains(err.Error(), "SQL Server") {
-		t.Fatalf("expected SQL Server array-parameter error, got %v", err)
-	}
-}
-
 func TestCreateAndUpdateQueryValidateOutputColumns(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()

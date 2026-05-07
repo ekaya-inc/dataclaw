@@ -113,6 +113,15 @@ func hasArrayParameters(paramDefs []models.QueryParameter, suppliedParams map[st
 	return false
 }
 
+func declaredArrayParameter(paramDefs []models.QueryParameter) (string, bool) {
+	for _, param := range paramDefs {
+		if isArrayParameterType(param.Type) {
+			return param.Name, true
+		}
+	}
+	return "", false
+}
+
 func isArrayParameterType(paramType string) bool {
 	switch paramType {
 	case "string[]", "integer[]":

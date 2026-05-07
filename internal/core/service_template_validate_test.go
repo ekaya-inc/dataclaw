@@ -8,6 +8,7 @@ import (
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/adapters/datasource/mssql"
 	"github.com/ekaya-inc/dataclaw/internal/store"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 // serviceWithMSSQLValidator wires the real mssql template validator into the
@@ -83,5 +84,70 @@ func TestValidateQuerySQLBypassesReadOnlyCheckForDMLTemplates(t *testing.T) {
 	dml := "UPDATE TOP (5) dbo.t SET status = 'done' WHERE id = 1"
 	if _, err := service.ValidateQuerySQL(context.Background(), dml, nil, true); err != nil {
 		t.Fatalf("expected DML template to bypass read-only check, got %v", err)
+	}
+}
+
+func TestValidateQuerySQLRejectsArrayParametersOnMSSQL(t *testing.T) {
+	service := serviceWithMSSQLValidator(t)
+	defer service.store.Close()
+	ctx := context.Background()
+
+	cases := []struct {
+		name      string
+		paramType string
+	}{
+		{"integer_array", "integer[]"},
+		{"string_array", "string[]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := []models.QueryParameter{{Name: "items", Type: tc.paramType, Required: true}}
+			sql := "SELECT OrderKey FROM dbo.orders WHERE OrderKey = ANY({{items}}) ORDER BY OrderKey"
+			_, err := service.ValidateQuerySQL(ctx, sql, params, false)
+			if err == nil {
+				t.Fatalf("expected rejection for %s, got nil", tc.paramType)
+			}
+			if !strings.Contains(err.Error(), "not supported") || !strings.Contains(err.Error(), `"items"`) {
+				t.Fatalf("expected error to identify the array parameter and capability gap, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestCreateQueryRejectsArrayParametersOnMSSQL(t *testing.T) {
+	service := serviceWithMSSQLValidator(t)
+	defer service.store.Close()
+	ctx := context.Background()
+
+	q := &store.ApprovedQuery{
+		NaturalLanguagePrompt: "lookup",
+		SQLQuery:              "SELECT OrderKey FROM dbo.orders WHERE OrderKey = ANY({{ids}}) ORDER BY OrderKey",
+		Parameters:            []models.QueryParameter{{Name: "ids", Type: "integer[]", Required: true}},
+	}
+	if _, err := service.CreateQuery(ctx, q); err == nil {
+		t.Fatal("expected CreateQuery to reject array parameter on MSSQL")
+	}
+}
+
+func TestValidateQuerySQLAcceptsArrayParametersOnPostgres(t *testing.T) {
+	factory := newFakeAdapterFactory()
+	factory.newTester = func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error) {
+		return fakeConnectionTester{}, nil
+	}
+	service := newTestServiceWithFactory(t, factory)
+	defer service.store.Close()
+	ctx := context.Background()
+	if _, err := service.UpsertDatasource(ctx, &store.Datasource{
+		Name:   "Primary",
+		Type:   "postgres",
+		Config: map[string]any{"host": "db", "database": "warehouse", "username": "u", "password": "p"},
+	}); err != nil {
+		t.Fatalf("UpsertDatasource: %v", err)
+	}
+
+	params := []models.QueryParameter{{Name: "ids", Type: "integer[]", Required: true}}
+	sql := "SELECT id FROM users WHERE id = ANY({{ids}}) ORDER BY id"
+	if _, err := service.ValidateQuerySQL(ctx, sql, params, false); err != nil {
+		t.Fatalf("expected Postgres to accept array parameter, got %v", err)
 	}
 }

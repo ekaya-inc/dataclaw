@@ -208,6 +208,9 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 	if err != nil {
 		return nil, err
 	}
+	if err := s.rejectUnsupportedArrayParameters(ds.Type, q.Parameters); err != nil {
+		return nil, err
+	}
 	if !q.AllowsModification {
 		if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
 			return nil, err
@@ -242,6 +245,9 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	}
 	normalized, err := validateStoredQueryForStorage(q.SQLQuery, q.Parameters, q.AllowsModification)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.rejectUnsupportedArrayParameters(ds.Type, q.Parameters); err != nil {
 		return nil, err
 	}
 	if !q.AllowsModification {
@@ -295,18 +301,40 @@ func (s *Service) ValidateQuerySQL(ctx context.Context, sqlQuery string, paramet
 	if err != nil {
 		return "", err
 	}
-	if !allowsModification {
-		ds, err := s.GetDatasource(ctx)
-		if err != nil {
+	ds, err := s.GetDatasource(ctx)
+	if err != nil {
+		return "", err
+	}
+	if ds != nil {
+		if err := s.rejectUnsupportedArrayParameters(ds.Type, parameters); err != nil {
 			return "", err
 		}
-		if ds != nil {
+		if !allowsModification {
 			if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
 				return "", err
 			}
 		}
 	}
 	return normalized, nil
+}
+
+func (s *Service) rejectUnsupportedArrayParameters(dsType string, parameters []models.QueryParameter) error {
+	name, ok := declaredArrayParameter(parameters)
+	if !ok {
+		return nil
+	}
+	info, found := s.DatasourceTypeInfo(dsType)
+	if !found {
+		return nil
+	}
+	if info.Capabilities.SupportsArrayParameters {
+		return nil
+	}
+	displayName := info.DisplayName
+	if displayName == "" {
+		displayName = dsType
+	}
+	return fmt.Errorf("array parameter %q is not supported by the active datasource (%s); use a scalar parameter type instead", name, displayName)
 }
 
 func (s *Service) ValidateRawSQL(sqlQuery string) (string, error) {
