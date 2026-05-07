@@ -38,6 +38,7 @@ This roadmap is ordered from near-term adapter-boundary work to later, capabilit
 - Add `refresh_schema` / `sync_schema` as an Admin-gated MCP tool that mutates only DataClaw local metadata, never the user database.
 - Report tables/columns/relationships added, removed, or modified, plus adapter limitations and pending changes created.
 - Avoid expensive row counts by default; use estimates or explicit opt-in for costly counts.
+- Explicitly design schema relationship metadata as a deferred contract expansion: primary/unique keys, indexes, and foreign keys should be modeled generically and implemented with PostgreSQL/SQL Server parity rather than inferred through raw `information_schema` workarounds.
 
 ## Phase 3: MCP-Authored Schema/Ontology Metadata
 
