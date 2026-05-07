@@ -5,6 +5,7 @@ import {
   UnauthorizedError,
   createAgent,
   createQuery,
+  deleteMCPEvents,
   executeSavedQuery,
   getAuthSession,
   getDatasource,
@@ -12,6 +13,7 @@ import {
   getQuery,
   listMCPEvents,
   logout,
+  mcpEventsDownloadURL,
   signin,
   testQuery,
   updateQuery,
@@ -231,6 +233,26 @@ describe('api service contracts', () => {
     expect(url.searchParams.get('limit')).toBe('25');
     expect(url.searchParams.get('offset')).toBe('50');
   });
+
+  it('deletes mcp-events through the collection endpoint', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+
+    await deleteMCPEvents();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/mcp-events', {
+      credentials: 'same-origin',
+      method: 'DELETE',
+    });
+  });
+
+  it('returns a parameterless mcp-events CSV download URL', () => {
+    const url = new URL(mcpEventsDownloadURL(), 'http://localhost');
+
+    expect(url.pathname).toBe('/api/mcp-events.csv');
+    expect(url.search).toBe('');
+  });
+
   it('creates agents with the selected approved-query scope payload', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(
       jsonResponse({

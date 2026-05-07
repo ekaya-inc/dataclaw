@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +18,22 @@ const (
 	defaultMCPEventsLimit = 50
 	maxMCPEventsLimit     = 100
 )
+
+var mcpEventCSVHeader = []string{
+	"id",
+	"agent_id",
+	"agent_name",
+	"tool_name",
+	"event_type",
+	"was_successful",
+	"duration_ms",
+	"request_params",
+	"result_summary",
+	"error_message",
+	"query_name",
+	"sql_text",
+	"created_at",
+}
 
 func (a *API) handleListMCPEvents(w http.ResponseWriter, r *http.Request) {
 	options, err := parseMCPToolEventOptions(r)
@@ -46,6 +65,109 @@ func (a *API) handleGetMCPEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"event": event}})
+}
+
+func (a *API) handleDownloadMCPEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := a.service.ExportMCPToolEvents(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	var body bytes.Buffer
+	if err := writeMCPEventsCSV(&body, events); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	filename := "dataclaw-mcp-events-" + time.Now().UTC().Format("20060102-150405Z") + ".csv"
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body.Bytes())
+}
+
+func (a *API) handleClearMCPEvents(w http.ResponseWriter, r *http.Request) {
+	if err := a.service.ClearMCPToolEvents(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"deleted": true}})
+}
+
+func writeMCPEventsCSV(w *bytes.Buffer, events []*storepkg.MCPToolEvent) error {
+	writer := csv.NewWriter(w)
+	if err := writer.Write(mcpEventCSVHeader); err != nil {
+		return err
+	}
+	for _, event := range events {
+		record, err := mcpEventCSVRecord(event)
+		if err != nil {
+			return err
+		}
+		if err := writer.Write(record); err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return writer.Error()
+}
+
+func mcpEventCSVRecord(event *storepkg.MCPToolEvent) ([]string, error) {
+	if event == nil {
+		return nil, errors.New("mcp event is required")
+	}
+	requestParams, err := mcpEventJSONCell(event.RequestParams)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request params for %s: %w", event.ID, err)
+	}
+	resultSummary, err := mcpEventJSONCell(event.ResultSummary)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result summary for %s: %w", event.ID, err)
+	}
+
+	agentID := ""
+	if event.AgentID != nil {
+		agentID = strings.TrimSpace(*event.AgentID)
+	}
+	return []string{
+		event.ID,
+		agentID,
+		spreadsheetSafeTextCell(event.AgentName),
+		spreadsheetSafeTextCell(event.ToolName),
+		string(event.EventType),
+		strconv.FormatBool(event.WasSuccessful),
+		strconv.Itoa(event.DurationMs),
+		requestParams,
+		resultSummary,
+		spreadsheetSafeTextCell(event.ErrorMessage),
+		spreadsheetSafeTextCell(event.QueryName),
+		spreadsheetSafeTextCell(event.SQLText),
+		event.CreatedAt.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func spreadsheetSafeTextCell(value string) string {
+	if value == "" {
+		return ""
+	}
+	switch value[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
+}
+
+func mcpEventJSONCell(value map[string]any) (string, error) {
+	if value == nil {
+		value = map[string]any{}
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func parseMCPToolEventOptions(r *http.Request) (storepkg.ListMCPToolEventOptions, error) {

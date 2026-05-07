@@ -76,6 +76,12 @@ describe('useStoredParameterValues', () => {
     expect(window.localStorage.getItem('query-b')).toBeNull();
   });
 
+  it('returns an empty record when no value has been persisted yet', () => {
+    const { result } = renderHook(() => useStoredParameterValues('query-fresh'));
+
+    expect(result.current[0]).toEqual({});
+  });
+
   it('falls back to in-memory state when storage reads or writes fail', () => {
     const getItemSpy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
       throw new Error('storage unavailable');
