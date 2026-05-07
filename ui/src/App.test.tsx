@@ -169,25 +169,6 @@ describe('App shell', () => {
     expect(setItemSpy).not.toHaveBeenCalledWith(expect.stringMatching(/password|session/i), expect.any(String));
   });
 
-  it('logs out through the auth API and returns to signin', async () => {
-    window.history.pushState({}, '', '/');
-    const fetchMock = mockFetch({
-      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 0, datasource_configured: false },
-      '/api/queries': { queries: [] },
-      '/api/auth/logout': { success: true },
-    });
-
-    render(<App />);
-
-    await waitFor(() => expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /sign out/i }));
-
-    await waitFor(() => expect(window.location.pathname).toBe('/signin'));
-    const logoutCall = fetchMock.mock.calls.find(([input]) => input === '/api/auth/logout');
-    expect(logoutCall?.[1]?.method).toBe('POST');
-    expect(logoutCall?.[1]?.credentials).toBe('same-origin');
-  });
-
   it('shows settings and logs out from the settings screen', async () => {
     window.history.pushState({}, '', '/settings');
     const fetchMock = mockFetch({

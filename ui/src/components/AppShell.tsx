@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, LogOut, Menu, Settings } from 'lucide-react';
+import { Bot, CheckCircle2, DatabaseZap, FileCheck2, Heart, Menu, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 
@@ -23,7 +23,6 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/datasource', label: 'Datasource', icon: DatabaseZap, completionKey: 'datasource' },
   { to: '/queries', label: 'Approved Queries', icon: FileCheck2, completionKey: 'queries' },
   { to: '/agents', label: 'Agent Access', icon: Bot, completionKey: 'agent' },
-  { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/support', label: 'Support', icon: Heart },
 ];
 
@@ -31,10 +30,9 @@ interface AppShellProps {
   status: RuntimeStatus | null;
   completion: Completion;
   outletContext: AppOutletContext;
-  onLogout: () => void;
 }
 
-export function AppShell({ status, completion, outletContext, onLogout }: AppShellProps): JSX.Element {
+export function AppShell({ status, completion, outletContext }: AppShellProps): JSX.Element {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [supportDismissed] = useSupportDismissed();
   const visibleNavItems = NAV_ITEMS.filter((item) => {
@@ -101,14 +99,19 @@ export function AppShell({ status, completion, outletContext, onLogout }: AppShe
               {status.version}
             </div>
           ) : null}
-          <button
-            type="button"
-            className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-            onClick={onLogout}
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              cn(
+                'mt-4 flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors',
+                isActive ? 'bg-slate-100 text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-slate-50',
+              )
+            }
+            onClick={() => setMobileNavOpen(false)}
           >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
+            <Settings className="h-4 w-4" />
+            <span className="flex-1">Settings</span>
+          </NavLink>
         </aside>
         <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:ml-0">
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
