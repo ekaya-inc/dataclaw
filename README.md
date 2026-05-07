@@ -46,14 +46,59 @@ DataClaw starts two loopback listeners by default: the admin web UI/API on `http
 
 See [.env.example](./.env.example) for shell-friendly examples. DataClaw does not auto-load dotenv files; export the variables in your shell or source them before starting `dataclaw`.
 
+Admin sign-in uses username `admin`. Set an admin password before exposing the admin listener beyond loopback:
+
+```bash
+export DATACLAW_ADMIN_PASSWORD='replace-with-a-strong-password'
+```
+
+If neither `DATACLAW_ADMIN_PASSWORD` nor `admin.password` in the JSON config is set, DataClaw accepts the default password `admin` and logs a WARN-level startup message.
+
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `DATACLAW_BIND_ADDR` | `127.0.0.1` | Bind address for the local HTTP server. v1 normalizes every value back to loopback. |
-| `DATACLAW_PORT` | `18790` | Preferred HTTP port. If busy, DataClaw increments to the next free port. |
+| `DATACLAW_CONFIG_PATH` | unset | Optional JSON config file. If unset, DataClaw reads `$DATACLAW_DATA_DIR/config.json` when it exists. An explicit missing path fails startup. |
 | `DATACLAW_DATA_DIR` | `~/.dataclaw` | Base data directory for local DataClaw state. |
 | `DATACLAW_DB_PATH` | `$DATACLAW_DATA_DIR/dataclaw.sqlite` | SQLite metadata database path. |
 | `DATACLAW_SECRET_PATH` | `$DATACLAW_DATA_DIR/secret.key` | Encryption key path for stored datasource credentials. |
 | `DATACLAW_LOG_LEVEL` | `info` | Structured log level: `debug`, `info`, `warn`, `warning`, or `error` (case-insensitive). |
+| `DATACLAW_ADMIN_BIND_ADDR` | `127.0.0.1` | Admin web UI/API bind address. May be loopback, `0.0.0.0`, an IP, or an FQDN. |
+| `DATACLAW_ADMIN_PORT` | `18790` | Preferred admin port. If busy, DataClaw probes upward. |
+| `DATACLAW_ADMIN_ADVERTISED_HOST` | bind address | Hostname/IP used when generating admin URLs; do not include scheme or port. |
+| `DATACLAW_ADMIN_ADVERTISED_BASE_URL` | derived | Absolute `http`/`https` admin base URL. Overrides advertised host and probed port in generated URLs. |
+| `DATACLAW_ADMIN_TLS` | `false` | `true` advertises HTTPS. With no cert/key this is reverse-proxy mode and the local listener remains plain HTTP. |
+| `DATACLAW_ADMIN_TLS_CERT_FILE` | unset | Admin TLS certificate file. Must be set together with key file to serve TLS directly. |
+| `DATACLAW_ADMIN_TLS_KEY_FILE` | unset | Admin TLS key file. Must be set together with certificate file. |
+| `DATACLAW_ADMIN_PASSWORD` | `admin` | Admin password. The default works but emits a WARN-level startup message. |
+| `DATACLAW_ADMIN_SESSION_TTL` | `12h` | Normal admin session cookie lifetime. |
+| `DATACLAW_ADMIN_SESSION_LONG_TTL` | `720h` | “Keep me signed in” admin session lifetime; capped at 90 days. |
+| `DATACLAW_MCP_BIND_ADDR` | `127.0.0.1` | MCP listener bind address. The MCP listener serves MCP routes only. |
+| `DATACLAW_MCP_PORT` | `18791` | Preferred MCP port. If busy, DataClaw probes upward independently of the admin listener. |
+| `DATACLAW_MCP_ADVERTISED_HOST` | bind address | Hostname/IP used when generating MCP URLs; do not include scheme or port. |
+| `DATACLAW_MCP_ADVERTISED_BASE_URL` | derived | Absolute `http`/`https` MCP base URL used in generated agent install manifests. |
+| `DATACLAW_MCP_TLS` | `false` | TLS semantics match admin TLS. |
+| `DATACLAW_MCP_TLS_CERT_FILE` | unset | MCP TLS certificate file. Must be set together with key file to serve TLS directly. |
+| `DATACLAW_MCP_TLS_KEY_FILE` | unset | MCP TLS key file. Must be set together with certificate file. |
+| `DATACLAW_BIND_ADDR` | `127.0.0.1` | Deprecated compatibility alias for `DATACLAW_ADMIN_BIND_ADDR`; affects admin only and logs a warning. |
+| `DATACLAW_PORT` | `18790` | Deprecated compatibility alias for `DATACLAW_ADMIN_PORT`; affects admin only and logs a warning. |
+
+Equivalent JSON config can be placed at `$DATACLAW_DATA_DIR/config.json` or the path named by `DATACLAW_CONFIG_PATH`:
+
+```json
+{
+  "config_version": 1,
+  "admin": {
+    "bind_addr": "127.0.0.1",
+    "port": 18790,
+    "password": "replace-with-a-strong-password"
+  },
+  "mcp": {
+    "bind_addr": "127.0.0.1",
+    "port": 18791
+  }
+}
+```
+
+Environment variables override JSON values. Unknown JSON fields, invalid ports/durations/URLs, and partial TLS cert/key pairs fail startup.
 
 ## ClawHub
 
