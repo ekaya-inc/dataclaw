@@ -45,14 +45,14 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
       <div className="mx-auto flex min-h-screen max-w-screen-2xl">
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-20 flex w-72 flex-col border-r border-border-light bg-slate-950 px-5 py-6 text-slate-100 transition-transform lg:static lg:translate-x-0',
+            'fixed inset-y-0 left-0 z-20 flex w-72 flex-col border-r border-sidebar-border bg-sidebar-bg px-5 py-6 text-sidebar-fg transition-transform lg:static lg:translate-x-0',
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
           <div className="flex items-center justify-between">
             <Link
               aria-label="DataClaw"
-              className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-purple"
               to="/"
               onClick={() => setMobileNavOpen(false)}
             >
@@ -62,11 +62,14 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
                 className="h-auto w-56 max-w-full"
               />
             </Link>
-            <button className="rounded-lg border border-slate-700 px-3 py-2 lg:hidden" onClick={() => setMobileNavOpen(false)}>
+            <button
+              className="rounded-lg border border-sidebar-border px-3 py-2 lg:hidden"
+              onClick={() => setMobileNavOpen(false)}
+            >
               Close
             </button>
           </div>
-          <p className="mt-4 text-sm leading-6 text-slate-300">
+          <p className="mt-4 text-sm leading-6 text-sidebar-fg-muted">
             Connect local agents to your data safely and securely.
           </p>
           <nav className="mt-8 flex-1 space-y-2">
@@ -80,7 +83,9 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
                   className={({ isActive }) =>
                     cn(
                       'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors',
-                      isActive ? 'bg-slate-100 text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-slate-50',
+                      isActive
+                        ? 'bg-sidebar-item-active-bg text-sidebar-item-active-fg'
+                        : 'text-sidebar-fg-muted hover:bg-sidebar-item-hover-bg hover:text-sidebar-item-hover-fg',
                     )
                   }
                   onClick={() => setMobileNavOpen(false)}
@@ -95,7 +100,7 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
             })}
           </nav>
           {status?.version ? (
-            <div className="mt-4 text-right text-xs text-slate-600" aria-label="Server version">
+            <div className="mt-4 text-right text-xs text-sidebar-fg-faint" aria-label="Server version">
               {status.version}
             </div>
           ) : null}
@@ -104,7 +109,9 @@ export function AppShell({ status, completion, outletContext }: AppShellProps): 
             className={({ isActive }) =>
               cn(
                 'mt-4 flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors',
-                isActive ? 'bg-slate-100 text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-slate-50',
+                isActive
+                  ? 'bg-sidebar-item-active-bg text-sidebar-item-active-fg'
+                  : 'text-sidebar-fg-muted hover:bg-sidebar-item-hover-bg hover:text-sidebar-item-hover-fg',
               )
             }
             onClick={() => setMobileNavOpen(false)}

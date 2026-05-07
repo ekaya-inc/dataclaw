@@ -188,7 +188,7 @@ describe('App shell', () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /settings/i })).toBeInTheDocument());
-    expect(screen.getByText('http://127.0.0.1:18791/mcp')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('http://127.0.0.1:18791/mcp')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: /logout/i }));
 
     await waitFor(() => expect(window.location.pathname).toBe('/signin'));

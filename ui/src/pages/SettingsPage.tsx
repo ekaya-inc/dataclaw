@@ -1,15 +1,25 @@
-import { LogOut, ShieldCheck } from 'lucide-react';
+import { LogOut, Monitor, Moon, ShieldCheck, Sun } from 'lucide-react';
 
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
+import { useTheme, type ThemeMode } from '../hooks/useTheme';
 import type { RuntimeStatus } from '../types/datasource';
+import { cn } from '../utils/cn';
 
 interface SettingsPageProps {
   status: RuntimeStatus | null;
   onLogout: () => void;
 }
 
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+];
+
 export default function SettingsPage({ status, onLogout }: SettingsPageProps): JSX.Element {
+  const [theme, setTheme] = useTheme();
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
@@ -19,6 +29,44 @@ export default function SettingsPage({ status, onLogout }: SettingsPageProps): J
           Review listener details and end the admin session in this browser.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Appearance</CardTitle>
+          <CardDescription>Pick how DataClaw looks in this browser. System follows your OS preference.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div
+            role="radiogroup"
+            aria-label="Theme"
+            className="inline-flex rounded-xl border border-border-light bg-surface-secondary p-1"
+          >
+            {THEME_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              const selected = theme === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setTheme(option.value)}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-purple',
+                    selected
+                      ? 'bg-surface-primary text-text-primary shadow-sm'
+                      : 'text-text-secondary hover:text-text-primary',
+                  )}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
