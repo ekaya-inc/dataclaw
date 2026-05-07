@@ -106,17 +106,17 @@ describe('HomePage', () => {
           items: fetchMock.mock.calls.some(([, callInit]) => callInit?.method === 'DELETE')
             ? []
             : [
-                {
-                  id: 'evt_1',
-                  created_at: '2026-04-17T17:00:00Z',
-                  agent_name: 'Marketing bot',
-                  tool_name: 'execute_query',
-                  event_type: 'tool_call',
-                  was_successful: true,
-                  duration_ms: 28,
-                  has_details: true,
-                },
-              ],
+              {
+                id: 'evt_1',
+                created_at: '2026-04-17T17:00:00Z',
+                agent_name: 'Marketing bot',
+                tool_name: 'execute_query',
+                event_type: 'tool_call',
+                was_successful: true,
+                duration_ms: 28,
+                has_details: true,
+              },
+            ],
           total: fetchMock.mock.calls.some(([, callInit]) => callInit?.method === 'DELETE') ? 0 : 1,
           limit: 50,
           offset: 0,
@@ -251,7 +251,7 @@ describe('HomePage', () => {
     });
   });
 
-  it('shows a filter-independent Download Logs link', async () => {
+  it('shows a filter-independent Download Log link', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
       jsonResponse({ success: true, data: { items: [], total: 0, limit: 50, offset: 0 } }),
     );
@@ -274,7 +274,7 @@ describe('HomePage', () => {
       expect(url.searchParams.get('agent_name')).toBe('Marketing');
     });
 
-    const downloadLink = screen.getByRole('link', { name: /download logs/i });
+    const downloadLink = screen.getByRole('link', { name: /download log/i });
     const downloadURL = new URL(downloadLink.getAttribute('href') ?? '', 'http://localhost');
     expect(downloadURL.pathname).toBe('/api/mcp-events.csv');
     expect(downloadURL.search).toBe('');

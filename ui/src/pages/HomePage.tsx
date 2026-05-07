@@ -214,7 +214,7 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
             </Button>
             <a href={mcpEventsDownloadURL()} className={buttonVariants({ variant: 'outline' })}>
               <Download className="h-4 w-4" />
-              Download Logs
+              Download Log
             </a>
             <Button type="button" variant="destructive" onClick={openDeleteDialog} disabled={deletePending}>
               <Trash2 className="h-4 w-4" />
