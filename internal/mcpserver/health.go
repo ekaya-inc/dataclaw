@@ -13,7 +13,7 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/core"
 )
 
-const healthDatasourceTimeout = 2 * time.Second
+const healthDatasourceTimeout = 10 * time.Second
 
 type healthResult struct {
 	Engine     string            `json:"engine"`

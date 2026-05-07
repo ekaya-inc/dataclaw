@@ -14,13 +14,14 @@ import (
 )
 
 type fakeAdapterFactory struct {
-	supported       map[string]bool
-	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
-	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
-	newSchema       func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
-	newExecutor     func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
-	fingerprint     func(string, map[string]any) (string, error)
-	typeInfo        map[string]dsadapter.AdapterInfo
+	supported                map[string]bool
+	newTester                func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newIntrospector          func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newSchema                func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
+	newExecutor              func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+	fingerprint              func(string, map[string]any) (string, error)
+	validateReadOnlyTemplate func(string, string) error
+	typeInfo                 map[string]dsadapter.AdapterInfo
 }
 
 type fakeConnectionTester struct {
@@ -129,6 +130,16 @@ func (f *fakeAdapterFactory) ConfigFingerprint(dsType string, config map[string]
 		return "", errors.New("unsupported datasource type: " + dsType)
 	}
 	return f.fingerprint(dsType, config)
+}
+
+func (f *fakeAdapterFactory) ValidateReadOnlyTemplate(dsType string, sqlQuery string) error {
+	if !f.SupportsType(dsType) {
+		return errors.New("unsupported datasource type: " + dsType)
+	}
+	if f.validateReadOnlyTemplate != nil {
+		return f.validateReadOnlyTemplate(dsType, sqlQuery)
+	}
+	return nil
 }
 
 func (f *fakeAdapterFactory) ListTypes() []dsadapter.AdapterInfo {
@@ -316,28 +327,29 @@ func TestValidateQuerySQLReadOnly(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
 
-	if _, err := service.ValidateQuerySQL("SELECT 1", nil, false); err != nil {
+	ctx := context.Background()
+	if _, err := service.ValidateQuerySQL(ctx, "SELECT 1", nil, false); err != nil {
 		t.Fatalf("expected SELECT to be valid: %v", err)
 	}
-	if _, err := service.ValidateQuerySQL("WITH sample AS (SELECT 1 AS value) SELECT value FROM sample", nil, false); err != nil {
+	if _, err := service.ValidateQuerySQL(ctx, "WITH sample AS (SELECT 1 AS value) SELECT value FROM sample", nil, false); err != nil {
 		t.Fatalf("expected read-only CTE to be valid: %v", err)
 	}
-	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", nil, false); err == nil {
+	if _, err := service.ValidateQuerySQL(ctx, "UPDATE users SET admin = true", nil, false); err == nil {
 		t.Fatal("expected UPDATE to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", nil, false); err == nil {
+	if _, err := service.ValidateQuerySQL(ctx, "WITH gone AS (DELETE FROM users RETURNING id) SELECT * FROM gone", nil, false); err == nil {
 		t.Fatal("expected mutating CTE to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("SELECT * INTO archive_users FROM users", nil, false); err == nil {
+	if _, err := service.ValidateQuerySQL(ctx, "SELECT * INTO archive_users FROM users", nil, false); err == nil {
 		t.Fatal("expected SELECT INTO to be rejected for read-only validation")
 	}
-	if _, err := service.ValidateQuerySQL("UPDATE users SET admin = true", []models.QueryParameter{}, true); err != nil {
+	if _, err := service.ValidateQuerySQL(ctx, "UPDATE users SET admin = true", []models.QueryParameter{}, true); err != nil {
 		t.Fatalf("expected mutating validation to accept UPDATE, got %v", err)
 	}
-	if _, err := service.ValidateQuerySQL("SELECT 1", nil, true); err == nil {
+	if _, err := service.ValidateQuerySQL(ctx, "SELECT 1", nil, true); err == nil {
 		t.Fatal("expected mutating validation to reject SELECT")
 	}
-	if _, err := service.ValidateQuerySQL("DROP TABLE users", nil, true); err == nil {
+	if _, err := service.ValidateQuerySQL(ctx, "DROP TABLE users", nil, true); err == nil {
 		t.Fatal("expected mutating validation to reject DDL")
 	}
 }

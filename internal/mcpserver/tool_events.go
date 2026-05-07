@@ -79,6 +79,10 @@ func resolveToolAudit(ctx context.Context, service *core.Service, toolName strin
 		if sqlQuery, ok := args["sql"].(string); ok {
 			sqlText = strings.TrimSpace(sqlQuery)
 		}
+	case "validate_query":
+		if sqlQuery, ok := args["sql_query"].(string); ok {
+			sqlText = strings.TrimSpace(sqlQuery)
+		}
 	case "create_query":
 		if prompt, ok := args["natural_language_prompt"].(string); ok {
 			queryName = strings.TrimSpace(prompt)
@@ -175,7 +179,7 @@ func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]a
 			summary["query_id"] = queryID
 		}
 		addParameterSummary(summary, args["parameters"])
-	case "create_query", "update_query":
+	case "validate_query", "create_query", "update_query":
 		if toolName == "update_query" {
 			if queryID, ok := args["query_id"].(string); ok && strings.TrimSpace(queryID) != "" {
 				summary["query_id"] = queryID
@@ -192,8 +196,10 @@ func summarizeToolRequest(toolName string, req mcp.CallToolRequest) map[string]a
 		if parameterCount, ok := arrayLength(args["parameters"]); ok {
 			summary["parameter_count"] = parameterCount
 		}
-		if outputColumnCount, ok := arrayLength(args["output_columns"]); ok {
-			summary["output_column_count"] = outputColumnCount
+		if toolName != "validate_query" {
+			if outputColumnCount, ok := arrayLength(args["output_columns"]); ok {
+				summary["output_column_count"] = outputColumnCount
+			}
 		}
 		if constraints, ok := args["constraints"].(string); ok && strings.TrimSpace(constraints) != "" {
 			summary["has_constraints"] = true
@@ -211,6 +217,8 @@ func summarizeToolResult(toolName string, value any) map[string]any {
 	switch toolName {
 	case "list_queries":
 		return summarizeListQueriesResult(value)
+	case "validate_query":
+		return summarizeValidateQueryResult(value)
 	case "create_query", "update_query":
 		return summarizeManagedQueryMutationResult(value)
 	case "delete_query":
@@ -246,6 +254,23 @@ func summarizeListQueriesResult(value any) map[string]any {
 	}
 	if len(ids) > 0 {
 		summary["query_ids"] = ids
+	}
+	return summary
+}
+
+func summarizeValidateQueryResult(value any) map[string]any {
+	payload, err := normalizeToolPayload(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	summary := map[string]any{}
+	if valid, ok := payload["valid"].(bool); ok {
+		summary["valid"] = valid
+	}
+	if normalized, ok := payload["normalized_sql"].(string); ok {
+		if statementType := sqlStatementType(normalized); statementType != "" {
+			summary["statement_type"] = statementType
+		}
 	}
 	return summary
 }

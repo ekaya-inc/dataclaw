@@ -109,11 +109,10 @@ func Run(version string) error {
 	slog.Info("dataclaw", "version", version, "open", adminBaseURL)
 	shutdownDone := make(chan struct{})
 	go func() {
-		sig := make(chan os.Signal, 1)
+		sig := make(chan os.Signal, 2)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sig)
-		<-sig
-		shutdownServers(adminServer, mcpServer)
+		waitForShutdownSignal(sig, adminServer, mcpServer)
 		close(shutdownDone)
 	}()
 	go serveHTTPServer("admin", adminServer, adminLn.Listener, cfg.Admin.ListenerConfig, errCh)
@@ -151,6 +150,31 @@ func shutdownServers(servers ...*http.Server) {
 	for _, server := range servers {
 		if server != nil {
 			_ = server.Shutdown(shutdownCtx)
+		}
+	}
+}
+
+func waitForShutdownSignal(sig <-chan os.Signal, servers ...*http.Server) {
+	<-sig
+
+	gracefulDone := make(chan struct{})
+	go func() {
+		shutdownServers(servers...)
+		close(gracefulDone)
+	}()
+
+	select {
+	case <-sig:
+		closeServers(servers...)
+		<-gracefulDone
+	case <-gracefulDone:
+	}
+}
+
+func closeServers(servers ...*http.Server) {
+	for _, server := range servers {
+		if server != nil {
+			_ = server.Close()
 		}
 	}
 }

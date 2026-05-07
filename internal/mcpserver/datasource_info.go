@@ -21,7 +21,7 @@ const datasourceInformationToolName = "get_datasource_information"
 var (
 	datasourceInformationDescription        = "Returns the configured datasource identity and runtime metadata, including name, type, SQL dialect, database name, schema name, current user, and version."
 	datasourceInformationDescriptionTTL     = 30 * time.Second
-	datasourceInformationDescriptionTimeout = 2 * time.Second
+	datasourceInformationDescriptionTimeout = 10 * time.Second
 )
 
 type datasourceInformationResult struct {

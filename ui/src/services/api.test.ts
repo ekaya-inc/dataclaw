@@ -4,6 +4,7 @@ import {
   AUTH_UNAUTHORIZED_EVENT,
   UnauthorizedError,
   createAgent,
+  createQuery,
   deleteMCPEvents,
   executeSavedQuery,
   getAuthSession,
@@ -15,9 +16,10 @@ import {
   mcpEventsDownloadURL,
   signin,
   testQuery,
+  updateQuery,
   validateQuery,
 } from './api';
-import type { QueryParameter } from '../types/query';
+import type { OutputColumn, QueryParameter, SavedQuery } from '../types/query';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -31,6 +33,19 @@ function errorResponse(status: number, body: unknown): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function savedQueryValues(overrides: Partial<Omit<SavedQuery, 'id'>> = {}): Omit<SavedQuery, 'id'> {
+  return {
+    naturalLanguagePrompt: 'Show active accounts',
+    additionalContext: 'Use the reporting schema.',
+    sql: 'SELECT id, name FROM accounts WHERE active = true',
+    allowsModification: false,
+    parameters: [],
+    outputColumns: [],
+    constraints: 'Read-only query.',
+    ...overrides,
+  };
 }
 
 describe('api service contracts', () => {
@@ -96,6 +111,82 @@ describe('api service contracts', () => {
 
     expect(query.id).toBe('query_1');
     expect(fetchMock).toHaveBeenCalledWith('/api/queries/query_1', { credentials: 'same-origin' });
+  });
+
+  it('omits fully blank output-column placeholders when creating approved queries', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          query: {
+            query_id: 'query_1',
+            natural_language_prompt: 'Show active accounts',
+            additional_context: 'Use the reporting schema.',
+            sql_query: 'SELECT id, name FROM accounts WHERE active = true',
+            allows_modification: false,
+            parameters: [],
+            output_columns: [],
+            constraints: 'Read-only query.',
+          },
+        },
+      }),
+    );
+    const validColumn: OutputColumn = { name: 'account_id', type: 'uuid', description: 'Account id' };
+
+    await createQuery(savedQueryValues({
+      outputColumns: [
+        { name: '   ', type: ' ', description: '\t' },
+        validColumn,
+      ],
+    }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe('/api/queries');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      output_columns: [validColumn],
+    });
+  });
+
+  it('preserves partially filled output-column rows when updating approved queries', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          query: {
+            query_id: 'query_1',
+            natural_language_prompt: 'Show active accounts',
+            additional_context: 'Use the reporting schema.',
+            sql_query: 'SELECT id, name FROM accounts WHERE active = true',
+            allows_modification: false,
+            parameters: [],
+            output_columns: [],
+            constraints: 'Read-only query.',
+          },
+        },
+      }),
+    );
+    const validColumn: OutputColumn = { name: 'account_id', type: 'uuid', description: 'Account id' };
+    const missingType: OutputColumn = { name: 'account_name', type: '   ', description: 'Display name' };
+    const missingName: OutputColumn = { name: '', type: 'text', description: '' };
+
+    await updateQuery('query_1', savedQueryValues({
+      outputColumns: [
+        validColumn,
+        missingType,
+        { name: ' ', type: ' ', description: ' ' },
+        missingName,
+      ],
+    }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe('/api/queries/query_1');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      output_columns: [validColumn, missingType, missingName],
+    });
   });
 
   it('sends parameters and limit to the saved-query execute endpoint', async () => {

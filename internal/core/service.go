@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -207,7 +208,20 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 	if err != nil {
 		return nil, err
 	}
+	if err := s.rejectUnsupportedArrayParameters(ds.Type, q.Parameters); err != nil {
+		return nil, err
+	}
+	if !q.AllowsModification {
+		if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+			return nil, err
+		}
+	}
+	outputColumns, err := validateOutputColumns(q.OutputColumns)
+	if err != nil {
+		return nil, err
+	}
 	q.SQLQuery = normalized
+	q.OutputColumns = outputColumns
 	if err := s.store.CreateQuery(ctx, q); err != nil {
 		return nil, err
 	}
@@ -222,10 +236,26 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	if existing == nil {
 		return nil, errors.New("query not found")
 	}
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if q.NaturalLanguagePrompt == "" {
 		return nil, errors.New("natural_language_prompt is required")
 	}
 	normalized, err := validateStoredQueryForStorage(q.SQLQuery, q.Parameters, q.AllowsModification)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.rejectUnsupportedArrayParameters(ds.Type, q.Parameters); err != nil {
+		return nil, err
+	}
+	if !q.AllowsModification {
+		if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+			return nil, err
+		}
+	}
+	outputColumns, err := validateOutputColumns(q.OutputColumns)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +264,7 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	existing.SQLQuery = normalized
 	existing.AllowsModification = q.AllowsModification
 	existing.Parameters = q.Parameters
-	existing.OutputColumns = q.OutputColumns
+	existing.OutputColumns = outputColumns
 	existing.Constraints = q.Constraints
 	if err := s.store.UpdateQuery(ctx, existing); err != nil {
 		return nil, err
@@ -246,8 +276,65 @@ func (s *Service) DeleteQuery(ctx context.Context, id string) error {
 	return s.store.DeleteQuery(ctx, id)
 }
 
-func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
-	return validateStoredQueryForStorage(sqlQuery, parameters, allowsModification)
+func validateOutputColumns(columns []models.OutputColumn) ([]models.OutputColumn, error) {
+	if columns == nil {
+		return nil, nil
+	}
+	normalized := make([]models.OutputColumn, len(columns))
+	for idx, column := range columns {
+		column.Name = strings.TrimSpace(column.Name)
+		column.Type = strings.TrimSpace(column.Type)
+		column.Description = strings.TrimSpace(column.Description)
+		if column.Name == "" {
+			return nil, fmt.Errorf("output_columns[%d].name is required", idx)
+		}
+		if column.Type == "" {
+			return nil, fmt.Errorf("output_columns[%d].type is required", idx)
+		}
+		normalized[idx] = column
+	}
+	return normalized, nil
+}
+
+func (s *Service) ValidateQuerySQL(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
+	normalized, err := validateStoredQueryForStorage(sqlQuery, parameters, allowsModification)
+	if err != nil {
+		return "", err
+	}
+	ds, err := s.GetDatasource(ctx)
+	if err != nil {
+		return "", err
+	}
+	if ds != nil {
+		if err := s.rejectUnsupportedArrayParameters(ds.Type, parameters); err != nil {
+			return "", err
+		}
+		if !allowsModification {
+			if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+				return "", err
+			}
+		}
+	}
+	return normalized, nil
+}
+
+func (s *Service) rejectUnsupportedArrayParameters(dsType string, parameters []models.QueryParameter) error {
+	name, ok := declaredArrayParameter(parameters)
+	if !ok {
+		return nil
+	}
+	info, found := s.DatasourceTypeInfo(dsType)
+	if !found {
+		return nil
+	}
+	if info.Capabilities.SupportsArrayParameters {
+		return nil
+	}
+	displayName := info.DisplayName
+	if displayName == "" {
+		displayName = dsType
+	}
+	return fmt.Errorf("array parameter %q is not supported by the active datasource (%s); use a scalar parameter type instead", name, displayName)
 }
 
 func (s *Service) ValidateRawSQL(sqlQuery string) (string, error) {

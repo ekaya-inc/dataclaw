@@ -18,8 +18,11 @@ const (
 )
 
 func NormalizeLimit(limit int) int {
-	if limit <= 0 || limit > MaxQueryLimit {
+	if limit <= 0 {
 		return DefaultQueryLimit
+	}
+	if limit > MaxQueryLimit {
+		return MaxQueryLimit
 	}
 	return limit
 }

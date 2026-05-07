@@ -212,7 +212,7 @@ func (a *API) handleValidateQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Error: "invalid request body"})
 		return
 	}
-	normalized, err := a.service.ValidateQuerySQL(req.SQLQuery, req.Parameters, req.AllowsModification)
+	normalized, err := a.service.ValidateQuerySQL(r.Context(), req.SQLQuery, req.Parameters, req.AllowsModification)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, response{Error: err.Error()})
 		return

@@ -151,6 +151,63 @@ func TestFailedTrackedToolCallRecordsSanitizedErrorRequestWithoutUpdatingLastUse
 	}
 }
 
+func TestValidateQueryToolCallRecordsSafeSummary(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+
+	callToolJSONWithHeader(t, ctx, mcpClient, "validate_query", map[string]any{
+		"sql_query":           "SELECT account_id FROM accounts WHERE account_id = {{account_id}}",
+		"allows_modification": false,
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "required": true},
+		},
+	}, manager.APIKey)
+
+	page, err := service.ListMCPToolEvents(ctx, storepkg.ListMCPToolEventOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("expected 1 recorded validate event, got %#v", page)
+	}
+	event, err := service.GetMCPToolEvent(ctx, page.Items[0].ID)
+	if err != nil || event == nil {
+		t.Fatalf("GetMCPToolEvent: %v, %v", event, err)
+	}
+	if event.ToolName != "validate_query" || event.EventType != storepkg.MCPToolEventTypeCall || !event.WasSuccessful {
+		t.Fatalf("unexpected validate event: %#v", event)
+	}
+	if got := event.RequestParams["statement_type"]; got != "SELECT" {
+		t.Fatalf("expected request statement_type=SELECT, got %#v", got)
+	}
+	if got := event.RequestParams["allows_modification"]; got != false {
+		t.Fatalf("expected allows_modification=false, got %#v", got)
+	}
+	if got := event.RequestParams["parameter_count"]; got != 1 && got != float64(1) {
+		t.Fatalf("expected parameter_count=1, got %#v", got)
+	}
+	if _, ok := event.RequestParams["sql_query"]; ok {
+		t.Fatalf("expected request summary to omit raw sql, got %#v", event.RequestParams)
+	}
+	if got := event.ResultSummary["valid"]; got != true {
+		t.Fatalf("expected result valid=true, got %#v", got)
+	}
+	if got := event.ResultSummary["statement_type"]; got != "SELECT" {
+		t.Fatalf("expected result statement_type=SELECT, got %#v", got)
+	}
+	if !strings.Contains(event.SQLText, "SELECT account_id FROM accounts") {
+		t.Fatalf("expected audit SQL text to capture draft SQL, got %#v", event.SQLText)
+	}
+}
+
 func TestManagedQueryCRUDToolCallsRecordSafeSummaries(t *testing.T) {
 	ctx := context.Background()
 	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
