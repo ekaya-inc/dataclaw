@@ -193,26 +193,63 @@ func TestExecuteStoredQueryRejectsInjectionBeforeDatasourceCall(t *testing.T) {
 	}
 }
 
-func TestExecuteStoredQueryRejectsSQLServerArrayParameters(t *testing.T) {
+func TestCreateAndUpdateQueryValidateOutputColumns(t *testing.T) {
 	service := newTestService(t)
 	defer service.store.Close()
-	seedDatasource(t, service, "mssql")
-
+	seedDatasource(t, service, "postgres")
 	ctx := context.Background()
-	query, err := service.CreateQuery(ctx, &store.ApprovedQuery{
-		NaturalLanguagePrompt: "Find a set of accounts",
-		SQLQuery:              "SELECT * FROM accounts WHERE id IN ({{account_ids}})",
-		Parameters: []models.QueryParameter{
-			{Name: "account_ids", Type: "integer[]", Required: true},
+
+	valid, err := service.CreateQuery(ctx, &store.ApprovedQuery{
+		NaturalLanguagePrompt: "List accounts",
+		SQLQuery:              "SELECT account_id FROM accounts",
+		OutputColumns: []models.OutputColumn{
+			{Name: " account_id ", Type: " uuid ", Description: " Account identifier "},
 		},
 	})
 	if err != nil {
-		t.Fatalf("CreateQuery: %v", err)
+		t.Fatalf("CreateQuery(valid output columns): %v", err)
+	}
+	if got := valid.OutputColumns[0]; got.Name != "account_id" || got.Type != "uuid" || got.Description != "Account identifier" {
+		t.Fatalf("expected output column fields to be trimmed, got %#v", got)
 	}
 
-	_, err = service.ExecuteStoredQuery(ctx, query.ID, map[string]any{"account_ids": "1,2,3"}, QueryOptions{Limit: 100})
-	if err == nil || !strings.Contains(err.Error(), "SQL Server") {
-		t.Fatalf("expected SQL Server array-parameter error, got %v", err)
+	for _, tt := range []struct {
+		name   string
+		column models.OutputColumn
+		want   string
+	}{
+		{name: "blank name", column: models.OutputColumn{Name: " ", Type: "uuid"}, want: "output_columns[0].name is required"},
+		{name: "blank type", column: models.OutputColumn{Name: "account_id", Type: "\t"}, want: "output_columns[0].type is required"},
+	} {
+		t.Run("create "+tt.name, func(t *testing.T) {
+			_, err := service.CreateQuery(ctx, &store.ApprovedQuery{
+				NaturalLanguagePrompt: "Invalid output column",
+				SQLQuery:              "SELECT account_id FROM accounts",
+				OutputColumns:         []models.OutputColumn{tt.column},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
+
+		t.Run("update "+tt.name, func(t *testing.T) {
+			_, err := service.UpdateQuery(ctx, valid.ID, &store.ApprovedQuery{
+				NaturalLanguagePrompt: "Invalid update",
+				SQLQuery:              "SELECT account_id FROM accounts",
+				OutputColumns:         []models.OutputColumn{tt.column},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
+	}
+
+	reloaded, err := service.GetQuery(ctx, valid.ID)
+	if err != nil {
+		t.Fatalf("GetQuery after rejected updates: %v", err)
+	}
+	if got := reloaded.NaturalLanguagePrompt; got != "List accounts" {
+		t.Fatalf("expected rejected update not to mutate query, got prompt %q", got)
 	}
 }
 

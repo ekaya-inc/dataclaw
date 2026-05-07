@@ -132,3 +132,27 @@ func TestExecuteCountRowsReturnsExactCount(t *testing.T) {
 		t.Fatalf("expected exact row_count=42, got %#v", result)
 	}
 }
+
+func TestNormalizeLimit(t *testing.T) {
+	cases := []struct {
+		name string
+		in   int
+		want int
+	}{
+		{"zero falls back to default", 0, DefaultQueryLimit},
+		{"negative falls back to default", -5, DefaultQueryLimit},
+		{"under default kept as-is", 50, 50},
+		{"at default kept as-is", DefaultQueryLimit, DefaultQueryLimit},
+		{"between default and max kept as-is", 250, 250},
+		{"at max kept as-is", MaxQueryLimit, MaxQueryLimit},
+		{"above max clamps to max", MaxQueryLimit + 1, MaxQueryLimit},
+		{"far above max clamps to max", 10 * MaxQueryLimit, MaxQueryLimit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeLimit(tc.in); got != tc.want {
+				t.Fatalf("NormalizeLimit(%d) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}

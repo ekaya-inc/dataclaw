@@ -262,6 +262,20 @@ Not:
 
 The date type provides validation that the string is a valid ISO date format.
 
+## 6. Cast Only When SQL Needs a More Specific Type
+
+Parameters are bound as typed values, so most comparisons do not need SQL casts. Add a
+CAST only when an operator or a datasource-specific function requires a more specific SQL
+type than the DataClaw parameter vocabulary can express.
+
+Timestamp/date math example:
+
+	WHERE created_at >= CAST({{created_after}} AS timestamp)  // {{created_after}} type: "timestamp"
+
+Numeric precision example:
+
+	WHERE amount >= CAST({{min_amount}} AS numeric(12,2))  // {{min_amount}} type: "decimal"
+
 # Limitations and Constraints
 
 ## 1. No Dynamic Table or Column Names

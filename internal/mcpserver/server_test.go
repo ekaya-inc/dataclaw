@@ -108,8 +108,13 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sql_query description to be a string, got %#v", sqlQuerySchema["description"])
 	}
-	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "{{created_after}}") {
-		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
+	for _, expected := range []string{"Follow the approved query template rules", "CAST({{created_after}} AS timestamp)", "CAST({{min_amount}} AS numeric(12,2))"} {
+		if !strings.Contains(description, expected) {
+			t.Fatalf("expected sql_query description to include %q, got %q", expected, description)
+		}
+	}
+	if got := strings.Count(createTool.Description+description, "Approved query template rules:"); got != 1 {
+		t.Fatalf("expected one full approved-query rules block across create_query tool and sql_query descriptions, got %d", got)
 	}
 }
 
@@ -338,7 +343,7 @@ func TestApprovedQueryToolSchemaDocumentsParameterTypesAndValues(t *testing.T) {
 		t.Fatalf("expected parameter type description to list supported values and mention SQL casts, got %q", description)
 	}
 	outputTypeSchema := nestedSchemaProperty(t, createTool, "output_columns", "type")
-	if description, _ := outputTypeSchema["description"].(string); !strings.Contains(description, "Documentation-only") || !strings.Contains(description, "not used for validation or coercion") {
+	if description, _ := outputTypeSchema["description"].(string); !strings.Contains(description, "documentation-only") || !strings.Contains(description, "not used for result validation or coercion") {
 		t.Fatalf("expected output column type description to document non-enforcement semantics, got %q", description)
 	}
 	if description := toolPropertyDescription(t, createTool, "allows_modification"); !strings.Contains(description, "false requires a read-only SELECT/WITH") || !strings.Contains(description, "true requires INSERT, UPDATE, or DELETE") {
@@ -394,6 +399,7 @@ func TestToolAnnotationsMatchBehavior(t *testing.T) {
 		{name: "count_rows", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
 		{name: "execute", readOnly: boolPtr(false), destructive: boolPtr(true), idempotent: boolPtr(false), openWorld: boolPtr(false)},
 		{name: "list_queries", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
+		{name: "validate_query", readOnly: boolPtr(true), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
 		{name: "create_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(false), openWorld: boolPtr(false)},
 		{name: "update_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(true), openWorld: boolPtr(false)},
 		{name: "delete_query", readOnly: boolPtr(false), destructive: boolPtr(false), idempotent: boolPtr(false), openWorld: boolPtr(false)},
@@ -726,7 +732,7 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 	}
 
 	managerTools := listToolNamesWithHeader(t, ctx, mcpClient, manager.APIKey)
-	if got, want := managerTools, []string{"count_rows", "create_query", "delete_query", "execute_query", "explore_schema", "get_datasource_information", "health", "list_queries", "query", "update_query"}; !equalStrings(got, want) {
+	if got, want := managerTools, []string{"count_rows", "create_query", "delete_query", "execute_query", "explore_schema", "get_datasource_information", "health", "list_queries", "query", "update_query", "validate_query"}; !equalStrings(got, want) {
 		t.Fatalf("unexpected manager tools via header auth: got %v want %v", got, want)
 	}
 
@@ -822,6 +828,103 @@ func TestManagerAgentsGetCrudToolsAndConsumersKeepExecutionScope(t *testing.T) {
 		"natural_language_prompt": "Should fail",
 		"sql_query":               "SELECT 1",
 	}, consumer.APIKey, "agent is not allowed to manage approved queries")
+	assertToolErrorWithHeader(t, ctx, mcpClient, "validate_query", map[string]any{
+		"sql_query": "SELECT 1",
+	}, consumer.APIKey, "agent is not allowed to manage approved queries")
+}
+
+func TestValidateQueryToolValidatesWithoutPersisting(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+
+	before, err := service.ListQueries(ctx)
+	if err != nil {
+		t.Fatalf("ListQueries(before): %v", err)
+	}
+	payload := callToolJSONWithHeader(t, ctx, mcpClient, "validate_query", map[string]any{
+		"sql_query":           " SELECT account_id FROM accounts WHERE account_id = {{account_id}} ",
+		"allows_modification": false,
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "required": true},
+		},
+	}, manager.APIKey)
+	if valid, ok := payload["valid"].(bool); !ok || !valid {
+		t.Fatalf("expected valid=true, got %#v", payload)
+	}
+	if got := requireString(t, payload, "normalized_sql"); got != "SELECT account_id FROM accounts WHERE account_id = {{account_id}}" {
+		t.Fatalf("unexpected normalized_sql %q", got)
+	}
+	after, err := service.ListQueries(ctx)
+	if err != nil {
+		t.Fatalf("ListQueries(after): %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("validate_query persisted catalog rows: before=%d after=%d", len(before), len(after))
+	}
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "validate_query", map[string]any{
+		"sql_query":           "UPDATE accounts SET disabled = true",
+		"allows_modification": false,
+	}, manager.APIKey, "only read-only SELECT or WITH statements are allowed")
+
+	mutating := callToolJSONWithHeader(t, ctx, mcpClient, "validate_query", map[string]any{
+		"sql_query":           "UPDATE accounts SET account_name = {{account_name}} WHERE account_id = {{account_id}}",
+		"allows_modification": true,
+		"parameters": []map[string]any{
+			{"name": "account_id", "type": "uuid", "required": true},
+			{"name": "account_name", "type": "string", "required": true},
+		},
+	}, manager.APIKey)
+	if valid, ok := mutating["valid"].(bool); !ok || !valid {
+		t.Fatalf("expected mutating validation to pass, got %#v", mutating)
+	}
+}
+
+func TestManagedQueryToolsRejectInvalidOutputColumns(t *testing.T) {
+	ctx := context.Background()
+	mcpClient, service := newHTTPMCPClientWithFactoryAndDatasource(t, newFakeMCPAdapterFactory(), true)
+
+	manager, err := service.CreateAgent(ctx, core.AgentInput{
+		Name:                     "Manager",
+		CanManageApprovedQueries: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent(manager): %v", err)
+	}
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "Invalid output",
+		"sql_query":               "SELECT account_id FROM accounts",
+		"output_columns": []map[string]any{
+			{"name": "", "type": "uuid"},
+		},
+	}, manager.APIKey, "output_columns[0].name is required")
+
+	created := callToolJSONWithHeader(t, ctx, mcpClient, "create_query", map[string]any{
+		"natural_language_prompt": "List accounts",
+		"sql_query":               "SELECT account_id FROM accounts",
+		"output_columns": []map[string]any{
+			{"name": "account_id", "type": "uuid"},
+		},
+	}, manager.APIKey)
+	queryID := requireString(t, asMap(t, created["query"]), "query_id")
+
+	assertToolErrorWithHeader(t, ctx, mcpClient, "update_query", map[string]any{
+		"query_id":                queryID,
+		"natural_language_prompt": "Invalid update",
+		"sql_query":               "SELECT account_id FROM accounts",
+		"output_columns": []map[string]any{
+			{"name": "account_id", "type": "  "},
+		},
+	}, manager.APIKey, "output_columns[0].type is required")
 }
 
 func TestHTTPHealthStaysAvailableWithoutDatasource(t *testing.T) {

@@ -544,6 +544,14 @@ export async function getQuery(id: string): Promise<SavedQuery> {
   return toQuery(record && 'query' in record ? record.query : data);
 }
 
+function isBlankOutputColumnPlaceholder(column: OutputColumn): boolean {
+  return !column.name.trim() && !column.type.trim() && !column.description.trim();
+}
+
+function outputColumnsPayload(columns: OutputColumn[]): OutputColumn[] {
+  return columns.filter((column) => !isBlankOutputColumnPlaceholder(column));
+}
+
 function approvedQueryPayload(query: Omit<SavedQuery, 'id'>): Record<string, unknown> {
   return {
     natural_language_prompt: query.naturalLanguagePrompt,
@@ -551,7 +559,7 @@ function approvedQueryPayload(query: Omit<SavedQuery, 'id'>): Record<string, unk
     sql_query: query.sql,
     allows_modification: query.allowsModification,
     parameters: query.parameters,
-    output_columns: query.outputColumns,
+    output_columns: outputColumnsPayload(query.outputColumns),
     constraints: query.constraints,
   };
 }

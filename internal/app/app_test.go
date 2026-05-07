@@ -2,12 +2,17 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestRegisterUIRoutes(t *testing.T) {
@@ -127,5 +132,124 @@ func TestLogRequestsPassesThroughAndLogsRequest(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("log output = %q, want substring %q", output, want)
 		}
+	}
+}
+
+func TestWaitForShutdownSignalLetsActiveRequestsDrain(t *testing.T) {
+	release := make(chan struct{})
+	requestStarted := make(chan struct{})
+	server, baseURL := startBlockingTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-release
+		_, _ = w.Write([]byte("done"))
+	})
+
+	responseDone := make(chan error, 1)
+	go func() {
+		resp, err := http.Get(baseURL)
+		if err != nil {
+			responseDone <- err
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			responseDone <- errors.New(resp.Status)
+			return
+		}
+		responseDone <- nil
+	}()
+	waitForChannel(t, requestStarted, "request to start")
+
+	sig := make(chan os.Signal, 2)
+	shutdownDone := make(chan struct{})
+	go func() {
+		waitForShutdownSignal(sig, server)
+		close(shutdownDone)
+	}()
+
+	sig <- syscall.SIGINT
+	assertChannelBlocked(t, shutdownDone, 100*time.Millisecond, "shutdown should wait for active request")
+
+	close(release)
+	waitForChannel(t, shutdownDone, "graceful shutdown to finish")
+	if err := <-responseDone; err != nil {
+		t.Fatalf("request error = %v, want nil", err)
+	}
+}
+
+func TestWaitForShutdownSignalClosesActiveRequestsOnSecondSignal(t *testing.T) {
+	requestStarted := make(chan struct{})
+	server, baseURL := startBlockingTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+	})
+
+	responseDone := make(chan error, 1)
+	go func() {
+		resp, err := http.Get(baseURL)
+		if err != nil {
+			responseDone <- err
+			return
+		}
+		defer resp.Body.Close()
+		responseDone <- nil
+	}()
+	waitForChannel(t, requestStarted, "request to start")
+
+	sig := make(chan os.Signal, 2)
+	shutdownDone := make(chan struct{})
+	go func() {
+		waitForShutdownSignal(sig, server)
+		close(shutdownDone)
+	}()
+
+	sig <- syscall.SIGINT
+	assertChannelBlocked(t, shutdownDone, 100*time.Millisecond, "first shutdown should wait for active request")
+
+	sig <- syscall.SIGINT
+	waitForChannel(t, shutdownDone, "forced shutdown after second signal")
+	waitForChannel(t, responseDone, "active request to be closed")
+}
+
+func startBlockingTestServer(t *testing.T, handler http.HandlerFunc) (*http.Server, string) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+			t.Errorf("serve: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		_ = server.Close()
+	})
+
+	return server, "http://" + ln.Addr().String()
+}
+
+func waitForChannel[T any](t *testing.T, ch <-chan T, name string) T {
+	t.Helper()
+
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+		var zero T
+		return zero
+	}
+}
+
+func assertChannelBlocked[T any](t *testing.T, ch <-chan T, timeout time.Duration, failure string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+		t.Fatal(failure)
+	case <-time.After(timeout):
 	}
 }
