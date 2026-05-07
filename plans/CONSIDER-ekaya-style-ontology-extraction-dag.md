@@ -8,9 +8,9 @@ Not planned for near-term implementation. Capture only.
 
 Ekaya Engine (`../ekaya-engine`) includes an ontology extraction lifecycle designed around a product-owned LLM, DAG nodes, ontology completion state, Admin setup UI, questions, glossary enrichment, and import/export. Relevant reviewed areas include:
 
-- `migrations/005_ontology.up.sql`, `006_ontology_dag.up.sql`, and `012_incremental_ontology.up.sql` for ontology/DAG state.
+- Ekaya Engine ontology/DAG SQL definitions for ontology, DAG, and incremental ontology state.
 - `pkg/services/dag/` and LLM-backed ontology services for extraction nodes.
-- `migrations/009_llm_and_config.up.sql:4-43` for LLM conversation logging.
+- Ekaya Engine LLM/config SQL definitions for LLM conversation logging.
 - UI routes such as `OntologyForgePage` / ontology questions in `../ekaya-engine/ui/src`.
 
 ## Why This Is Not DataClaw's Current Shape

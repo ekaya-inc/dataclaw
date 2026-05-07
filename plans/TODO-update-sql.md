@@ -41,7 +41,7 @@ This roadmap is ordered from near-term adapter-boundary work to later, capabilit
 
 ## Phase 3: MCP-Authored Schema/Ontology Metadata
 
-- Add table metadata: table type, description, usage notes, ephemeral/deprecated flags, preferred alternative, features, provenance, actor, timestamps.
+- Add table metadata: table type, description, usage notes, lifecycle flags, preferred alternative, features, provenance, actor, timestamps.
 - Add column metadata: classification path, purpose, semantic type, role, description, enum values/features, identifier/timestamp/boolean/monetary features, clarification flags, sensitivity override, provenance, actor, timestamps.
 - Add project knowledge tools for terminology, business rules, enumerations, and conventions.
 - Add business glossary tools for terms, definitions, aliases, optional defining SQL or approved-query references, output columns, review status, and provenance.
