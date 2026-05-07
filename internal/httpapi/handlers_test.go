@@ -61,6 +61,10 @@ func (fakeHTTPAdapterFactory) ConfigFingerprint(_ string, config map[string]any)
 	return dsadapter.CanonicalFingerprint(config)
 }
 
+func (fakeHTTPAdapterFactory) ValidateReadOnlyTemplate(string, string) error {
+	return nil
+}
+
 func (fakeHTTPAdapterFactory) ListTypes() []dsadapter.AdapterInfo {
 	return []dsadapter.AdapterInfo{
 		{Type: "postgres", DisplayName: "PostgreSQL", SQLDialect: "PostgreSQL"},

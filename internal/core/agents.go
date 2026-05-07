@@ -249,7 +249,7 @@ func (s *Service) ValidateQuerySQLForAgent(ctx context.Context, agent *storepkg.
 	if err := requireApprovedQueryManager(agent); err != nil {
 		return "", err
 	}
-	return s.ValidateQuerySQL(sqlQuery, parameters, allowsModification)
+	return s.ValidateQuerySQL(ctx, sqlQuery, parameters, allowsModification)
 }
 
 func (s *Service) CreateQueryForAgent(ctx context.Context, agent *storepkg.Agent, q *storepkg.ApprovedQuery) (*storepkg.ApprovedQuery, error) {

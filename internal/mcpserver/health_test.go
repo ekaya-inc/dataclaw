@@ -12,12 +12,13 @@ import (
 )
 
 type fakeMCPAdapterFactory struct {
-	supported       map[string]bool
-	newTester       func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
-	newIntrospector func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
-	newSchema       func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
-	newQuery        func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
-	typeInfo        map[string]dsadapter.AdapterInfo
+	supported                map[string]bool
+	newTester                func(context.Context, string, map[string]any) (dsadapter.ConnectionTester, error)
+	newIntrospector          func(context.Context, string, map[string]any) (dsadapter.DatasourceIntrospector, error)
+	newSchema                func(context.Context, string, map[string]any) (dsadapter.SchemaExplorer, error)
+	newQuery                 func(context.Context, string, map[string]any) (dsadapter.QueryExecutor, error)
+	validateReadOnlyTemplate func(string, string) error
+	typeInfo                 map[string]dsadapter.AdapterInfo
 }
 
 type fakeMCPConnectionTester struct {
@@ -108,6 +109,16 @@ func (f *fakeMCPAdapterFactory) ConfigFingerprint(dsType string, config map[stri
 		return "", errors.New("unsupported datasource type: " + dsType)
 	}
 	return dsadapter.CanonicalFingerprint(config)
+}
+
+func (f *fakeMCPAdapterFactory) ValidateReadOnlyTemplate(dsType string, sqlQuery string) error {
+	if !f.SupportsType(dsType) {
+		return errors.New("unsupported datasource type: " + dsType)
+	}
+	if f.validateReadOnlyTemplate != nil {
+		return f.validateReadOnlyTemplate(dsType, sqlQuery)
+	}
+	return nil
 }
 
 func (f *fakeMCPAdapterFactory) ListTypes() []dsadapter.AdapterInfo {

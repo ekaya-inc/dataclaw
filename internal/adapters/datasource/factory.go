@@ -62,6 +62,17 @@ func (f *registryFactory) ConfigFingerprint(dsType string, config map[string]any
 	return CanonicalFingerprint(config)
 }
 
+func (f *registryFactory) ValidateReadOnlyTemplate(dsType string, sqlQuery string) error {
+	reg, ok := f.registry.Get(dsType)
+	if !ok {
+		return fmt.Errorf("unsupported datasource type: %s", dsType)
+	}
+	if reg.ReadOnlyTemplateValidator == nil {
+		return nil
+	}
+	return reg.ReadOnlyTemplateValidator(sqlQuery)
+}
+
 func (f *registryFactory) ListTypes() []AdapterInfo {
 	return f.registry.ListTypes()
 }

@@ -36,7 +36,8 @@ func Registration() datasource.Registration {
 		QueryExecutorFactory: func(ctx context.Context, config map[string]any) (datasource.QueryExecutor, error) {
 			return NewQueryExecutor(ctx, config)
 		},
-		ConfigFingerprint: Fingerprint,
+		ConfigFingerprint:         Fingerprint,
+		ReadOnlyTemplateValidator: ValidateReadOnlyTemplate,
 	}
 }
 

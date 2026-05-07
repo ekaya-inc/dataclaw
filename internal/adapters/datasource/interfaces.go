@@ -70,6 +70,7 @@ type Registration struct {
 	SchemaExplorerFactory         func(ctx context.Context, config map[string]any) (SchemaExplorer, error)
 	QueryExecutorFactory          func(ctx context.Context, config map[string]any) (QueryExecutor, error)
 	ConfigFingerprint             func(config map[string]any) (string, error)
+	ReadOnlyTemplateValidator     func(sqlQuery string) error
 }
 
 type SchemaExplorerFactory interface {
@@ -81,6 +82,7 @@ type Factory interface {
 	NewDatasourceIntrospector(ctx context.Context, dsType string, config map[string]any) (DatasourceIntrospector, error)
 	NewQueryExecutor(ctx context.Context, dsType string, config map[string]any) (QueryExecutor, error)
 	ConfigFingerprint(dsType string, config map[string]any) (string, error)
+	ValidateReadOnlyTemplate(dsType string, sqlQuery string) error
 	ListTypes() []AdapterInfo
 	TypeInfo(dsType string) (AdapterInfo, bool)
 	SupportsType(dsType string) bool

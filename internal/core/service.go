@@ -208,6 +208,11 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 	if err != nil {
 		return nil, err
 	}
+	if !q.AllowsModification {
+		if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+			return nil, err
+		}
+	}
 	outputColumns, err := validateOutputColumns(q.OutputColumns)
 	if err != nil {
 		return nil, err
@@ -228,12 +233,21 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	if existing == nil {
 		return nil, errors.New("query not found")
 	}
+	ds, err := s.requireDatasource(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if q.NaturalLanguagePrompt == "" {
 		return nil, errors.New("natural_language_prompt is required")
 	}
 	normalized, err := validateStoredQueryForStorage(q.SQLQuery, q.Parameters, q.AllowsModification)
 	if err != nil {
 		return nil, err
+	}
+	if !q.AllowsModification {
+		if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+			return nil, err
+		}
 	}
 	outputColumns, err := validateOutputColumns(q.OutputColumns)
 	if err != nil {
@@ -276,8 +290,23 @@ func validateOutputColumns(columns []models.OutputColumn) ([]models.OutputColumn
 	return normalized, nil
 }
 
-func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
-	return validateStoredQueryForStorage(sqlQuery, parameters, allowsModification)
+func (s *Service) ValidateQuerySQL(ctx context.Context, sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
+	normalized, err := validateStoredQueryForStorage(sqlQuery, parameters, allowsModification)
+	if err != nil {
+		return "", err
+	}
+	if !allowsModification {
+		ds, err := s.GetDatasource(ctx)
+		if err != nil {
+			return "", err
+		}
+		if ds != nil {
+			if err := s.adapters.ValidateReadOnlyTemplate(ds.Type, normalized); err != nil {
+				return "", err
+			}
+		}
+	}
+	return normalized, nil
 }
 
 func (s *Service) ValidateRawSQL(sqlQuery string) (string, error) {
