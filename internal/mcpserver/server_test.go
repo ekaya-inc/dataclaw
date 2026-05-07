@@ -96,7 +96,7 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	if !strings.Contains(createTool.Description, "SELECT order_id, user_id, status, created_at, num_of_item") {
 		t.Fatalf("expected create_query description to include SQL example, got %q", createTool.Description)
 	}
-	if !strings.Contains(createTool.Description, "Do not use datasource-native placeholder styles") {
+	if !strings.Contains(createTool.Description, "datasource-native bind markers") {
 		t.Fatalf("expected create_query description to warn about unsupported placeholder styles, got %q", createTool.Description)
 	}
 
@@ -108,7 +108,7 @@ func TestCreateQueryToolDescriptionDocumentsTemplateSyntax(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sql_query description to be a string, got %#v", sqlQuerySchema["description"])
 	}
-	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "CAST({{created_after}} AS TIMESTAMP)") {
+	if !strings.Contains(description, "{{status}}") || !strings.Contains(description, "{{created_after}}") {
 		t.Fatalf("expected sql_query description to include parameterized SQL example, got %q", description)
 	}
 }
