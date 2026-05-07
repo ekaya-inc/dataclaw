@@ -49,18 +49,6 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/agents/", a.handleAgentByID)
 }
 
-func (a *API) RegisterAdmin(mux *http.ServeMux, opts AdminAuthOptions) {
-	auth := newAdminAuth(opts)
-	mux.HandleFunc("POST /api/auth/signin", auth.handleSignin)
-	mux.HandleFunc("POST /api/auth/logout", auth.handleLogout)
-	mux.HandleFunc("GET /api/auth/session", auth.handleSession)
-	apiMux := http.NewServeMux()
-	a.Register(apiMux)
-	mux.Handle("/ping", apiMux)
-	mux.Handle("/bundles/", apiMux)
-	mux.Handle("/api/", auth.requireSession(apiMux))
-}
-
 type response struct {
 	Success bool   `json:"success"`
 	Data    any    `json:"data,omitempty"`
