@@ -430,6 +430,10 @@ export async function getMCPEvent(id: string): Promise<MCPToolEventDetails> {
   return toMCPToolEventDetails(record?.event);
 }
 
+export async function deleteMCPEvents(): Promise<void> {
+  await parseResponse<void>(await apiFetch('/api/mcp-events', { method: 'DELETE' }));
+}
+
 export async function getAuthSession(): Promise<AuthSession> {
   const data = await parseResponse<unknown>(await apiFetch('/api/auth/session'));
   return rememberAuthSession(toAuthSession(data));

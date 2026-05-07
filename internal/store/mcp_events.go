@@ -195,6 +195,11 @@ func (s *Store) GetMCPToolEvent(ctx context.Context, id string) (*MCPToolEvent, 
 	return event, nil
 }
 
+func (s *Store) ClearMCPToolEvents(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM mcp_tool_events`)
+	return err
+}
+
 func normalizeMCPToolEventOptions(options ListMCPToolEventOptions) ListMCPToolEventOptions {
 	options.ToolName = strings.TrimSpace(options.ToolName)
 	options.AgentName = strings.TrimSpace(options.AgentName)

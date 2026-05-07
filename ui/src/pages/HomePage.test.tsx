@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { vi } from 'vitest';
@@ -73,6 +73,92 @@ describe('HomePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /refresh/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('deletes the dashboard log and forces an offset-0 refresh without stale expanded details', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const url = new URL(rawUrl, 'http://localhost');
+
+      if (init?.method === 'DELETE' && url.pathname === '/api/mcp-events') {
+        return new Response(null, { status: 204 });
+      }
+
+      if (url.pathname === '/api/mcp-events/evt_1') {
+        return jsonResponse({
+          success: true,
+          data: {
+            event: {
+              id: 'evt_1',
+              request_params: { query_id: 'query_1' },
+              result_summary: { row_count: 2 },
+              error_message: '',
+              query_name: 'Stale expanded query',
+              sql_text: 'SELECT stale_detail FROM deleted_log',
+            },
+          },
+        });
+      }
+
+      return jsonResponse({
+        success: true,
+        data: {
+          items: fetchMock.mock.calls.some(([, callInit]) => callInit?.method === 'DELETE')
+            ? []
+            : [
+                {
+                  id: 'evt_1',
+                  created_at: '2026-04-17T17:00:00Z',
+                  agent_name: 'Marketing bot',
+                  tool_name: 'execute_query',
+                  event_type: 'tool_call',
+                  was_successful: true,
+                  duration_ms: 28,
+                  has_details: true,
+                },
+              ],
+          total: fetchMock.mock.calls.some(([, callInit]) => callInit?.method === 'DELETE') ? 0 : 1,
+          limit: 50,
+          offset: 0,
+        },
+      });
+    });
+
+    renderHomePage();
+
+    await waitFor(() => expect(screen.getByText('Marketing bot')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /delete log/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /expand details for execute_query/i }));
+    await waitFor(() => expect(screen.getByText('Stale expanded query')).toBeInTheDocument());
+    expect(screen.getByText('SELECT stale_detail FROM deleted_log')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /delete log/i }));
+    const dialog = await screen.findByRole('dialog', { name: /delete dashboard log/i });
+    const confirmationInput = within(dialog).getByLabelText(/type delete log to confirm/i);
+    expect(confirmationInput).toHaveValue('delete log');
+    const confirmButton = within(dialog).getByRole('button', { name: /^delete log$/i });
+    expect(confirmButton).toBeEnabled();
+
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /delete dashboard log/i })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/no mcp activity yet/i)).toBeInTheDocument());
+    expect(screen.queryByText('Stale expanded query')).not.toBeInTheDocument();
+    expect(screen.queryByText('SELECT stale_detail FROM deleted_log')).not.toBeInTheDocument();
+
+    const deleteCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = new URL(String(input), 'http://localhost');
+      return init?.method === 'DELETE' && url.pathname === '/api/mcp-events';
+    });
+    const listCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = new URL(String(input), 'http://localhost');
+      return init?.method !== 'DELETE' && url.pathname === '/api/mcp-events';
+    });
+
+    expect(deleteCalls).toHaveLength(1);
+    expect(listCalls).toHaveLength(2);
+    expect(listCalls.every(([input]) => new URL(String(input), 'http://localhost').searchParams.get('offset') === '0')).toBe(true);
   });
 
   it('shows the empty state when there are no tracked events', async () => {

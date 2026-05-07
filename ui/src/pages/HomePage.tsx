@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -6,8 +6,16 @@ import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
-import { getMCPEvent, listMCPEvents } from '../services/api';
+import { deleteMCPEvents, getMCPEvent, listMCPEvents } from '../services/api';
 import type { MCPToolEventDetails, MCPToolEventPage, MCPToolEventRange, MCPToolEventType } from '../types/mcpEvent';
 import { cn } from '../utils/cn';
 
@@ -22,6 +30,7 @@ interface HomePageProps {
 }
 
 const DEFAULT_LIMIT = 50;
+const DELETE_LOG_CONFIRMATION = 'delete log';
 const TIME_RANGES: ReadonlyArray<{ value: MCPToolEventRange; label: string }> = [
   { value: '24h', label: 'Last 24h' },
   { value: '7d', label: 'Last 7d' },
@@ -44,6 +53,10 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [detailsById, setDetailsById] = useState<Record<string, DetailsState>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState(DELETE_LOG_CONFIRMATION);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const beginReload = (resetPagination: boolean): void => {
     setLoading(true);
@@ -52,6 +65,35 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
     setDetailsById({});
     if (resetPagination) {
       setOffset(0);
+    }
+  };
+
+  const forceDashboardReload = (resetPagination: boolean): void => {
+    beginReload(resetPagination);
+    setRefreshKey((current) => current + 1);
+  };
+
+  const openDeleteDialog = (): void => {
+    setDeleteConfirmation(DELETE_LOG_CONFIRMATION);
+    setDeleteError(null);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteLog = async (): Promise<void> => {
+    if (deletePending || deleteConfirmation !== DELETE_LOG_CONFIRMATION) {
+      return;
+    }
+    setDeletePending(true);
+    setDeleteError(null);
+    try {
+      await deleteMCPEvents();
+      setDeleteDialogOpen(false);
+      setDeleteConfirmation(DELETE_LOG_CONFIRMATION);
+      forceDashboardReload(true);
+    } catch (cause: unknown) {
+      setDeleteError(cause instanceof Error ? cause.message : 'Failed to delete dashboard log.');
+    } finally {
+      setDeletePending(false);
     }
   };
 
@@ -165,12 +207,65 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
         title="Dashboard"
         description="Monitor MCP tool activity by agent, review recent successes and failures, and inspect request details."
         actions={
-          <Button type="button" variant="outline" onClick={() => { beginReload(false); setRefreshKey((current) => current + 1); }} disabled={loading}>
-            <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : undefined)} />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => forceDashboardReload(false)} disabled={loading}>
+              <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : undefined)} />
+              Refresh
+            </Button>
+            <Button type="button" variant="destructive" onClick={openDeleteDialog} disabled={deletePending}>
+              <Trash2 className="h-4 w-4" />
+              Delete Log
+            </Button>
+          </div>
         }
       />
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
+        setDeleteDialogOpen(open);
+        if (open) {
+          setDeleteConfirmation(DELETE_LOG_CONFIRMATION);
+          setDeleteError(null);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete dashboard log?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes all Dashboard MCP tool activity log entries. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-text-primary" htmlFor="delete-log-confirmation">
+              Type delete log to confirm
+            </label>
+            <Input
+              id="delete-log-confirmation"
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              disabled={deletePending}
+            />
+            {deleteError ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                {deleteError}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deletePending}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDeleteLog()}
+              disabled={deletePending || deleteConfirmation !== DELETE_LOG_CONFIRMATION}
+            >
+              {deletePending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete Log
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardContent className="space-y-4 p-6">

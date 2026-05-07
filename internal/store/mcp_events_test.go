@@ -173,6 +173,65 @@ func TestListMCPToolEventsSupportsFiltersPaginationAndSnapshots(t *testing.T) {
 	}
 }
 
+func TestClearMCPToolEventsDeletesAllEventsAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	base := time.Date(2026, 4, 17, 17, 0, 0, 0, time.UTC)
+	for _, event := range []*MCPToolEvent{
+		{
+			ID:            "evt_clear_1",
+			AgentName:     "Marketing bot",
+			ToolName:      "query",
+			EventType:     MCPToolEventTypeCall,
+			WasSuccessful: true,
+			DurationMs:    12,
+			RequestParams: map[string]any{"sql": "SELECT 1"},
+			ResultSummary: map[string]any{"row_count": 1},
+			CreatedAt:     base,
+		},
+		{
+			ID:            "evt_clear_2",
+			AgentName:     "Support bot",
+			ToolName:      "execute_query",
+			EventType:     MCPToolEventTypeError,
+			WasSuccessful: false,
+			DurationMs:    34,
+			ErrorMessage:  "permission denied",
+			CreatedAt:     base.Add(time.Minute),
+		},
+	} {
+		if err := store.RecordMCPToolEvent(ctx, event, nil); err != nil {
+			t.Fatalf("RecordMCPToolEvent(%s): %v", event.ID, err)
+		}
+	}
+
+	if err := store.ClearMCPToolEvents(ctx); err != nil {
+		t.Fatalf("ClearMCPToolEvents: %v", err)
+	}
+	if err := store.ClearMCPToolEvents(ctx); err != nil {
+		t.Fatalf("ClearMCPToolEvents(idempotent): %v", err)
+	}
+
+	page, err := store.ListMCPToolEvents(ctx, ListMCPToolEventOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListMCPToolEvents(after clear): %v", err)
+	}
+	if page.Total != 0 || len(page.Items) != 0 {
+		t.Fatalf("expected cleared event list, got total=%d items=%#v", page.Total, page.Items)
+	}
+	for _, id := range []string{"evt_clear_1", "evt_clear_2"} {
+		event, err := store.GetMCPToolEvent(ctx, id)
+		if err != nil {
+			t.Fatalf("GetMCPToolEvent(%s after clear): %v", id, err)
+		}
+		if event != nil {
+			t.Fatalf("expected %s to be deleted, got %#v", id, event)
+		}
+	}
+}
+
 func findSummaryByID(t *testing.T, items []*MCPToolEventSummary, id string) *MCPToolEventSummary {
 	t.Helper()
 	for _, item := range items {

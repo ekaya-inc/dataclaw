@@ -48,6 +48,14 @@ func (a *API) handleGetMCPEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"event": event}})
 }
 
+func (a *API) handleClearMCPEvents(w http.ResponseWriter, r *http.Request) {
+	if err := a.service.ClearMCPToolEvents(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Success: true, Data: map[string]any{"deleted": true}})
+}
+
 func parseMCPToolEventOptions(r *http.Request) (storepkg.ListMCPToolEventOptions, error) {
 	query := r.URL.Query()
 	limit, err := parseBoundedInt(query.Get("limit"), defaultMCPEventsLimit, maxMCPEventsLimit)

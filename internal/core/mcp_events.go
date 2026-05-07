@@ -41,3 +41,7 @@ func (s *Service) ListMCPToolEvents(ctx context.Context, options storepkg.ListMC
 func (s *Service) GetMCPToolEvent(ctx context.Context, id string) (*storepkg.MCPToolEvent, error) {
 	return s.store.GetMCPToolEvent(ctx, id)
 }
+
+func (s *Service) ClearMCPToolEvents(ctx context.Context) error {
+	return s.store.ClearMCPToolEvents(ctx)
+}
