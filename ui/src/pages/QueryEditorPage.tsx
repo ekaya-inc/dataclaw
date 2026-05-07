@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
+import { ApprovedQueriesHelp } from '../components/ApprovedQueriesHelp';
+import { LearnMoreButton } from '../components/LearnMoreButton';
 import { OutputColumnEditor } from '../components/OutputColumnEditor';
 import { ParameterEditor } from '../components/ParameterEditor';
 import { hasRequiredExecutionValues, ParameterInputForm, pruneUnknownParameterValues } from '../components/ParameterInputForm';
@@ -69,6 +71,8 @@ export default function QueryEditorPage(): JSX.Element {
   const [loading, setLoading] = useState(mode === 'edit');
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | null>(mode === 'edit' ? 'loading' : null);
   const [results, setResults] = useState<QueryExecutionResult | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const HELP_PANEL_ID = 'query-editor-help';
   const storageKey = `dataclaw.queryParams.editor.${id ?? 'new'}`;
   const [storedValues, setStoredValues] = useStoredParameterValues(storageKey);
   const parameterValues = useMemo(
@@ -216,7 +220,16 @@ export default function QueryEditorPage(): JSX.Element {
             ? 'Author SQL once, validate it, and add it to the approved catalog Agents can use.'
             : 'Update the saved SQL, metadata, and output shape for this approved query.'
         }
+        actions={
+          <LearnMoreButton
+            open={helpOpen}
+            onToggle={() => setHelpOpen((current) => !current)}
+            panelId={HELP_PANEL_ID}
+          />
+        }
       />
+
+      {helpOpen ? <ApprovedQueriesHelp panelId={HELP_PANEL_ID} /> : null}
 
       <Card>
         <CardHeader>

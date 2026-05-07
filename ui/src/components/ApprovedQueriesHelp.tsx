@@ -69,22 +69,23 @@ function ToolResult({ children }: { children: React.ReactNode }): JSX.Element {
   );
 }
 
-export function ApprovedQueryManagerHelp({ panelId }: { panelId: string }): JSX.Element {
+export function ApprovedQueriesHelp({ panelId }: { panelId: string }): JSX.Element {
   return (
     <div
       id={panelId}
       className="space-y-4 rounded-xl border border-border-light bg-surface-secondary p-4 text-sm text-text-secondary"
     >
-      <div className="space-y-1">
-        <h4 className="text-sm font-semibold text-text-primary">Let an agent build the catalog for you</h4>
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-text-primary">Two ways to fill the approved query catalog</h4>
         <p>
-          With this enabled, an MCP client (Claude Code, Cursor, your own agent) can connect with this agent&apos;s
-          API key, explore your schema, prototype SQL, and register fully-parameterized approved queries with
-          documented output columns — no hand-crafting required. Other agents then consume those queries via{' '}
-          <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-xs text-text-primary">execute_query</code>.
+          Approved queries are reusable, parameterized SQL your team has vetted. Other agents call them by name through{' '}
+          <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-xs text-text-primary">execute_query</code>{' '}
+          without ever seeing the SQL or doing schema discovery — fast, predictable, and locked to read-only unless you opt in.
         </p>
         <p>
-          A manager agent always has{' '}
+          You can author them by hand, <strong>or</strong> grant an agent the <em>Manage Approved Queries</em> permission on
+          the Agent Access screen and let it do the schema discovery, prototyping, and registration for you. A manager agent
+          has{' '}
           <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-xs text-text-primary">query</code>,{' '}
           <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-xs text-text-primary">list_queries</code>,{' '}
           <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-xs text-text-primary">create_query</code>,{' '}
@@ -96,7 +97,7 @@ export function ApprovedQueryManagerHelp({ panelId }: { panelId: string }): JSX.
       </div>
 
       <div className="space-y-3">
-        <h5 className="text-xs font-semibold uppercase tracking-wide text-text-primary">Example conversation</h5>
+        <h5 className="text-xs font-semibold uppercase tracking-wide text-text-primary">Example: a manager agent at work</h5>
 
         <Turn role="User" accent="border-emerald-500">
           <p>
