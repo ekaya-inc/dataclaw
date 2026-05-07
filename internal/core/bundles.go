@@ -216,7 +216,6 @@ func (s *Service) buildAgentBundle(ctx context.Context, slug string, downloadURL
 					Target: ".env",
 					Mode:   "merge",
 					Values: map[string]string{
-						"DATACLAW_BASE_URL":     mcpBaseURL,
 						"DATACLAW_MCP_BASE_URL": mcpBaseURL,
 						"DATACLAW_API_KEY":      plainKey,
 					},

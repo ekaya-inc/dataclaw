@@ -1,8 +1,3 @@
-CREATE TABLE IF NOT EXISTS schema_migrations (
-  version INTEGER PRIMARY KEY,
-  applied_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS datasources (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -61,8 +56,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TEXT NOT NULL
 );
 
--- Fresh-schema-only product constraint: existing sqlite files are replaced before relaunch,
--- so homepage MCP event storage is added directly to the bootstrap schema instead of a follow-on migration.
 CREATE TABLE IF NOT EXISTS mcp_tool_events (
   id TEXT PRIMARY KEY,
   agent_id TEXT,

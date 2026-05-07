@@ -43,8 +43,8 @@ const DATASOURCE_PAYLOAD = {
     display_name: 'Primary datasource',
     host: 'db.example.com',
     port: 5432,
-    name: 'warehouse',
-    user: 'analyst',
+    database: 'warehouse',
+    username: 'analyst',
     ssl_mode: 'require',
   },
 };
@@ -56,7 +56,7 @@ describe('ApprovedQueriesPage', () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/datasource') return response(DATASOURCE_PAYLOAD);
-      if (url === '/api/status') return response({ version: 'test', port: 18790, datasource_configured: true });
+      if (url === '/api/status') return response({ version: 'test', admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', datasource_configured: true });
       if (url === '/api/queries' && !init?.method) return response({ queries: seeded });
       if (url === '/api/queries' && init?.method === 'POST') {
         postCount += 1;

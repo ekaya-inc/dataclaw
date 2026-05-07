@@ -1,30 +1,7 @@
 # CONSIDER: Autonomous DBA Agent
 
-## Status
+Xata-Agent-style continuous monitoring, diagnosis, and recommendation/execution via LLM playbooks. Deferred: requires trust/permission/audit decisions, credential handling, and false-positive policy that DataClaw is not ready to own.
 
-Not planned for near-term implementation. Capture only.
+If revisited: ship deterministic health reports first (TODO Phase 8), then advisory recommendations, then consider autonomy.
 
-## Source Context
-
-CrystalDBA's related-projects list references Xata Agent as an AI agent that monitors database health, diagnoses issues, and recommends actions using LLM reasoning/playbooks: https://github.com/crystaldba/postgres-mcp
-
-## Why This Is Large Scope
-
-An autonomous DBA agent would move DataClaw from deterministic tools into ongoing monitoring, diagnosis, recommendation prioritization, and potentially action execution. That requires product decisions around trust, permissions, approvals, audit trails, scheduling, and incident boundaries.
-
-## Potential Value
-
-- Continuous health and performance monitoring.
-- Guided diagnosis for slow queries and reliability issues.
-- Playbook-driven recommendations.
-
-## Risks / Open Questions
-
-- Should the agent ever execute changes, or only recommend?
-- How are false positives handled?
-- How are credentials and elevated privileges managed?
-- What audit and approval flows are required?
-
-## If Revisited
-
-Build deterministic health reports first. Consider autonomous behavior only after advisory reports are reliable and reviewed by users.
+Reference: https://github.com/crystaldba/postgres-mcp

@@ -160,7 +160,6 @@ function AuthenticatedApp({ onSignedOut }: { onSignedOut: () => void }): JSX.Ele
             status={status}
             completion={completion}
             outletContext={outletContext}
-            onLogout={handleLogoutClick}
           />
         }
       >

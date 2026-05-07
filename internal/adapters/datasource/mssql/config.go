@@ -22,9 +22,9 @@ func FromMap(config map[string]any) (*Config, error) {
 	cfg := &Config{
 		Host:                   datasource.StringValue(config["host"]),
 		Port:                   datasource.IntValue(config["port"], 1433),
-		Username:               datasource.StringValue(datasource.FirstNonNil(config["username"], config["user"])),
+		Username:               datasource.StringValue(config["username"]),
 		Password:               datasource.StringValue(config["password"]),
-		Database:               datasource.StringValue(datasource.FirstNonNil(config["database"], config["name"])),
+		Database:               datasource.StringValue(config["database"]),
 		Encrypt:                datasource.BoolValue(config["encrypt"], false),
 		TrustServerCertificate: datasource.BoolValue(config["trust_server_certificate"], false),
 		ConnectionTimeout:      datasource.IntValue(config["connection_timeout"], 0),

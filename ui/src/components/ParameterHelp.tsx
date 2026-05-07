@@ -1,3 +1,5 @@
+import type { TemplateSyntaxHints } from '../types/datasource';
+
 const EXAMPLE_SQL = `SELECT
   {{user_id}}                                    AS user_id,            -- uuid
   {{user_id}}::text || ' (current)'              AS labelled_user,      -- uuid → text
@@ -17,6 +19,27 @@ const EXAMPLE_SQL = `SELECT
   {{ids}}                                        AS ids,                -- integer[]
   array_length({{ids}}, 1)                       AS id_count;`;
 
+const PAGINATION_DONT_SQL = `SELECT order_id, status, created_at
+FROM public.orders
+WHERE status = {{status}}
+ORDER BY created_at DESC, order_id DESC
+LIMIT 10 OFFSET 20;`;
+
+const PAGINATION_DO_SQL = `SELECT order_id, status, created_at
+FROM public.orders
+WHERE status = {{status}}
+ORDER BY created_at DESC, order_id DESC;`;
+
+const PAGINATION_TOOL_CALL = `{
+  "name": "execute_query",
+  "arguments": {
+    "query_id": "recent_orders_by_status",
+    "parameters": { "status": "Processing" },
+    "limit": 10,
+    "offset": 20
+  }
+}`;
+
 interface TypeRow {
   name: string;
   input: string;
@@ -35,7 +58,17 @@ const TYPE_ROWS: TypeRow[] = [
   { name: 'integer[]', input: '[1,2] or "1, 2"', behavior: 'Use with ANY(...). Postgres only.' },
 ];
 
-export function ParameterHelp({ panelId }: { panelId: string }): JSX.Element {
+interface Props {
+  panelId: string;
+  dialect?: string | undefined;
+  hints?: TemplateSyntaxHints | undefined;
+}
+
+export function ParameterHelp({ panelId, dialect, hints }: Props): JSX.Element {
+  const placeholderTokens = hints?.placeholderAntiExamples ?? [];
+  const paginationTokens = hints?.paginationAntiExamples ?? [];
+  const dialectLabel = dialect ?? 'this dialect';
+
   return (
     <div
       id={panelId}
@@ -71,6 +104,46 @@ export function ParameterHelp({ panelId }: { panelId: string }): JSX.Element {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <h5 className="text-xs font-semibold uppercase tracking-wide text-text-primary">Pagination &amp; dialect tokens</h5>
+        <p>
+          Don&apos;t put <code className="font-mono text-xs">LIMIT</code> / <code className="font-mono text-xs">OFFSET</code> or dialect-native bind markers in your approved query SQL. DataClaw applies pagination at execute time from the tool&apos;s <code className="font-mono text-xs">limit</code> and <code className="font-mono text-xs">offset</code> arguments, and binds named parameters as prepared statements.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Don&apos;t</div>
+            <pre className="overflow-x-auto whitespace-pre rounded-lg border border-border-light bg-surface-primary p-3 font-mono text-xs text-text-primary">
+              <code>{PAGINATION_DONT_SQL}</code>
+            </pre>
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Do</div>
+            <pre className="overflow-x-auto whitespace-pre rounded-lg border border-border-light bg-surface-primary p-3 font-mono text-xs text-text-primary">
+              <code>{PAGINATION_DO_SQL}</code>
+            </pre>
+          </div>
+        </div>
+        <p>Callers paginate via the tool call:</p>
+        <pre className="overflow-x-auto whitespace-pre rounded-lg border border-border-light bg-surface-primary p-3 font-mono text-xs text-text-primary">
+          <code>{PAGINATION_TOOL_CALL}</code>
+        </pre>
+        {placeholderTokens.length > 0 || paginationTokens.length > 0 ? (
+          <div className="space-y-1 pt-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+              Avoid in {dialectLabel} templates
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {[...placeholderTokens, ...paginationTokens].map((token) => (
+                <code key={token} className="rounded bg-surface-primary px-1.5 py-0.5 font-mono text-xs text-text-primary">
+                  {token}
+                </code>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {hints?.notes ? <p className="text-xs">{hints.notes}</p> : null}
       </div>
 
       <div className="space-y-2">

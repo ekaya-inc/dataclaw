@@ -279,7 +279,7 @@ func seedDatasource(t *testing.T, service *Service, dsType string) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})

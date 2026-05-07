@@ -41,24 +41,12 @@ import { SqlEditor } from './SqlEditor';
 
 function SqlEditorHarness({
   dialect = 'PostgreSQL',
-  validationError,
-  validationStatus = 'idle',
 }: {
   dialect?: 'PostgreSQL' | 'MSSQL';
-  validationError?: string;
-  validationStatus?: 'idle' | 'validating' | 'valid' | 'invalid';
 }): JSX.Element {
   const [value, setValue] = useState('SELECT 1');
 
-  return (
-    <SqlEditor
-      value={value}
-      onChange={setValue}
-      dialect={dialect}
-      validationStatus={validationStatus}
-      validationError={validationError}
-    />
-  );
+  return <SqlEditor value={value} onChange={setValue} dialect={dialect} />;
 }
 
 describe('SqlEditor', () => {
@@ -75,8 +63,6 @@ describe('SqlEditor', () => {
     const editor = screen.getByRole('textbox', { name: /sql editor/i });
 
     expect(editor).toHaveValue('SELECT 1');
-    expect(screen.queryByText(/sql is valid\./i)).not.toBeInTheDocument();
-    expect(document.querySelector('.border-border-light')).toBeInTheDocument();
 
     await user.clear(editor);
     await user.type(editor, 'SELECT 2');
@@ -103,36 +89,5 @@ describe('SqlEditor', () => {
       dialect: mssqlDialect,
       upperCaseKeywords: true,
     });
-  });
-
-  it('shows invalid feedback for users when validation fails', () => {
-    render(
-      <SqlEditor
-        value="SELECT"
-        onChange={vi.fn()}
-        dialect="PostgreSQL"
-        validationStatus="invalid"
-        validationError="Syntax error near end of input."
-      />,
-    );
-
-    expect(screen.getByText('Syntax error near end of input.')).toBeInTheDocument();
-    expect(document.querySelector('.border-red-500')).toBeInTheDocument();
-  });
-
-  it('shows valid and validating states with visible status text', () => {
-    const { rerender } = render(
-      <SqlEditor value="SELECT 1" onChange={vi.fn()} dialect="PostgreSQL" validationStatus="valid" />,
-    );
-
-    expect(screen.getByText('SQL is valid.')).toBeInTheDocument();
-    expect(document.querySelector('.border-emerald-500')).toBeInTheDocument();
-
-    rerender(
-      <SqlEditor value="SELECT 1" onChange={vi.fn()} dialect="PostgreSQL" validationStatus="validating" />,
-    );
-
-    expect(screen.getByText('Validating SQL…')).toBeInTheDocument();
-    expect(document.querySelector('.border-amber-500')).toBeInTheDocument();
   });
 });

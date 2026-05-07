@@ -61,11 +61,11 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 
 	wantDataDir := filepath.Join(home, ".dataclaw")
-	if cfg.BindAddr != DefaultAdminBindAddr || cfg.Admin.BindAddr != DefaultAdminBindAddr {
-		t.Fatalf("admin bind = legacy %q nested %q, want %q", cfg.BindAddr, cfg.Admin.BindAddr, DefaultAdminBindAddr)
+	if cfg.Admin.BindAddr != DefaultAdminBindAddr {
+		t.Fatalf("admin bind = %q, want %q", cfg.Admin.BindAddr, DefaultAdminBindAddr)
 	}
-	if cfg.Port != DefaultAdminPort || cfg.Admin.Port != DefaultAdminPort {
-		t.Fatalf("admin port = legacy %d nested %d, want %d", cfg.Port, cfg.Admin.Port, DefaultAdminPort)
+	if cfg.Admin.Port != DefaultAdminPort {
+		t.Fatalf("admin port = %d, want %d", cfg.Admin.Port, DefaultAdminPort)
 	}
 	if cfg.MCP.BindAddr != DefaultMCPBindAddr || cfg.MCP.Port != DefaultMCPPort {
 		t.Fatalf("mcp listener = %s:%d, want %s:%d", cfg.MCP.BindAddr, cfg.MCP.Port, DefaultMCPBindAddr, DefaultMCPPort)
@@ -275,16 +275,16 @@ func TestLoadRejectsConfigPathErrors(t *testing.T) {
 	}
 }
 
-func TestLoadUsesLegacyEnvAliasesForAdminOnly(t *testing.T) {
+func TestLoadUsesCanonicalEnvForAdminAndStorage(t *testing.T) {
 	customDir := filepath.Join(t.TempDir(), "custom")
 	setLoadEnv(t, map[string]string{
-		"HOME":                 t.TempDir(),
-		"DATACLAW_BIND_ADDR":   " 0.0.0.0 ",
-		"DATACLAW_PORT":        " 19001 ",
-		"DATACLAW_DATA_DIR":    " " + customDir + " ",
-		"DATACLAW_DB_PATH":     " " + filepath.Join(customDir, "db.sqlite") + " ",
-		"DATACLAW_SECRET_PATH": " " + filepath.Join(customDir, "secret.key") + " ",
-		"DATACLAW_LOG_LEVEL":   " WARN ",
+		"HOME":                     t.TempDir(),
+		"DATACLAW_ADMIN_BIND_ADDR": " 0.0.0.0 ",
+		"DATACLAW_ADMIN_PORT":      " 19001 ",
+		"DATACLAW_DATA_DIR":        " " + customDir + " ",
+		"DATACLAW_DB_PATH":         " " + filepath.Join(customDir, "db.sqlite") + " ",
+		"DATACLAW_SECRET_PATH":     " " + filepath.Join(customDir, "secret.key") + " ",
+		"DATACLAW_LOG_LEVEL":       " WARN ",
 	})
 
 	cfg, err := Load("dev")
@@ -292,17 +292,14 @@ func TestLoadUsesLegacyEnvAliasesForAdminOnly(t *testing.T) {
 		t.Fatalf("Load(): %v", err)
 	}
 
-	if cfg.BindAddr != "0.0.0.0" || cfg.Admin.BindAddr != "0.0.0.0" {
-		t.Fatalf("admin bind = legacy %q nested %q, want explicit 0.0.0.0", cfg.BindAddr, cfg.Admin.BindAddr)
+	if cfg.Admin.BindAddr != "0.0.0.0" {
+		t.Fatalf("admin bind = %q, want explicit 0.0.0.0", cfg.Admin.BindAddr)
 	}
 	if cfg.MCP.BindAddr != DefaultMCPBindAddr || cfg.MCP.Port != DefaultMCPPort {
-		t.Fatalf("legacy aliases should not affect MCP, got %#v", cfg.MCP)
+		t.Fatalf("admin env should not affect MCP, got %#v", cfg.MCP)
 	}
-	if cfg.Port != 19001 || cfg.Admin.Port != 19001 {
-		t.Fatalf("admin port = legacy %d nested %d", cfg.Port, cfg.Admin.Port)
-	}
-	if len(cfg.Warnings) != 2 || !strings.Contains(strings.Join(cfg.Warnings, "\n"), "DATACLAW_BIND_ADDR is deprecated") {
-		t.Fatalf("warnings = %#v", cfg.Warnings)
+	if cfg.Admin.Port != 19001 {
+		t.Fatalf("admin port = %d", cfg.Admin.Port)
 	}
 	if cfg.DataDir != customDir {
 		t.Fatalf("DataDir = %q, want %q", cfg.DataDir, customDir)
@@ -345,26 +342,9 @@ func TestLoadRejectsInvalidListenerEnv(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidPort(t *testing.T) {
-	setLoadEnv(t, map[string]string{
-		"HOME":               t.TempDir(),
-		"DATACLAW_PORT":      "not-a-number",
-		"DATACLAW_LOG_LEVEL": "",
-	})
-
-	_, err := Load("test")
-	if err == nil {
-		t.Fatal("Load() returned nil error for invalid DATACLAW_PORT")
-	}
-	if !strings.Contains(err.Error(), "parse DATACLAW_PORT") {
-		t.Fatalf("Load() error = %v, want parse DATACLAW_PORT error", err)
-	}
-}
-
 func TestLoadRejectsInvalidLogLevel(t *testing.T) {
 	setLoadEnv(t, map[string]string{
 		"HOME":               t.TempDir(),
-		"DATACLAW_PORT":      "",
 		"DATACLAW_LOG_LEVEL": "chatty",
 	})
 
@@ -412,11 +392,8 @@ func TestLoadRejectsInvalidSecurityConfig(t *testing.T) {
 func TestConfigBaseURLHelpers(t *testing.T) {
 	cfg := &Config{Admin: AdminConfig{ListenerConfig: ListenerConfig{BindAddr: "0.0.0.0"}}, MCP: ListenerConfig{BindAddr: "::"}}
 
-	if got := cfg.BaseURL(18790); got != "http://127.0.0.1:18790" {
-		t.Fatalf("BaseURL() = %q, want loopback-safe advertised URL", got)
-	}
-	if got := cfg.UIBaseURL(18790); got != "http://127.0.0.1:18790" {
-		t.Fatalf("UIBaseURL() = %q, want loopback-safe advertised URL", got)
+	if got := cfg.AdminBaseURL(18790); got != "http://127.0.0.1:18790" {
+		t.Fatalf("AdminBaseURL() = %q, want loopback-safe advertised URL", got)
 	}
 	if got := cfg.MCPBaseURL(18791); got != "http://127.0.0.1:18791" {
 		t.Fatalf("MCPBaseURL() = %q, want loopback-safe advertised URL", got)
@@ -425,8 +402,8 @@ func TestConfigBaseURLHelpers(t *testing.T) {
 	cfg.Admin.BindAddr = "127.0.0.1"
 	cfg.Admin.AdvertisedHost = "admin.local"
 	cfg.MCP = ListenerConfig{BindAddr: "127.0.0.1", AdvertisedBaseURL: "https://mcp.example.com"}
-	if got := cfg.UIBaseURL(18790); got != "http://admin.local:18790" {
-		t.Fatalf("UIBaseURL(advertised host) = %q", got)
+	if got := cfg.AdminBaseURL(18790); got != "http://admin.local:18790" {
+		t.Fatalf("AdminBaseURL(advertised host) = %q", got)
 	}
 	if got := cfg.MCPBaseURL(18791); got != "https://mcp.example.com" {
 		t.Fatalf("MCPBaseURL(advertised base) = %q", got)
@@ -434,24 +411,10 @@ func TestConfigBaseURLHelpers(t *testing.T) {
 }
 
 func TestConfigHelpers(t *testing.T) {
-	t.Setenv("DATACLAW_TEST_INT", "")
-	if got, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err != nil || got != 42 {
-		t.Fatalf("intEnvOrDefault(empty) = %d, %v", got, err)
-	}
-
-	t.Setenv("DATACLAW_TEST_INT", " 17 ")
-	if got, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err != nil || got != 17 {
-		t.Fatalf("intEnvOrDefault(value) = %d, %v", got, err)
-	}
-	t.Setenv("DATACLAW_TEST_INT", "many")
-	if _, err := intEnvOrDefault("DATACLAW_TEST_INT", 42); err == nil || !strings.Contains(err.Error(), "parse DATACLAW_TEST_INT") {
-		t.Fatalf("intEnvOrDefault(invalid) error = %v", err)
-	}
-
 	cfg := &Config{DataDir: "/data"}
-	cfg.syncLegacyFields()
+	cfg.ensureStoragePaths()
 	if cfg.SQLitePath != "/data/dataclaw.sqlite" || cfg.SecretPath != "/data/secret.key" {
-		t.Fatalf("syncLegacyFields paths = %q/%q", cfg.SQLitePath, cfg.SecretPath)
+		t.Fatalf("ensureStoragePaths paths = %q/%q", cfg.SQLitePath, cfg.SecretPath)
 	}
 }
 
@@ -460,8 +423,6 @@ func setLoadEnv(t *testing.T, values map[string]string) {
 	for _, key := range []string{
 		"HOME",
 		"DATACLAW_CONFIG_PATH",
-		"DATACLAW_BIND_ADDR",
-		"DATACLAW_PORT",
 		"DATACLAW_DATA_DIR",
 		"DATACLAW_DB_PATH",
 		"DATACLAW_SECRET_PATH",

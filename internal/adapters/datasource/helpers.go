@@ -285,15 +285,6 @@ func BoolString(v any, fallback bool) string {
 	return "false"
 }
 
-func FirstNonNil(values ...any) any {
-	for _, v := range values {
-		if v != nil && StringValue(v) != "" {
-			return v
-		}
-	}
-	return nil
-}
-
 func CanonicalFingerprint(value any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

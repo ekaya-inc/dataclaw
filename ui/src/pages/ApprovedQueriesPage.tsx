@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
+import { ApprovedQueriesHelp } from '../components/ApprovedQueriesHelp';
 import { EmptyState } from '../components/EmptyState';
+import { LearnMoreButton } from '../components/LearnMoreButton';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
@@ -23,6 +25,8 @@ export default function ApprovedQueriesPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const HELP_PANEL_ID = 'approved-queries-help';
 
   useEffect(() => {
     void (async () => {
@@ -104,12 +108,21 @@ export default function ApprovedQueriesPage(): JSX.Element {
         title="Approved Queries"
         description="Manage the SQL Queries that Agents are allowed to run."
         actions={
-          <Button type="button" onClick={() => navigate('/queries/new')}>
-            <Plus className="h-4 w-4" />
-            New query
-          </Button>
+          <>
+            <LearnMoreButton
+              open={helpOpen}
+              onToggle={() => setHelpOpen((current) => !current)}
+              panelId={HELP_PANEL_ID}
+            />
+            <Button type="button" onClick={() => navigate('/queries/new')}>
+              <Plus className="h-4 w-4" />
+              New query
+            </Button>
+          </>
         }
       />
+
+      {helpOpen ? <ApprovedQueriesHelp panelId={HELP_PANEL_ID} /> : null}
 
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />

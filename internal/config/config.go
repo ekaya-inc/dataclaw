@@ -15,9 +15,8 @@ import (
 
 const (
 	DefaultBindAddr      = "127.0.0.1"
-	DefaultPort          = 18790
 	DefaultAdminBindAddr = DefaultBindAddr
-	DefaultAdminPort     = DefaultPort
+	DefaultAdminPort     = 18790
 	DefaultMCPBindAddr   = "127.0.0.1"
 	DefaultMCPPort       = 18791
 
@@ -33,8 +32,6 @@ const (
 var DefaultLogLevel = slog.LevelInfo
 
 type Config struct {
-	BindAddr   string
-	Port       int
 	DataDir    string
 	SQLitePath string
 	SecretPath string
@@ -42,7 +39,6 @@ type Config struct {
 	LogLevel   slog.Level
 	Admin      AdminConfig
 	MCP        ListenerConfig
-	Warnings   []string
 }
 
 type ListenerConfig struct {
@@ -120,7 +116,7 @@ func Load(version string) (*Config, error) {
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
-	cfg.syncLegacyFields()
+	cfg.ensureStoragePaths()
 	return cfg, nil
 }
 
@@ -146,13 +142,11 @@ func defaultConfig(version, dataDir string) *Config {
 			Port:     DefaultMCPPort,
 		},
 	}
-	cfg.syncLegacyFields()
+	cfg.ensureStoragePaths()
 	return cfg
 }
 
-func (c *Config) syncLegacyFields() {
-	c.BindAddr = c.Admin.BindAddr
-	c.Port = c.Admin.Port
+func (c *Config) ensureStoragePaths() {
 	if c.SQLitePath == "" {
 		c.SQLitePath = filepath.Join(c.DataDir, "dataclaw.sqlite")
 	}
@@ -233,7 +227,7 @@ func applyFileConfig(loaded *fileConfig, cfg *Config) error {
 	if loaded.MCP != nil {
 		applyFileListenerConfig(loaded.MCP, &cfg.MCP)
 	}
-	cfg.syncLegacyFields()
+	cfg.ensureStoragePaths()
 	return nil
 }
 
@@ -295,18 +289,6 @@ func applyBoolPtr(src *bool, dst *bool) {
 }
 
 func applyEnvOverrides(cfg *Config) error {
-	if raw, ok := os.LookupEnv("DATACLAW_BIND_ADDR"); ok && strings.TrimSpace(raw) != "" {
-		cfg.Admin.BindAddr = strings.TrimSpace(raw)
-		cfg.Warnings = append(cfg.Warnings, "DATACLAW_BIND_ADDR is deprecated; use DATACLAW_ADMIN_BIND_ADDR")
-	}
-	if raw, ok := os.LookupEnv("DATACLAW_PORT"); ok && strings.TrimSpace(raw) != "" {
-		port, err := parsePortEnv("DATACLAW_PORT", raw)
-		if err != nil {
-			return err
-		}
-		cfg.Admin.Port = port
-		cfg.Warnings = append(cfg.Warnings, "DATACLAW_PORT is deprecated; use DATACLAW_ADMIN_PORT")
-	}
 	oldDataDir := cfg.DataDir
 	if raw, ok := os.LookupEnv("DATACLAW_DATA_DIR"); ok && strings.TrimSpace(raw) != "" {
 		cfg.DataDir = strings.TrimSpace(raw)
@@ -345,7 +327,7 @@ func applyEnvOverrides(cfg *Config) error {
 	if err := applyListenerEnvOverrides("DATACLAW_MCP", &cfg.MCP); err != nil {
 		return err
 	}
-	cfg.syncLegacyFields()
+	cfg.ensureStoragePaths()
 	return nil
 }
 
@@ -534,14 +516,6 @@ func normalizeBindAddr(bindAddr string) string {
 	return bindAddr
 }
 
-func (c *Config) BaseURL(port int) string {
-	return c.AdminBaseURL(port)
-}
-
-func (c *Config) UIBaseURL(port int) string {
-	return c.AdminBaseURL(port)
-}
-
 func (c *Config) AdminBaseURL(port int) string {
 	return c.Admin.BaseURL(port)
 }
@@ -586,18 +560,6 @@ func envOrDefault(key, fallback string) string {
 
 func parsePortEnv(key, raw string) (int, error) {
 	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		return 0, fmt.Errorf("parse %s: %w", key, err)
-	}
-	return parsed, nil
-}
-
-func intEnvOrDefault(key string, fallback int) (int, error) {
-	val := strings.TrimSpace(os.Getenv(key))
-	if val == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.Atoi(val)
 	if err != nil {
 		return 0, fmt.Errorf("parse %s: %w", key, err)
 	}

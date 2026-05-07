@@ -10,7 +10,6 @@ import (
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	"github.com/ekaya-inc/dataclaw/internal/store"
-	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
@@ -57,7 +56,7 @@ func newFakeAdapterFactory() *fakeAdapterFactory {
 		},
 		newIntrospector: func(_ context.Context, _ string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
 			database, _ := config["database"].(string)
-			user, _ := config["user"].(string)
+			user, _ := config["username"].(string)
 			return fakeDatasourceIntrospector{
 				info: &dsadapter.DatasourceInfo{
 					DatabaseName: database,
@@ -230,7 +229,7 @@ func newTestService(t *testing.T) *Service {
 func newTestServiceWithFactory(t *testing.T, factory dsadapter.Factory) *Service {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -244,7 +243,7 @@ func newTestServiceWithFactory(t *testing.T, factory dsadapter.Factory) *Service
 func newSplitURLTestService(t *testing.T, adminBaseURL, mcpBaseURL string) *Service {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -265,16 +264,9 @@ func TestStatusIncludesSplitListenerFields(t *testing.T) {
 	assertStatusValue(t, status, "mcp_url", "https://mcp.example.test:18791/mcp")
 	assertStatusValue(t, status, "admin_port", 18790)
 	assertStatusValue(t, status, "mcp_port", 18791)
-	assertStatusValue(t, status, "base_url", "http://127.0.0.1:18790")
-	assertStatusValue(t, status, "port", 18790)
 	assertStatusValue(t, status, "listener_split", true)
-
-	compatibility, ok := status["compatibility"].(map[string]string)
-	if !ok {
-		t.Fatalf("expected compatibility aliases, got %#v", status["compatibility"])
-	}
-	if compatibility["base_url_alias"] != "admin_base_url" || compatibility["port_alias"] != "admin_port" {
-		t.Fatalf("unexpected compatibility aliases: %#v", compatibility)
+	if len(status) != 10 {
+		t.Fatalf("unexpected status field count: %#v", status)
 	}
 }
 
@@ -295,7 +287,7 @@ func TestDatasourceConfigIsEncryptedAtRest(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "appdb",
-			"user":     "alice",
+			"username": "alice",
 			"password": "super-secret-password",
 		},
 	}
@@ -364,7 +356,7 @@ func TestUpsertDatasourceReturnsDecryptedConfig(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})
@@ -401,7 +393,7 @@ func TestUpsertDatasourceRenamePreservesQueries(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})
@@ -426,7 +418,7 @@ func TestUpsertDatasourceRenamePreservesQueries(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})
@@ -471,7 +463,7 @@ func TestUpsertDatasourceRejectsConnectionChanges(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	}); err != nil {
@@ -485,7 +477,7 @@ func TestUpsertDatasourceRejectsConnectionChanges(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "reporting",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})

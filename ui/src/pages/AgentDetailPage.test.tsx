@@ -63,8 +63,6 @@ describe('AgentDetailPage', () => {
   it('prefers the server-reported MCP URL for instructions', () => {
     expect(
       endpointUrl({
-        port: 18790,
-        baseUrl: 'http://sparktwo:18790',
         mcpUrl: 'http://sparktwo:18790/mcp',
       }),
     ).toBe('http://sparktwo:18790/mcp');
@@ -89,7 +87,9 @@ describe('AgentDetailPage', () => {
       if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
           mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: true,
           agent_count: 1,
@@ -111,7 +111,9 @@ describe('AgentDetailPage', () => {
       if (url === '/api/agents/agent_1' && !init?.method) return jsonResponse({ agent: AGENT });
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
           mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: true,
           agent_count: 1,
@@ -143,7 +145,9 @@ describe('AgentDetailPage', () => {
       if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
           mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: true,
           agent_count: 1,
@@ -166,7 +170,9 @@ describe('AgentDetailPage', () => {
       if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
           mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: true,
           agent_count: 1,
@@ -198,7 +204,9 @@ describe('AgentDetailPage', () => {
       if (url === '/api/agents/agent_1') return jsonResponse({ agent: AGENT });
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
           mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: true,
           agent_count: 1,

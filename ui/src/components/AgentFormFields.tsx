@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ChevronUp, Sparkles } from 'lucide-react';
+import { Check } from 'lucide-react';
 
-import { ApprovedQueryManagerHelp } from './ApprovedQueryManagerHelp';
+import { ApprovedQueriesHelp } from './ApprovedQueriesHelp';
 import { DangerousExecuteDialog } from './DangerousExecuteDialog';
+import { LearnMoreButton } from './LearnMoreButton';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
@@ -212,24 +213,13 @@ export function AgentFormFields({ form, onChange, queries, nameReadOnly = false 
                 <code className="rounded bg-surface-primary px-1 py-0.5 font-mono text-[11px] text-text-primary">execute_query</code>.
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-expanded={showManagerHelp}
-              aria-controls={APPROVED_QUERY_MANAGER_HELP_PANEL_ID}
-              onClick={() => setShowManagerHelp((current) => !current)}
-              className="border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 hover:text-violet-800"
-            >
-              {showManagerHelp ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <Sparkles className="h-4 w-4 text-violet-500" />
-              )}
-              Learn more
-            </Button>
+            <LearnMoreButton
+              open={showManagerHelp}
+              onToggle={() => setShowManagerHelp((current) => !current)}
+              panelId={APPROVED_QUERY_MANAGER_HELP_PANEL_ID}
+            />
           </div>
-          {showManagerHelp ? <ApprovedQueryManagerHelp panelId={APPROVED_QUERY_MANAGER_HELP_PANEL_ID} /> : null}
+          {showManagerHelp ? <ApprovedQueriesHelp panelId={APPROVED_QUERY_MANAGER_HELP_PANEL_ID} /> : null}
         </div>
       </div>
 

@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. `internal/config` loads env vars (`DATACLAW_*`), normalizes `BindAddr` to `127.0.0.1` (loopback-only is a product constraint, not just a default).
 2. `internal/security.LoadOrCreateSecret` loads/creates the AES key at `DATACLAW_SECRET_PATH`; used to encrypt datasource configs and the agent API key before they go into SQLite.
-3. `internal/store.Open` opens SQLite via `modernc.org/sqlite` and applies `migrations/*.sql` (embedded via `migrations/embed.go`). Tables: `datasources`, `approved_queries`, `agents`, `agent_approved_queries`, `app_settings`.
+3. `internal/store.Open` opens SQLite via `modernc.org/sqlite` and applies the embedded bootstrap schema in `internal/store/schema.sql`. Tables: `datasources`, `approved_queries`, `agents`, `agent_approved_queries`, `app_settings`, `mcp_tool_events`.
 4. `internal/runtime.ListenIncrement` binds the preferred port, incrementing up to 100 times if busy — the actual port isn't known until this returns.
 5. `internal/core.Service` is the single orchestrator — **all business logic goes through it**. `httpapi` and `mcpserver` are thin adapters; they must not touch `store` directly.
 6. `internal/httpapi` mounts `/api/*` routes on the shared `http.ServeMux`.

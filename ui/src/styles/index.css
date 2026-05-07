@@ -5,6 +5,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --brand-purple: #8b5cf6;
     --text-primary: #111827;
     --text-secondary: #475569;
@@ -21,6 +22,73 @@
     --border-light: #cbd5e1;
     --border-medium: #94a3b8;
     --border-heavy: #64748b;
+    --sidebar-bg: #ffffff;
+    --sidebar-fg: #1e293b;
+    --sidebar-fg-muted: #475569;
+    --sidebar-fg-faint: #94a3b8;
+    --sidebar-item-hover-bg: #f1f5f9;
+    --sidebar-item-hover-fg: #0f172a;
+    --sidebar-item-active-bg: #0f172a;
+    --sidebar-item-active-fg: #f8fafc;
+    --sidebar-border: #e2e8f0;
+  }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-tertiary: #94a3b8;
+    --surface-primary: #0f172a;
+    --surface-secondary: #020617;
+    --surface-tertiary: #1e293b;
+    --surface-active: rgba(20, 184, 166, 0.18);
+    --surface-hover: rgba(241, 245, 249, 0.06);
+    --surface-submit: #14b8a6;
+    --surface-submit-hover: #2dd4bf;
+    --surface-destructive: #ef4444;
+    --surface-destructive-hover: #f87171;
+    --border-light: #334155;
+    --border-medium: #475569;
+    --border-heavy: #64748b;
+    --sidebar-bg: #020617;
+    --sidebar-fg: #f1f5f9;
+    --sidebar-fg-muted: #cbd5e1;
+    --sidebar-fg-faint: #475569;
+    --sidebar-item-hover-bg: #0f172a;
+    --sidebar-item-hover-fg: #f8fafc;
+    --sidebar-item-active-bg: #f1f5f9;
+    --sidebar-item-active-fg: #020617;
+    --sidebar-border: #1e293b;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme='system'] {
+      color-scheme: dark;
+      --text-primary: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --surface-primary: #0f172a;
+      --surface-secondary: #020617;
+      --surface-tertiary: #1e293b;
+      --surface-active: rgba(20, 184, 166, 0.18);
+      --surface-hover: rgba(241, 245, 249, 0.06);
+      --surface-submit: #14b8a6;
+      --surface-submit-hover: #2dd4bf;
+      --surface-destructive: #ef4444;
+      --surface-destructive-hover: #f87171;
+      --border-light: #334155;
+      --border-medium: #475569;
+      --border-heavy: #64748b;
+      --sidebar-bg: #020617;
+      --sidebar-fg: #f1f5f9;
+      --sidebar-fg-muted: #cbd5e1;
+      --sidebar-fg-faint: #475569;
+      --sidebar-item-hover-bg: #0f172a;
+      --sidebar-item-hover-fg: #f8fafc;
+      --sidebar-item-active-bg: #f1f5f9;
+      --sidebar-item-active-fg: #020617;
+      --sidebar-border: #1e293b;
+    }
   }
 
   * {

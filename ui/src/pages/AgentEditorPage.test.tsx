@@ -137,8 +137,8 @@ describe('AgentEditorPage', () => {
 
     const learnMoreButton = screen.getByRole('button', { name: /learn more/i });
     await userEvent.click(learnMoreButton);
-    expect(screen.getByText(/let an agent build the catalog for you/i)).toBeInTheDocument();
-    expect(screen.getByText(/example conversation/i)).toBeInTheDocument();
+    expect(screen.getByText(/two ways to fill the approved query catalog/i)).toBeInTheDocument();
+    expect(screen.getByText(/example: a manager agent at work/i)).toBeInTheDocument();
 
     await userEvent.click(managerCheckbox);
     expect(managerCheckbox).toBeChecked();

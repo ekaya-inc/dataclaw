@@ -54,9 +54,23 @@ type queryToolRequest struct {
 }
 
 const (
-	approvedQueryTemplateExample = "Use {{parameter_name}} placeholders inside sql_query and define a matching entry in parameters for every placeholder. Do not use datasource-native placeholder styles in approved query templates. Use the tool limit/offset arguments for pagination instead of embedding datasource-specific pagination clauses. Example:\nSELECT order_id, user_id, status, created_at, num_of_item\nFROM orders\nWHERE status = {{status}}\n  AND created_at >= CAST({{created_after}} AS TIMESTAMP)\n  AND user_id = CAST({{user_id}} AS INTEGER)\n  AND num_of_item >= CAST({{min_items}} AS INTEGER)\nORDER BY created_at DESC, order_id DESC"
-	parameterValuesDescription   = "Parameter values keyed by parameter name. Use native JSON values when possible: strings for string, date (YYYY-MM-DD), timestamp (RFC3339), and uuid; numbers or numeric strings for integer and decimal; booleans or parseable boolean strings for boolean; JSON arrays or comma-separated strings for string[] and integer[]. Array parameters require a datasource adapter that supports arrays."
-	rawSQLDiscoveryDescription   = " Check the active datasource dialect before writing SQL: tools/list includes it on this argument when available; call get_datasource_information, and explore_schema when available, for datasource metadata and table shape."
+	approvedQueryTemplateExample = "Approved query template rules:\n" +
+		"1. Placeholders: use {{parameter_name}} for every caller-supplied value, and declare a matching entry in `parameters` for each. Names match ^[A-Za-z_][A-Za-z0-9_]*$. The same placeholder may appear multiple times.\n" +
+		"2. Pagination: do NOT put LIMIT/OFFSET (or other pagination clauses) in sql_query. Callers pass `limit` and `offset` to execute_query and DataClaw appends pagination at execute time.\n" +
+		"3. Bind markers: do NOT use datasource-native bind markers in sql_query — {{name}} is bound as a prepared-statement parameter under the hood.\n" +
+		"4. Casting: when the declared parameter type already matches the column or operator type, no cast is needed; the value is bound as that type. Add `CAST({{name}} AS <type>)` only when the database needs a different type for an SQL operator (e.g. timestamp math, numeric kind juggling, comparing against a column whose type differs from the parameter).\n" +
+		"5. Arrays: use `ANY({{arr}})` rather than `IN(...)`. Array parameter types (string[], integer[]) require an adapter that advertises array support; execute_query rejects them otherwise.\n" +
+		"6. Determinism: include a stable, total ORDER BY (e.g. created_at DESC, order_id DESC) for any query callers will paginate.\n" +
+		"Example:\n" +
+		"SELECT order_id, user_id, status, created_at, num_of_item\n" +
+		"FROM orders\n" +
+		"WHERE status = {{status}}\n" +
+		"  AND created_at >= {{created_after}}\n" +
+		"  AND user_id = {{user_id}}\n" +
+		"  AND num_of_item >= {{min_items}}\n" +
+		"ORDER BY created_at DESC, order_id DESC"
+	parameterValuesDescription = "Parameter values keyed by parameter name. Use native JSON values when possible: strings for string, date (YYYY-MM-DD), timestamp (RFC3339), and uuid; numbers or numeric strings for integer and decimal; booleans or parseable boolean strings for boolean; JSON arrays or comma-separated strings for string[] and integer[]. Array parameters require a datasource adapter that supports arrays."
+	rawSQLDiscoveryDescription = " Check the active datasource dialect before writing SQL: tools/list includes it on this argument when available; call get_datasource_information, and explore_schema when available, for datasource metadata and table shape."
 )
 
 var supportedQueryParameterTypes = []string{
@@ -311,7 +325,7 @@ func registerDeleteQueryTool(srv *server.MCPServer, service *core.Service) {
 
 func registerExecuteQueryTool(srv *server.MCPServer, service *core.Service) {
 	tool := mcp.NewTool("execute_query",
-		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Inspect list_queries for allows_modification before calling: read-only approved queries run as SELECT/WITH, while allows_modification=true queries run as mutating DML. Pass parameters as an object keyed by parameter name; values are validated, coerced, and bound according to the approved query's parameter definitions before execution."),
+		mcp.WithDescription("Execute an approved query that the authenticated agent is allowed to access. Inspect list_queries for allows_modification before calling: read-only approved queries run as SELECT/WITH, while allows_modification=true queries run as mutating DML. Pass parameters as an object keyed by parameter name; values are validated, coerced, and bound according to the approved query's parameter definitions before execution. Pagination is controlled by the top-level `limit` and `offset` arguments on this call — do not put them inside `parameters`, and the approved query SQL itself does not include LIMIT/OFFSET."),
 		mcp.WithString("query_id", mcp.Required(), mcp.Description("Query ID")),
 		mcp.WithObject("parameters", mcp.Description(parameterValuesDescription)),
 		mcp.WithNumber("limit", mcp.Description("Maximum rows to return (default 100, max 1000)")),

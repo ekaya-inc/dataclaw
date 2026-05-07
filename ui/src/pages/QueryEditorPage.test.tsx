@@ -69,7 +69,6 @@ describe('QueryEditorPage', () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/datasource') return jsonResponse(DATASOURCE);
-      if (url === '/api/queries/validate') return jsonResponse({ valid: true });
       if (url === '/api/queries' && init?.method === 'POST') {
         return jsonResponse({ query: { ...QUERY, query_id: 'query_created' } });
       }
@@ -92,7 +91,6 @@ describe('QueryEditorPage', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/datasource') return jsonResponse(DATASOURCE);
       if (url === '/api/queries/query_1') return jsonResponse({ query: QUERY });
-      if (url === '/api/queries/validate') return jsonResponse({ valid: true });
       throw new Error(`Unhandled ${String(url)}`);
     });
 
@@ -122,7 +120,6 @@ describe('QueryEditorPage', () => {
           },
         });
       }
-      if (url === '/api/queries/validate') return jsonResponse({ valid: true });
       throw new Error(`Unhandled ${String(url)}`);
     });
 

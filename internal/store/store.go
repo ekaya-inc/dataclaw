@@ -3,15 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +15,9 @@ import (
 
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
+
+//go:embed schema.sql
+var schemaSQL string
 
 type Datasource struct {
 	ID              string         `json:"id"`
@@ -49,7 +48,7 @@ type Store struct {
 	db *sql.DB
 }
 
-func Open(ctx context.Context, sqlitePath string, migrationFS embed.FS) (*Store, error) {
+func Open(ctx context.Context, sqlitePath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir sqlite dir: %w", err)
 	}
@@ -65,7 +64,7 @@ func Open(ctx context.Context, sqlitePath string, migrationFS embed.FS) (*Store,
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 	store := &Store{db: db}
-	if err := store.runMigrations(ctx, migrationFS); err != nil {
+	if err := store.ensureSchema(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -75,55 +74,9 @@ func Open(ctx context.Context, sqlitePath string, migrationFS embed.FS) (*Store,
 func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) DB() *sql.DB  { return s.db }
 
-func (s *Store) runMigrations(ctx context.Context, migrationFS embed.FS) error {
-	entries, err := fs.ReadDir(migrationFS, ".")
-	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
-	}
-	var names []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
-			names = append(names, entry.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
-		if err != nil {
-			return fmt.Errorf("parse migration version %s: %w", name, err)
-		}
-		var count int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'`).Scan(&count); err != nil {
-			return err
-		}
-		applied := 0
-		if count > 0 {
-			if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&applied); err != nil {
-				return err
-			}
-		}
-		if applied > 0 {
-			continue
-		}
-		content, err := migrationFS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES(?, ?)`, version, time.Now().UTC().Format(time.RFC3339)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+func (s *Store) ensureSchema(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("ensure sqlite schema: %w", err)
 	}
 	return nil
 }

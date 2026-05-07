@@ -5,13 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -28,9 +27,9 @@ func TestStorePersistsDatasourceAndQueries(t *testing.T) {
 		Type:     "postgres",
 		Provider: "postgres",
 		Config: map[string]any{
-			"host": "db.example.com",
-			"port": 5432,
-			"name": "analytics",
+			"host":     "db.example.com",
+			"port":     5432,
+			"database": "analytics",
 		},
 	}
 	if err := store.SaveDatasource(ctx, ds); err != nil {

@@ -33,14 +33,11 @@ export function endpointUrl(runtime: RuntimeStatus | null): string {
   if (runtime?.mcpBaseUrl) {
     return new URL('/mcp', runtime.mcpBaseUrl).toString();
   }
-  if (runtime?.baseUrl) {
-    return new URL('/mcp', runtime.baseUrl).toString();
-  }
-  return `http://127.0.0.1:${runtime?.mcpPort ?? runtime?.port ?? 18791}/mcp`;
+  return `http://127.0.0.1:${runtime?.mcpPort ?? 18791}/mcp`;
 }
 
 export function bundleUrl(agentSlug: string, runtime: RuntimeStatus | null): string {
-  const base = runtime?.adminBaseUrl ?? runtime?.baseUrl ?? `http://127.0.0.1:${runtime?.adminPort ?? runtime?.port ?? 18790}`;
+  const base = runtime?.adminBaseUrl ?? `http://127.0.0.1:${runtime?.adminPort ?? 18790}`;
   return new URL(`/bundles/${agentSlug}`, base).toString();
 }
 

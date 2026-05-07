@@ -1,30 +1,7 @@
 # CONSIDER: LLM-Driven Iterative Index Tuning
 
-## Status
+CrystalDBA-style loop: LLM proposes index configurations, HypoPG predicts impact, results feed back to the LLM, repeat until no further improvement. Deferred: needs LLM credentials, workload capture, plan-cost simulation, privacy controls, iterative orchestration, validation against over-indexing, and cross-engine parity (HypoPG is PostgreSQL-only).
 
-Not planned for near-term implementation. Capture only.
+If revisited: ship deterministic workload/top-query analysis and advisory index recommendations first (TODO Phase 9). LLM-driven tuning behind explicit opt-in and a separate security review.
 
-## Source Context
-
-CrystalDBA documents experimental LLM-based index tuning that proposes index configurations, predicts impact with HypoPG, feeds results back to the LLM, and repeats until no further improvements: https://github.com/crystaldba/postgres-mcp
-
-## Why This Is Large Scope
-
-This requires LLM credentials, query/workload capture, plan-cost simulation, privacy controls, iterative orchestration, and strong validation. It also starts with PostgreSQL-specific HypoPG; SQL Server parity would need separate adapter-local research and official-behavior validation.
-
-## Potential Value
-
-- Better index suggestions for large search spaces.
-- Iterative evaluation with plan-cost evidence.
-- DBA-assist workflows for difficult workloads.
-
-## Risks / Open Questions
-
-- How are sensitive schema/query details protected before sending to an LLM?
-- How are candidate indexes validated across engines?
-- What prevents over-indexing or workload regressions?
-- Should DataClaw require human approval for every recommendation?
-
-## If Revisited
-
-Implement deterministic workload/top-query and advisory index recommendations first. Keep LLM-driven tuning behind an explicit opt-in design and separate security review.
+Reference: https://github.com/crystaldba/postgres-mcp

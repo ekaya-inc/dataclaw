@@ -65,7 +65,7 @@ describe('DatasourcePage', () => {
       if (url === '/api/datasource/types') return datasourceTypesResponse();
       if (url === '/api/datasource' && !init?.method) return response({ datasource: null });
       if (url === '/api/datasource/test') return response({ success: true, message: 'Connected' });
-      if (url === '/api/datasource' && init?.method === 'PUT') return response({ datasource: { id: 'ds_1', type: 'postgres', display_name: 'dataclaw', host: 'db.example.com', port: 5432, name: 'warehouse', user: 'analyst', ssl_mode: 'require' } });
+      if (url === '/api/datasource' && init?.method === 'PUT') return response({ datasource: { id: 'ds_1', type: 'postgres', display_name: 'dataclaw', host: 'db.example.com', port: 5432, database: 'warehouse', username: 'analyst', ssl_mode: 'require' } });
       throw new Error(`Unhandled request: ${String(url)}`);
     });
 
@@ -151,8 +151,8 @@ describe('DatasourcePage', () => {
       display_name: 'dataclaw',
       host: 'db.example.com',
       port: 5432,
-      name: 'warehouse',
-      user: 'analyst',
+      database: 'warehouse',
+      username: 'analyst',
       password: 'secret',
       ssl_mode: 'require',
     };
@@ -210,8 +210,8 @@ describe('DatasourcePage', () => {
             display_name: 'dataclaw',
             host: 'db.example.com',
             port: 5432,
-            name: 'warehouse',
-            user: 'analyst',
+            database: 'warehouse',
+            username: 'analyst',
             password: 'secret',
             ssl_mode: 'require',
           },

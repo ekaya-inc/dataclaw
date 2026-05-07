@@ -6,6 +6,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>DataClaw</title>
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('dataclaw:theme');
+          var mode = stored === 'light' || stored === 'dark' ? stored : 'system';
+          document.documentElement.setAttribute('data-theme', mode);
+        } catch (_) {
+          document.documentElement.setAttribute('data-theme', 'system');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
