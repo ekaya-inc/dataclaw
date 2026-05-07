@@ -559,6 +559,60 @@ func TestParseDatasourceRequest(t *testing.T) {
 	})
 }
 
+func TestHandleCreateAndUpdateQueryRejectInvalidOutputColumns(t *testing.T) {
+	api := newTestAPI(t)
+	ctx := context.Background()
+	if _, err := api.service.UpsertDatasource(ctx, &storepkg.Datasource{
+		Name:     "Primary",
+		Type:     "postgres",
+		Provider: "postgres",
+		Config: map[string]any{
+			"host":     "db.example.com",
+			"database": "warehouse",
+			"username": "analyst",
+			"password": "secret",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDatasource: %v", err)
+	}
+
+	create := performJSONRequest(t, api, http.MethodPost, "/api/queries", map[string]any{
+		"natural_language_prompt": "Invalid output",
+		"sql_query":               "SELECT account_id FROM accounts",
+		"output_columns": []map[string]any{
+			{"name": " ", "type": "uuid"},
+		},
+	})
+	if create.Code != http.StatusBadRequest {
+		t.Fatalf("expected create status 400, got %d: %s", create.Code, create.Body.String())
+	}
+	if payload := decodeData(t, create); payload["error"] != "output_columns[0].name is required" {
+		t.Fatalf("expected output column name error, got %#v", payload["error"])
+	}
+
+	query, err := api.service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "List accounts",
+		SQLQuery:              "SELECT account_id FROM accounts",
+		OutputColumns:         []models.OutputColumn{{Name: "account_id", Type: "uuid"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery(valid): %v", err)
+	}
+	update := performJSONRequest(t, api, http.MethodPut, "/api/queries/"+query.ID, map[string]any{
+		"natural_language_prompt": "Invalid update",
+		"sql_query":               "SELECT account_id FROM accounts",
+		"output_columns": []map[string]any{
+			{"name": "account_id", "type": "\t"},
+		},
+	})
+	if update.Code != http.StatusBadRequest {
+		t.Fatalf("expected update status 400, got %d: %s", update.Code, update.Body.String())
+	}
+	if payload := decodeData(t, update); payload["error"] != "output_columns[0].type is required" {
+		t.Fatalf("expected output column type error, got %#v", payload["error"])
+	}
+}
+
 func TestHandleQueryByIDBranches(t *testing.T) {
 	t.Run("missing id returns not found", func(t *testing.T) {
 		api := newTestAPI(t)

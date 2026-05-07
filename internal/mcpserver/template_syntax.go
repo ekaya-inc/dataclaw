@@ -18,7 +18,7 @@ const (
 	templateSyntaxHintsTimeout = 2 * time.Second
 )
 
-var approvedQueryTemplateToolNames = []string{"create_query", "update_query"}
+var approvedQueryTemplateToolNames = []string{"validate_query", "create_query", "update_query"}
 
 var activeDatasourceSQLToolProperties = map[string][]string{
 	"query":      {"sql"},

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -207,7 +208,12 @@ func (s *Service) CreateQuery(ctx context.Context, q *storepkg.ApprovedQuery) (*
 	if err != nil {
 		return nil, err
 	}
+	outputColumns, err := validateOutputColumns(q.OutputColumns)
+	if err != nil {
+		return nil, err
+	}
 	q.SQLQuery = normalized
+	q.OutputColumns = outputColumns
 	if err := s.store.CreateQuery(ctx, q); err != nil {
 		return nil, err
 	}
@@ -229,12 +235,16 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 	if err != nil {
 		return nil, err
 	}
+	outputColumns, err := validateOutputColumns(q.OutputColumns)
+	if err != nil {
+		return nil, err
+	}
 	existing.NaturalLanguagePrompt = q.NaturalLanguagePrompt
 	existing.AdditionalContext = q.AdditionalContext
 	existing.SQLQuery = normalized
 	existing.AllowsModification = q.AllowsModification
 	existing.Parameters = q.Parameters
-	existing.OutputColumns = q.OutputColumns
+	existing.OutputColumns = outputColumns
 	existing.Constraints = q.Constraints
 	if err := s.store.UpdateQuery(ctx, existing); err != nil {
 		return nil, err
@@ -244,6 +254,26 @@ func (s *Service) UpdateQuery(ctx context.Context, id string, q *storepkg.Approv
 
 func (s *Service) DeleteQuery(ctx context.Context, id string) error {
 	return s.store.DeleteQuery(ctx, id)
+}
+
+func validateOutputColumns(columns []models.OutputColumn) ([]models.OutputColumn, error) {
+	if columns == nil {
+		return nil, nil
+	}
+	normalized := make([]models.OutputColumn, len(columns))
+	for idx, column := range columns {
+		column.Name = strings.TrimSpace(column.Name)
+		column.Type = strings.TrimSpace(column.Type)
+		column.Description = strings.TrimSpace(column.Description)
+		if column.Name == "" {
+			return nil, fmt.Errorf("output_columns[%d].name is required", idx)
+		}
+		if column.Type == "" {
+			return nil, fmt.Errorf("output_columns[%d].type is required", idx)
+		}
+		normalized[idx] = column
+	}
+	return normalized, nil
 }
 
 func (s *Service) ValidateQuerySQL(sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
+	"github.com/ekaya-inc/dataclaw/pkg/models"
 	sqltmpl "github.com/ekaya-inc/dataclaw/pkg/sql"
 )
 
@@ -242,6 +243,13 @@ func (s *Service) ListQueriesForAgent(ctx context.Context, agent *storepkg.Agent
 		return s.store.ListQueries(ctx)
 	}
 	return s.store.ListQueriesByIDs(ctx, agent.ApprovedQueryIDs)
+}
+
+func (s *Service) ValidateQuerySQLForAgent(ctx context.Context, agent *storepkg.Agent, sqlQuery string, parameters []models.QueryParameter, allowsModification bool) (string, error) {
+	if err := requireApprovedQueryManager(agent); err != nil {
+		return "", err
+	}
+	return s.ValidateQuerySQL(sqlQuery, parameters, allowsModification)
 }
 
 func (s *Service) CreateQueryForAgent(ctx context.Context, agent *storepkg.Agent, q *storepkg.ApprovedQuery) (*storepkg.ApprovedQuery, error) {
