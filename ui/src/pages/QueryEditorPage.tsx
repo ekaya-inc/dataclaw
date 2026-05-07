@@ -1,11 +1,11 @@
 import { AlertTriangle, ArrowLeft, FlaskConical, Save } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
 import type { AppOutletContext } from '../App';
 import { OutputColumnEditor } from '../components/OutputColumnEditor';
 import { ParameterEditor } from '../components/ParameterEditor';
-import { ParameterInputDialog } from '../components/ParameterInputDialog';
+import { hasRequiredExecutionValues, ParameterInputForm, pruneUnknownParameterValues } from '../components/ParameterInputForm';
 import { SqlEditor } from '../components/SqlEditor';
 import { PageHeader } from '../components/PageHeader';
 import { QueryResultsTable } from '../components/QueryResultsTable';
@@ -69,9 +69,12 @@ export default function QueryEditorPage(): JSX.Element {
   const [loading, setLoading] = useState(mode === 'edit');
   const [busy, setBusy] = useState<'loading' | 'saving' | 'testing' | null>(mode === 'edit' ? 'loading' : null);
   const [results, setResults] = useState<QueryExecutionResult | null>(null);
-  const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
   const storageKey = `dataclaw.queryParams.editor.${id ?? 'new'}`;
   const [storedValues, setStoredValues] = useStoredParameterValues(storageKey);
+  const parameterValues = useMemo(
+    () => pruneUnknownParameterValues(storedValues, draft.parameters),
+    [storedValues, draft.parameters],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -157,7 +160,6 @@ export default function QueryEditorPage(): JSX.Element {
       const execution = await testQuery(draft.sql, draft.parameters, draft.allowsModification, values);
       setResults(execution);
       toast({ variant: 'success', title: 'Draft query executed' });
-      setParameterDialogOpen(false);
     } catch (error) {
       toast({
         variant: 'error',
@@ -178,12 +180,8 @@ export default function QueryEditorPage(): JSX.Element {
       void runDraftTest({});
       return;
     }
-    setParameterDialogOpen(true);
-  };
-
-  const handleDialogSubmit = (values: Record<string, unknown>): void => {
-    setStoredValues(values);
-    void runDraftTest(values);
+    setStoredValues(parameterValues);
+    void runDraftTest(parameterValues);
   };
 
   const handleCancel = (): void => {
@@ -196,6 +194,11 @@ export default function QueryEditorPage(): JSX.Element {
 
   const submitLabel = mode === 'create' ? (busy === 'saving' ? 'Creating…' : 'Create query') : busy === 'saving' ? 'Saving…' : 'Save changes';
   const canSubmit = !loading && busy === null && draft.naturalLanguagePrompt.trim() !== '' && draft.sql.trim() !== '';
+  const canTestDraft =
+    !loading &&
+    busy === null &&
+    draft.sql.trim() !== '' &&
+    hasRequiredExecutionValues(draft.parameters, parameterValues);
 
   return (
     <div className="space-y-6">
@@ -309,13 +312,17 @@ export default function QueryEditorPage(): JSX.Element {
                 />
               </div>
 
+              {draft.parameters.length > 0 ? (
+                <ParameterInputForm parameters={draft.parameters} values={parameterValues} onChange={setStoredValues} />
+              ) : null}
+
               <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border-light pt-4">
                 <Button type="button" variant="outline" onClick={handleCancel} disabled={busy !== null}>
                   Cancel
                 </Button>
-                <Button type="button" variant="outline" onClick={handleTestDraftClick} disabled={loading || busy !== null || !draft.sql.trim()}>
+                <Button type="button" variant="outline" onClick={handleTestDraftClick} disabled={!canTestDraft}>
                   <FlaskConical className="h-4 w-4" />
-                  Test draft query
+                  {busy === 'testing' ? 'Testing…' : 'Test draft query'}
                 </Button>
                 <Button type="button" onClick={() => void handleSubmit()} disabled={!canSubmit}>
                   <Save className="h-4 w-4" />
@@ -328,18 +335,6 @@ export default function QueryEditorPage(): JSX.Element {
       </Card>
 
       {results ? <QueryResultsTable columns={results.columns} rows={results.rows} rowCount={results.rowCount} /> : null}
-
-      <ParameterInputDialog
-        open={parameterDialogOpen}
-        onOpenChange={setParameterDialogOpen}
-        parameters={draft.parameters}
-        initialValues={storedValues}
-        title="Test draft query"
-        description="Enter values for this draft's parameters. Defaults are used when present."
-        submitLabel="Run test"
-        submitting={busy === 'testing'}
-        onSubmit={handleDialogSubmit}
-      />
     </div>
   );
 }
