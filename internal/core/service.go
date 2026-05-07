@@ -102,10 +102,7 @@ func (s *Service) Status() map[string]any {
 		"mcp_url":               s.MCPURL(),
 		"admin_port":            adminPort,
 		"mcp_port":              mcpPort,
-		"base_url":              adminBaseURL,
-		"port":                  adminPort,
 		"listener_split":        s.listenerSplit,
-		"compatibility":         map[string]string{"base_url_alias": "admin_base_url", "port_alias": "admin_port"},
 		"datasource_configured": ds != nil,
 		"agent_count":           agentCount,
 	}

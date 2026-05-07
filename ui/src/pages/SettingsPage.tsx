@@ -34,7 +34,7 @@ export default function SettingsPage({ status, onLogout }: SettingsPageProps): J
           <dl className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
               <dt className="font-medium text-text-secondary">Admin base URL</dt>
-              <dd className="mt-1 break-all text-text-primary">{status?.adminBaseUrl ?? status?.baseUrl ?? 'Loading…'}</dd>
+              <dd className="mt-1 break-all text-text-primary">{status?.adminBaseUrl ?? 'Loading…'}</dd>
             </div>
             <div>
               <dt className="font-medium text-text-secondary">MCP URL</dt>
@@ -42,7 +42,7 @@ export default function SettingsPage({ status, onLogout }: SettingsPageProps): J
             </div>
             <div>
               <dt className="font-medium text-text-secondary">Admin port</dt>
-              <dd className="mt-1 text-text-primary">{status?.adminPort ?? status?.port ?? 'Loading…'}</dd>
+              <dd className="mt-1 text-text-primary">{status?.adminPort ?? 'Loading…'}</dd>
             </div>
             <div>
               <dt className="font-medium text-text-secondary">MCP port</dt>

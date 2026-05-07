@@ -21,7 +21,6 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/core"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
-	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
@@ -988,7 +987,7 @@ func newTestMCPService(t *testing.T, factory dsadapter.Factory, seedDatasource b
 	t.Helper()
 
 	ctx := context.Background()
-	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -999,7 +998,7 @@ func newTestMCPService(t *testing.T, factory dsadapter.Factory, seedDatasource b
 	service := core.New(st, secret, "test", func() string { return "http://127.0.0.1:18790" }, factory)
 
 	if seedDatasource {
-		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","user":"analyst","password":"secret"}`)
+		configCiphertext, err := security.EncryptString(secret, `{"host":"db.example.com","database":"warehouse","username":"analyst","password":"secret"}`)
 		if err != nil {
 			t.Fatalf("encrypt datasource config: %v", err)
 		}

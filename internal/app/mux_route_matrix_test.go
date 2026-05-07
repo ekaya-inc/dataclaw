@@ -15,7 +15,6 @@ import (
 	mcpserver "github.com/ekaya-inc/dataclaw/internal/mcpserver"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
-	"github.com/ekaya-inc/dataclaw/migrations"
 )
 
 func TestBuildAdminMuxRouteMatrix(t *testing.T) {
@@ -106,7 +105,7 @@ func newAppMuxTestAPI(t *testing.T) (*httpapi.API, *core.Service) {
 func newAppMuxTestService(t *testing.T) (*core.Service, *storepkg.Store) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	st, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

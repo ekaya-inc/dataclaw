@@ -24,7 +24,6 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
 	"github.com/ekaya-inc/dataclaw/internal/uifs"
-	"github.com/ekaya-inc/dataclaw/migrations"
 )
 
 func Run(version string) error {
@@ -33,9 +32,6 @@ func Run(version string) error {
 		return err
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
-	for _, warning := range cfg.Warnings {
-		slog.Warn(warning)
-	}
 	if cfg.Admin.PasswordDefaulted {
 		slog.Warn("admin password default is active; set DATACLAW_ADMIN_PASSWORD or admin.password in config.json")
 	}
@@ -53,7 +49,7 @@ func Run(version string) error {
 		return err
 	}
 	ctx := context.Background()
-	store, err := storepkg.Open(ctx, cfg.SQLitePath, migrations.FS)
+	store, err := storepkg.Open(ctx, cfg.SQLitePath)
 	if err != nil {
 		return err
 	}

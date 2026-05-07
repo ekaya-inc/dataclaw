@@ -10,7 +10,6 @@ import (
 	dsadapter "github.com/ekaya-inc/dataclaw/internal/adapters/datasource"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
-	"github.com/ekaya-inc/dataclaw/migrations"
 )
 
 func TestAgentInstallSlug(t *testing.T) {
@@ -36,7 +35,7 @@ func TestAgentInstallSlug(t *testing.T) {
 
 func TestBundleInstallCodeIsReusableUntilExpiry(t *testing.T) {
 	ctx := context.Background()
-	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -100,7 +99,7 @@ func TestBundleInstallCodeIsReusableUntilExpiry(t *testing.T) {
 
 func TestBundleURLsSeparateAdminDownloadsFromMCPManifestEndpoints(t *testing.T) {
 	ctx := context.Background()
-	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -150,8 +149,8 @@ func TestBundleURLsSeparateAdminDownloadsFromMCPManifestEndpoints(t *testing.T) 
 		t.Fatalf("expected one env file, got %#v", manifestBundle.Manifest.Install.EnvFiles)
 	}
 	values := manifestBundle.Manifest.Install.EnvFiles[0].Values
-	if values["DATACLAW_BASE_URL"] != mcpBaseURL {
-		t.Fatalf("expected compatibility DATACLAW_BASE_URL to use MCP base URL, got %q", values["DATACLAW_BASE_URL"])
+	if len(values) != 2 {
+		t.Fatalf("unexpected bundle env values: %#v", values)
 	}
 	if values["DATACLAW_MCP_BASE_URL"] != mcpBaseURL {
 		t.Fatalf("expected DATACLAW_MCP_BASE_URL to use MCP base URL, got %q", values["DATACLAW_MCP_BASE_URL"])

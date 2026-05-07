@@ -110,7 +110,7 @@ func seedSchemaDatasource(t *testing.T, service *Service) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	})

@@ -191,24 +191,23 @@ function toDatasourceAdapterInfo(raw: unknown): DatasourceAdapterInfo | null {
 function toDatasourceRecord(raw: unknown): DatasourceRecord | null {
   const record = asRecord(raw);
   const type = asString(pick(record, 'type'));
-  const config = asRecord(pick(record, 'config'));
   if (!record || !type) return null;
-  const host = asString(pick(record, 'host')) ?? asString(pick(config, 'host')) ?? '';
-  const database = asString(pick(record, 'database', 'name')) ?? asString(pick(config, 'database', 'name')) ?? '';
-  const username = asString(pick(record, 'username', 'user')) ?? asString(pick(config, 'user'));
-  const password = asString(pick(record, 'password')) ?? asString(pick(config, 'password'));
-  const sslMode = (asString(pick(record, 'sslMode', 'ssl_mode')) ?? asString(pick(config, 'ssl_mode'))) as DatasourceRecord['sslMode'];
-  const options = asRecord(pick(record, 'options')) ?? asRecord(pick(config, 'options'));
+  const host = asString(pick(record, 'host')) ?? '';
+  const database = asString(pick(record, 'database')) ?? '';
+  const username = asString(pick(record, 'username'));
+  const password = asString(pick(record, 'password'));
+  const sslMode = asString(pick(record, 'sslMode', 'ssl_mode')) as DatasourceRecord['sslMode'];
+  const options = asRecord(pick(record, 'options'));
   const provider = asString(pick(record, 'provider')) ?? type;
   return {
     id: asString(pick(record, 'id')) ?? 'default',
     type,
     provider,
     sqlDialect: asString(pick(record, 'sqlDialect', 'sql_dialect')),
-    displayName: (asString(pick(record, 'displayName', 'display_name')) ?? asString(pick(record, 'name')) ?? database) || provider,
+    displayName: (asString(pick(record, 'displayName', 'display_name')) ?? database) || provider,
     database,
     host,
-    port: asNumber(pick(record, 'port')) ?? asNumber(pick(config, 'port')) ?? 0,
+    port: asNumber(pick(record, 'port')) ?? 0,
     username,
     password,
     sslMode,
@@ -356,19 +355,20 @@ function datasourcePayload(values: DatasourceFormValues): Record<string, unknown
     type: values.type,
     provider: values.provider,
     display_name: values.displayName,
-    host: values.host,
-    port: Number(values.port),
-    name: values.database,
-    user: values.username,
-    password: values.password,
-    ssl_mode: values.sslMode,
-    options:
-      values.type === 'mssql'
+    config: {
+      host: values.host,
+      port: Number(values.port),
+      database: values.database,
+      username: values.username,
+      password: values.password,
+      ssl_mode: values.sslMode,
+      ...(values.type === 'mssql'
         ? {
             encrypt: values.encrypt,
             trust_server_certificate: values.trustServerCertificate,
           }
-        : undefined,
+        : {}),
+    },
   };
 }
 
@@ -462,11 +462,9 @@ export async function getStatus(): Promise<RuntimeStatus | null> {
   const record = asRecord(data);
   return {
     version: asString(pick(record, 'version')),
-    baseUrl: asString(pick(record, 'baseUrl', 'base_url', 'serverUrl', 'server_url')),
     adminBaseUrl: asString(pick(record, 'adminBaseUrl', 'admin_base_url')),
     mcpBaseUrl: asString(pick(record, 'mcpBaseUrl', 'mcp_base_url')),
     mcpUrl: asString(pick(record, 'mcpUrl', 'mcp_url')),
-    port: asNumber(pick(record, 'port')),
     adminPort: asNumber(pick(record, 'adminPort', 'admin_port')),
     mcpPort: asNumber(pick(record, 'mcpPort', 'mcp_port')),
     listenerSplit: asBoolean(pick(record, 'listenerSplit', 'listener_split')),

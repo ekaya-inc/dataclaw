@@ -14,4 +14,5 @@ Scope: this file applies to the repository root and everything under it.
 ## Editing guidance
 
 - Keep the app localhost-only unless the task explicitly changes that product constraint.
+- Do not add backward-compatibility fallbacks, legacy code paths, transitional storage, or automatic migrations from old behavior unless the user explicitly asks for them.
 - Prefer small, reversible diffs and reuse the existing backend/UI patterns before introducing new abstractions.

@@ -2,16 +2,16 @@ package postgres
 
 import "testing"
 
-func TestFromMapUsesLegacyDatabaseNameAndDefaults(t *testing.T) {
+func TestFromMapUsesDatabaseAndDefaults(t *testing.T) {
 	cfg, err := FromMap(map[string]any{
-		"host": "db.example.com",
-		"name": "warehouse",
+		"host":     "db.example.com",
+		"database": "warehouse",
 	})
 	if err != nil {
 		t.Fatalf("FromMap: %v", err)
 	}
 	if cfg.Database != "warehouse" {
-		t.Fatalf("expected database from legacy name field, got %#v", cfg)
+		t.Fatalf("expected database field, got %#v", cfg)
 	}
 	if cfg.Port != 5432 || cfg.SSLMode != "disable" {
 		t.Fatalf("expected postgres defaults, got %#v", cfg)

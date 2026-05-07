@@ -56,18 +56,10 @@ type response struct {
 }
 
 type datasourceRequest struct {
-	Name        string         `json:"name"`
 	DisplayName string         `json:"display_name"`
 	Type        string         `json:"type"`
 	Provider    string         `json:"provider,omitempty"`
 	Config      map[string]any `json:"config"`
-	Host        string         `json:"host"`
-	Port        any            `json:"port"`
-	User        string         `json:"user"`
-	Username    string         `json:"username"`
-	Password    string         `json:"password"`
-	SSLMode     string         `json:"ssl_mode"`
-	Options     map[string]any `json:"options"`
 }
 
 type queryRequest struct {
@@ -313,37 +305,8 @@ func parseDatasourceRequest(req datasourceRequest) *storepkg.Datasource {
 	config := req.Config
 	if config == nil {
 		config = map[string]any{}
-		if req.Host != "" {
-			config["host"] = req.Host
-		}
-		if req.Port != nil {
-			config["port"] = req.Port
-		}
-		username := req.Username
-		if username == "" {
-			username = req.User
-		}
-		if username != "" {
-			config["user"] = username
-		}
-		if req.Password != "" {
-			config["password"] = req.Password
-		}
-		if req.Name != "" {
-			config["name"] = req.Name
-			config["database"] = req.Name
-		}
-		if req.SSLMode != "" {
-			config["ssl_mode"] = req.SSLMode
-		}
-		for key, value := range req.Options {
-			config[key] = value
-		}
 	}
 	name := req.DisplayName
-	if name == "" {
-		name = req.Name
-	}
 	return &storepkg.Datasource{Name: name, Type: req.Type, Provider: req.Provider, Config: config}
 }
 
@@ -358,12 +321,10 @@ func (a *API) flattenDatasource(ds *storepkg.Datasource) map[string]any {
 		"provider":     ds.Provider,
 		"sql_dialect":  typeInfo.SQLDialect,
 		"display_name": ds.Name,
-		"name":         stringFromMap(ds.Config, "database", "name"),
-		"database":     stringFromMap(ds.Config, "database", "name"),
+		"database":     stringFromMap(ds.Config, "database"),
 		"host":         stringFromMap(ds.Config, "host"),
 		"port":         firstValue(ds.Config, "port"),
-		"user":         stringFromMap(ds.Config, "user", "username"),
-		"username":     stringFromMap(ds.Config, "user", "username"),
+		"username":     stringFromMap(ds.Config, "username"),
 		"password":     stringFromMap(ds.Config, "password"),
 		"ssl_mode":     stringFromMap(ds.Config, "ssl_mode"),
 		"options": map[string]any{

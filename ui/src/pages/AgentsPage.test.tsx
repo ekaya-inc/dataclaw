@@ -40,8 +40,9 @@ function renderPage(): ReturnType<typeof render> {
 
 function statusResponse(agentCount = 1): Response {
   return jsonResponse({
-    port: 18791,
-    base_url: 'http://127.0.0.1:18791',
+    admin_port: 18790,
+    admin_base_url: 'http://127.0.0.1:18790',
+    mcp_port: 18791,
     mcp_url: 'http://127.0.0.1:18791/mcp',
     datasource_configured: true,
     agent_count: agentCount,
@@ -77,7 +78,10 @@ describe('AgentsPage', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
       if (url === '/api/status') {
         return jsonResponse({
-          port: 18791,
+          admin_port: 18790,
+          admin_base_url: 'http://127.0.0.1:18790',
+          mcp_port: 18791,
+          mcp_url: 'http://127.0.0.1:18791/mcp',
           datasource_configured: false,
           agent_count: 0,
         });

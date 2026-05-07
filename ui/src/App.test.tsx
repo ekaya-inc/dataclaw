@@ -42,7 +42,7 @@ describe('App shell', () => {
   it('shows the dashboard empty state on / when no datasource is connected', async () => {
     window.history.pushState({}, '', '/');
     mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 2, datasource_configured: false },
+      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 2, datasource_configured: false },
       '/api/datasource': { datasource: null },
       '/api/datasource/types': { types: [{ type: 'postgres', display_name: 'PostgreSQL' }, { type: 'mssql', display_name: 'Microsoft SQL Server' }] },
       '/api/queries': { queries: [] },
@@ -65,7 +65,7 @@ describe('App shell', () => {
   it('renders the dashboard on / when a datasource is connected', async () => {
     window.history.pushState({}, '', '/');
     mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 1, datasource_configured: true },
+      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 1, datasource_configured: true },
       '/api/queries': { queries: [] },
       '/api/mcp-events': {
         items: [
@@ -101,7 +101,7 @@ describe('App shell', () => {
     window.history.pushState({}, '', '/datasource');
     expect(window.location.pathname).toBe('/datasource');
     mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: true },
+      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 0, datasource_configured: true },
       '/api/datasource': {
         datasource: {
           id: 'ds_1',
@@ -110,8 +110,8 @@ describe('App shell', () => {
           display_name: 'dataclaw',
           host: 'db.example.com',
           port: 5432,
-          name: 'warehouse',
-          user: 'analyst',
+          database: 'warehouse',
+          username: 'analyst',
           ssl_mode: 'require',
         },
       },
@@ -149,7 +149,7 @@ describe('App shell', () => {
     const fetchMock = mockFetch({
       '/api/auth/session': { status: 401, body: { success: false, error: 'unauthorized' } },
       '/api/auth/signin': { success: true, data: { authenticated: true } },
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: true },
+      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 0, datasource_configured: true },
       '/api/queries': { queries: [] },
       '/api/agents': { agents: [] },
     });
@@ -172,7 +172,7 @@ describe('App shell', () => {
   it('logs out through the auth API and returns to signin', async () => {
     window.history.pushState({}, '', '/');
     const fetchMock = mockFetch({
-      '/api/status': { port: 18790, base_url: 'http://127.0.0.1:18790', agent_count: 0, datasource_configured: false },
+      '/api/status': { admin_port: 18790, admin_base_url: 'http://127.0.0.1:18790', mcp_port: 18791, mcp_url: 'http://127.0.0.1:18791/mcp', agent_count: 0, datasource_configured: false },
       '/api/queries': { queries: [] },
       '/api/auth/logout': { success: true },
     });

@@ -43,7 +43,7 @@ func newFakeMCPAdapterFactory() *fakeMCPAdapterFactory {
 		},
 		newIntrospector: func(_ context.Context, _ string, config map[string]any) (dsadapter.DatasourceIntrospector, error) {
 			database, _ := config["database"].(string)
-			user, _ := config["user"].(string)
+			user, _ := config["username"].(string)
 			return fakeMCPDatasourceIntrospector{
 				info: &dsadapter.DatasourceInfo{
 					DatabaseName: database,

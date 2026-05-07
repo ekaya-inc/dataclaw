@@ -78,9 +78,6 @@ If neither `DATACLAW_ADMIN_PASSWORD` nor `admin.password` in the JSON config is 
 | `DATACLAW_MCP_TLS` | `false` | TLS semantics match admin TLS. |
 | `DATACLAW_MCP_TLS_CERT_FILE` | unset | MCP TLS certificate file. Must be set together with key file to serve TLS directly. |
 | `DATACLAW_MCP_TLS_KEY_FILE` | unset | MCP TLS key file. Must be set together with certificate file. |
-| `DATACLAW_BIND_ADDR` | `127.0.0.1` | Deprecated compatibility alias for `DATACLAW_ADMIN_BIND_ADDR`; affects admin only and logs a warning. |
-| `DATACLAW_PORT` | `18790` | Deprecated compatibility alias for `DATACLAW_ADMIN_PORT`; affects admin only and logs a warning. |
-
 Equivalent JSON config can be placed at `$DATACLAW_DATA_DIR/config.json` or the path named by `DATACLAW_CONFIG_PATH`:
 
 ```json

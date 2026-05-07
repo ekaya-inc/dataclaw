@@ -20,9 +20,9 @@ func FromMap(config map[string]any) (*Config, error) {
 	cfg := &Config{
 		Host:     datasource.StringValue(config["host"]),
 		Port:     datasource.IntValue(config["port"], 5432),
-		User:     datasource.StringValue(config["user"]),
+		User:     datasource.StringValue(config["username"]),
 		Password: datasource.StringValue(config["password"]),
-		Database: datasource.StringValue(datasource.FirstNonNil(config["database"], config["name"])),
+		Database: datasource.StringValue(config["database"]),
 		SSLMode:  datasource.StringValue(config["ssl_mode"]),
 	}
 	if cfg.SSLMode == "" {

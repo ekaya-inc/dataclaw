@@ -78,8 +78,8 @@ func TestBundleManifestAndDownloadRequireCodesButAllowReuseWithinExpiry(t *testi
 	envFiles := install["envFiles"].([]any)
 	envFile := envFiles[0].(map[string]any)
 	values := envFile["values"].(map[string]any)
-	if values["DATACLAW_BASE_URL"] != "http://127.0.0.1:18790" {
-		t.Fatalf("unexpected DATACLAW_BASE_URL: %#v", values["DATACLAW_BASE_URL"])
+	if len(values) != 2 {
+		t.Fatalf("unexpected bundle env values: %#v", values)
 	}
 	if values["DATACLAW_MCP_BASE_URL"] != "http://127.0.0.1:18790" {
 		t.Fatalf("unexpected DATACLAW_MCP_BASE_URL: %#v", values["DATACLAW_MCP_BASE_URL"])

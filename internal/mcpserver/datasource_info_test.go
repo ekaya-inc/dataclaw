@@ -161,7 +161,7 @@ func TestListToolsUpdatesDatasourceInformationDescriptionAfterDatasourceChange(t
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "analytics",
-			"user":     "readonly",
+			"username": "readonly",
 			"password": "secret",
 		},
 	})

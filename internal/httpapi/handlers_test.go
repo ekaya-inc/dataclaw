@@ -15,7 +15,6 @@ import (
 	"github.com/ekaya-inc/dataclaw/internal/core"
 	"github.com/ekaya-inc/dataclaw/internal/security"
 	storepkg "github.com/ekaya-inc/dataclaw/internal/store"
-	"github.com/ekaya-inc/dataclaw/migrations"
 	"github.com/ekaya-inc/dataclaw/pkg/models"
 )
 
@@ -127,7 +126,7 @@ func newTestAPI(t *testing.T) *API {
 func newTestAPIWithFactory(t *testing.T, factory dsadapter.Factory) *API {
 	t.Helper()
 	ctx := context.Background()
-	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"), migrations.FS)
+	store, err := storepkg.Open(ctx, filepath.Join(t.TempDir(), "dataclaw.sqlite"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -216,7 +215,7 @@ func TestPingReportsStatusAndVersion(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	}); err != nil {
@@ -325,7 +324,7 @@ func TestAgentCRUDAndSecretHandling(t *testing.T) {
 		Config: map[string]any{
 			"host":     "db.example.com",
 			"database": "warehouse",
-			"user":     "analyst",
+			"username": "analyst",
 			"password": "secret",
 		},
 	}); err != nil {
@@ -484,18 +483,18 @@ func TestWriteErrorMapsStatuses(t *testing.T) {
 }
 
 func TestParseDatasourceRequest(t *testing.T) {
-	t.Run("builds config from legacy fields", func(t *testing.T) {
+	t.Run("uses explicit config only", func(t *testing.T) {
 		ds := parseDatasourceRequest(datasourceRequest{
-			Name:        "warehouse",
 			DisplayName: "Primary Warehouse",
 			Type:        "postgres",
 			Provider:    "postgres",
-			Host:        "db.example.com",
-			Port:        5432,
-			User:        "legacy-user",
-			Password:    "secret",
-			SSLMode:     "require",
-			Options: map[string]any{
+			Config: map[string]any{
+				"host":        "db.example.com",
+				"port":        5432,
+				"username":    "analyst",
+				"password":    "secret",
+				"database":    "warehouse",
+				"ssl_mode":    "require",
 				"search_path": "analytics",
 			},
 		})
@@ -512,17 +511,14 @@ func TestParseDatasourceRequest(t *testing.T) {
 		if got := ds.Config["port"]; got != 5432 {
 			t.Fatalf("expected port 5432, got %#v", got)
 		}
-		if got := ds.Config["user"]; got != "legacy-user" {
-			t.Fatalf("expected user fallback, got %#v", got)
+		if got := ds.Config["username"]; got != "analyst" {
+			t.Fatalf("expected username, got %#v", got)
 		}
 		if got := ds.Config["password"]; got != "secret" {
 			t.Fatalf("expected password, got %#v", got)
 		}
 		if got := ds.Config["database"]; got != "warehouse" {
 			t.Fatalf("expected database derived from name, got %#v", got)
-		}
-		if got := ds.Config["name"]; got != "warehouse" {
-			t.Fatalf("expected config name derived from name, got %#v", got)
 		}
 		if got := ds.Config["ssl_mode"]; got != "require" {
 			t.Fatalf("expected ssl_mode, got %#v", got)
@@ -534,19 +530,11 @@ func TestParseDatasourceRequest(t *testing.T) {
 
 	t.Run("preserves explicit config", func(t *testing.T) {
 		ds := parseDatasourceRequest(datasourceRequest{
-			Name:        "warehouse",
 			DisplayName: "Primary Warehouse",
 			Type:        "postgres",
 			Provider:    "postgres",
 			Config: map[string]any{
 				"host": "db.internal",
-			},
-			Host:     "ignored.example.com",
-			Port:     5432,
-			Username: "ignored-user",
-			Password: "ignored-password",
-			Options: map[string]any{
-				"search_path": "ignored",
 			},
 		})
 
@@ -557,13 +545,13 @@ func TestParseDatasourceRequest(t *testing.T) {
 			t.Fatalf("expected explicit config host to survive, got %#v", got)
 		}
 		if _, ok := ds.Config["port"]; ok {
-			t.Fatalf("did not expect legacy port to be merged into explicit config: %#v", ds.Config)
+			t.Fatalf("did not expect port without explicit config entry: %#v", ds.Config)
 		}
-		if _, ok := ds.Config["user"]; ok {
-			t.Fatalf("did not expect legacy user to be merged into explicit config: %#v", ds.Config)
+		if _, ok := ds.Config["username"]; ok {
+			t.Fatalf("did not expect username without explicit config entry: %#v", ds.Config)
 		}
 		if _, ok := ds.Config["database"]; ok {
-			t.Fatalf("did not expect name-derived database when config is provided: %#v", ds.Config)
+			t.Fatalf("did not expect database without explicit config entry: %#v", ds.Config)
 		}
 		if _, ok := ds.Config["search_path"]; ok {
 			t.Fatalf("did not expect options to be merged when config is provided: %#v", ds.Config)
@@ -626,7 +614,7 @@ func TestHandleQueryByIDBranches(t *testing.T) {
 			Config: map[string]any{
 				"host":     "db.example.com",
 				"database": "warehouse",
-				"user":     "analyst",
+				"username": "analyst",
 				"password": "secret",
 			},
 		}); err != nil {
@@ -708,7 +696,7 @@ func TestHandleExecuteQueryBranches(t *testing.T) {
 			Config: map[string]any{
 				"host":     "db.example.com",
 				"database": "warehouse",
-				"user":     "analyst",
+				"username": "analyst",
 				"password": "secret",
 			},
 		}); err != nil {
@@ -771,7 +759,7 @@ func TestHandleExecuteQueryBranches(t *testing.T) {
 			Config: map[string]any{
 				"host":     "db.example.com",
 				"database": "warehouse",
-				"user":     "analyst",
+				"username": "analyst",
 				"password": "secret",
 			},
 		}); err != nil {

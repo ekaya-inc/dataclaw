@@ -61,11 +61,9 @@ export interface TestConnectionResult {
 
 export interface RuntimeStatus {
   version?: string | undefined;
-  baseUrl?: string | undefined;
   adminBaseUrl?: string | undefined;
   mcpBaseUrl?: string | undefined;
   mcpUrl?: string | undefined;
-  port?: number | undefined;
   adminPort?: number | undefined;
   mcpPort?: number | undefined;
   listenerSplit?: boolean | undefined;
