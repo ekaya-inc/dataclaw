@@ -9,7 +9,6 @@ import { ParameterInputDialog } from '../components/ParameterInputDialog';
 import { SqlEditor } from '../components/SqlEditor';
 import { PageHeader } from '../components/PageHeader';
 import { QueryResultsTable } from '../components/QueryResultsTable';
-import { TemplateSyntaxHintsPanel } from '../components/TemplateSyntaxHintsPanel';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -294,15 +293,13 @@ export default function QueryEditorPage(): JSX.Element {
                   validationStatus={validation.status}
                   validationError={validation.error}
                 />
-                <TemplateSyntaxHintsPanel
-                  dialect={datasource?.sqlDialect}
-                  hints={datasource?.templateSyntaxHints}
-                />
               </div>
 
               <ParameterEditor
                 parameters={draft.parameters}
                 onChange={(parameters) => updateDraft('parameters', parameters)}
+                dialect={datasource?.sqlDialect}
+                templateSyntaxHints={datasource?.templateSyntaxHints}
               />
 
               <OutputColumnEditor

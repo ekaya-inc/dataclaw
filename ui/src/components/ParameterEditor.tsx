@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronUp, HelpCircle, Plus, Trash2 } from 'lucide-react';
 
+import type { TemplateSyntaxHints } from '../types/datasource';
 import type { ParameterType, QueryParameter } from '../types/query';
 
 import { ParameterHelp } from './ParameterHelp';
@@ -22,7 +23,14 @@ function formatDefaultValue(value: unknown): string {
   return String(value);
 }
 
-export function ParameterEditor({ parameters, onChange }: { parameters: QueryParameter[]; onChange: (parameters: QueryParameter[]) => void }): JSX.Element {
+interface ParameterEditorProps {
+  parameters: QueryParameter[];
+  onChange: (parameters: QueryParameter[]) => void;
+  dialect?: string | undefined;
+  templateSyntaxHints?: TemplateSyntaxHints | undefined;
+}
+
+export function ParameterEditor({ parameters, onChange, dialect, templateSyntaxHints }: ParameterEditorProps): JSX.Element {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const updateParameter = (index: number, field: keyof QueryParameter, value: string | boolean | null): void => {
@@ -68,7 +76,7 @@ export function ParameterEditor({ parameters, onChange }: { parameters: QueryPar
           </Button>
         </div>
       </div>
-      {isHelpOpen ? <ParameterHelp panelId={PARAMETER_HELP_PANEL_ID} /> : null}
+      {isHelpOpen ? <ParameterHelp panelId={PARAMETER_HELP_PANEL_ID} dialect={dialect} hints={templateSyntaxHints} /> : null}
       {parameters.length === 0 ? (
         <p className="text-sm text-text-secondary">No parameters defined.</p>
       ) : (
