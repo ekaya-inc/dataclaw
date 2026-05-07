@@ -274,25 +274,38 @@ func (s *Service) DeleteQueryForAgent(ctx context.Context, agent *storepkg.Agent
 }
 
 func (s *Service) ExecuteStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any, options QueryOptions) (*QueryResult, error) {
-	allowed, err := s.agentHasQueryAccess(ctx, agent, id)
-	if err != nil {
+	if err := s.requireApprovedQueryForAgent(ctx, agent, id, "execute"); err != nil {
 		return nil, err
-	}
-	if !allowed {
-		return nil, errors.New("agent is not allowed to execute this approved query")
 	}
 	return s.ExecuteStoredQuery(ctx, id, values, options)
 }
 
 func (s *Service) CountStoredQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, values map[string]any) (*CountResult, error) {
-	allowed, err := s.agentHasQueryAccess(ctx, agent, id)
-	if err != nil {
+	if err := s.requireApprovedQueryForAgent(ctx, agent, id, "count"); err != nil {
 		return nil, err
 	}
-	if !allowed {
-		return nil, errors.New("agent is not allowed to count this approved query")
-	}
 	return s.CountStoredQuery(ctx, id, values)
+}
+
+func (s *Service) requireApprovedQueryForAgent(ctx context.Context, agent *storepkg.Agent, id string, action string) error {
+	if agent == nil {
+		return errors.New("agent is required")
+	}
+	query, err := s.store.GetQuery(ctx, id)
+	if err != nil {
+		return err
+	}
+	if query == nil {
+		return errors.New("approved query not found")
+	}
+	allowed, err := s.agentHasQueryAccess(ctx, agent, id)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return fmt.Errorf("agent is not allowed to %s this approved query", action)
+	}
+	return nil
 }
 
 func (s *Service) ExecuteRawStatement(ctx context.Context, sqlQuery string, options QueryOptions) (*ExecuteResult, error) {

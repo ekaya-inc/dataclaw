@@ -318,3 +318,99 @@ func TestDeleteDatasourcePreservesAgentsAndFailsClosed(t *testing.T) {
 		t.Fatal("expected ListQueriesForAgent to fail closed without datasource")
 	}
 }
+
+func TestExecuteStoredQueryForAgentReportsNotFoundForUnknownID(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	ctx := context.Background()
+	seedDatasource(t, service, "postgres")
+
+	created, err := service.CreateAgent(ctx, AgentInput{
+		Name:               "Universal",
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeAll,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	agent, err := service.AuthenticateAgent(ctx, created.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent: %v", err)
+	}
+
+	cases := []string{
+		"00000000-0000-0000-0000-000000000000",
+		"not-a-uuid",
+	}
+	for _, id := range cases {
+		t.Run("execute "+id, func(t *testing.T) {
+			_, err := service.ExecuteStoredQueryForAgent(ctx, agent, id, nil, QueryOptions{Limit: 1})
+			if err == nil {
+				t.Fatalf("expected error for unknown id %q", id)
+			}
+			if !strings.Contains(err.Error(), "not found") {
+				t.Fatalf("expected error to say %q, got %q", "not found", err.Error())
+			}
+			if strings.Contains(err.Error(), "not allowed") {
+				t.Fatalf("expected error to NOT mention permissions for unknown id, got %q", err.Error())
+			}
+		})
+		t.Run("count "+id, func(t *testing.T) {
+			_, err := service.CountStoredQueryForAgent(ctx, agent, id, nil)
+			if err == nil {
+				t.Fatalf("expected error for unknown id %q", id)
+			}
+			if !strings.Contains(err.Error(), "not found") {
+				t.Fatalf("expected error to say %q, got %q", "not found", err.Error())
+			}
+			if strings.Contains(err.Error(), "not allowed") {
+				t.Fatalf("expected error to NOT mention permissions for unknown id, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestExecuteStoredQueryForAgentStillReportsNotAllowedForRealButDisallowedQuery(t *testing.T) {
+	service := newTestService(t)
+	defer service.store.Close()
+	ctx := context.Background()
+	seedDatasource(t, service, "postgres")
+
+	queryA, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Allowed",
+		SQLQuery:              "SELECT 1 AS one",
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery(A): %v", err)
+	}
+	queryB, err := service.CreateQuery(ctx, &storepkg.ApprovedQuery{
+		NaturalLanguagePrompt: "Forbidden",
+		SQLQuery:              "SELECT 2 AS two",
+	})
+	if err != nil {
+		t.Fatalf("CreateQuery(B): %v", err)
+	}
+
+	created, err := service.CreateAgent(ctx, AgentInput{
+		Name:               "Selective",
+		ApprovedQueryScope: storepkg.ApprovedQueryScopeSelected,
+		ApprovedQueryIDs:   []string{queryA.ID},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	agent, err := service.AuthenticateAgent(ctx, created.APIKey)
+	if err != nil {
+		t.Fatalf("AuthenticateAgent: %v", err)
+	}
+
+	_, err = service.ExecuteStoredQueryForAgent(ctx, agent, queryB.ID, nil, QueryOptions{Limit: 1})
+	if err == nil {
+		t.Fatal("expected error for query the agent is not scoped to")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("expected error to say %q, got %q", "not allowed", err.Error())
+	}
+	if strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected error to NOT claim the query is missing, got %q", err.Error())
+	}
+}
