@@ -37,6 +37,8 @@ func TestBuildAdminMuxRouteMatrix(t *testing.T) {
 	}{
 		{name: "ping public", method: http.MethodGet, path: "/ping", wantStatus: http.StatusOK},
 		{name: "api status requires admin session", method: http.MethodGet, path: "/api/status", wantStatus: http.StatusUnauthorized, wantHeader: "application/json"},
+		{name: "api datasource requires admin session", method: http.MethodGet, path: "/api/datasource", wantStatus: http.StatusUnauthorized, wantHeader: "application/json"},
+		{name: "logout requires admin session", method: http.MethodPost, path: "/api/auth/logout", wantStatus: http.StatusUnauthorized, wantHeader: "application/json"},
 		{name: "html navigation redirects to signin", method: http.MethodGet, path: "/", accept: "text/html", wantStatus: http.StatusFound},
 		{name: "signin shell public", method: http.MethodGet, path: "/signin", accept: "text/html", wantStatus: http.StatusOK, wantHeader: "text/html"},
 		{name: "signin asset public", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK},

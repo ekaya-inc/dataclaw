@@ -72,9 +72,57 @@ func TestAdminAuthSigninSessionLogoutAndSignedCookie(t *testing.T) {
 	}
 }
 
+func TestAdminAuthRejectsExpiredUnsupportedAndInsecureCookies(t *testing.T) {
+	auth := newTestAdminAuth(t)
+	tests := []struct {
+		name    string
+		session adminSessionPayload
+	}{
+		{name: "expired", session: adminSessionPayload{Version: 1, Issued: 1, Expires: 99, SID: "sid", CSRF: "csrf-token"}},
+		{name: "unsupported version", session: adminSessionPayload{Version: 2, Issued: 1, Expires: 200, SID: "sid", CSRF: "csrf-token"}},
+		{name: "missing csrf", session: adminSessionPayload{Version: 1, Issued: 1, Expires: 200, SID: "sid"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := auth.signSession(tc.session)
+			if err != nil {
+				t.Fatalf("sign session: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://dataclaw.local/api/auth/session", nil)
+			req.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: value})
+			rec := httptest.NewRecorder()
+			auth.HandleSession(rec, req)
+			if rec.Code != http.StatusUnauthorized || sessionCookieFrom(rec).MaxAge != -1 {
+				t.Fatalf("session response = %d cookies=%v body=%s", rec.Code, rec.Result().Cookies(), rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminAuthRememberUsesLongTTLAndHTTPSCookieSecureFlag(t *testing.T) {
+	auth := newTestAdminAuth(t, AdminAuthOptions{AdminBaseURL: "https://dataclaw.local"})
+	req := httptest.NewRequest(http.MethodPost, "https://dataclaw.local/api/auth/signin", strings.NewReader(`{"password":"secret","remember":true}`))
+	req.Header.Set("Origin", "https://dataclaw.local")
+	rec := httptest.NewRecorder()
+
+	auth.HandleSignIn(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("signin status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	cookie := sessionCookieFrom(rec)
+	if cookie == nil || !cookie.Secure {
+		t.Fatalf("expected secure session cookie, got %#v", cookie)
+	}
+	wantExpiry := time.Unix(100, 0).UTC().Add(2 * time.Hour)
+	if !cookie.Expires.Equal(wantExpiry) {
+		t.Fatalf("remember cookie expiry = %s, want %s", cookie.Expires, wantExpiry)
+	}
+}
+
 func TestAdminAuthMiddlewareRequiresSessionAndSameOriginForUnsafeAPI(t *testing.T) {
 	auth := newTestAdminAuth(t)
-	encoded, err := auth.signSession(adminSessionPayload{Version: 1, Issued: 50, Expires: 200, SID: "sid"})
+	encoded, err := auth.signSession(adminSessionPayload{Version: 1, Issued: 50, Expires: 200, SID: "sid", CSRF: "csrf-token"})
 	if err != nil {
 		t.Fatalf("sign session: %v", err)
 	}
@@ -118,12 +166,33 @@ func TestAdminAuthMiddlewareRequiresSessionAndSameOriginForUnsafeAPI(t *testing.
 	allowed.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: encoded})
 	rec = httptest.NewRecorder()
 	protected.ServeHTTP(rec, allowed)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	badCSRF := httptest.NewRequest(http.MethodPost, "http://dataclaw.local/api/datasource", nil)
+	badCSRF.Header.Set("Origin", "http://dataclaw.local")
+	badCSRF.Header.Set("X-CSRF-Token", "wrong")
+	badCSRF.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: encoded})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, badCSRF)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("bad csrf status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	allowed = httptest.NewRequest(http.MethodPost, "http://dataclaw.local/api/datasource", nil)
+	allowed.Header.Set("Origin", "http://dataclaw.local")
+	allowed.Header.Set("X-CSRF-Token", "csrf-token")
+	allowed.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: encoded})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, allowed)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("allowed status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
 	refererAllowed := httptest.NewRequest(http.MethodDelete, "http://dataclaw.local/api/datasource", nil)
 	refererAllowed.Header.Set("Referer", "http://dataclaw.local/datasource")
+	refererAllowed.Header.Set("X-CSRF-Token", "csrf-token")
 	refererAllowed.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: encoded})
 	rec = httptest.NewRecorder()
 	protected.ServeHTTP(rec, refererAllowed)

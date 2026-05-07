@@ -195,7 +195,8 @@ func (a *AdminAuth) RequireAdmin(next http.Handler) http.Handler {
 				writeAdminAuthJSON(w, http.StatusForbidden, adminAuthResponse{Success: false, Error: "forbidden"})
 				return
 			}
-			if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(session.CSRF)) != 1 {
+			csrfHeader := r.Header.Get("X-CSRF-Token")
+			if session.CSRF == "" || csrfHeader == "" || subtle.ConstantTimeCompare([]byte(csrfHeader), []byte(session.CSRF)) != 1 {
 				writeAdminAuthJSON(w, http.StatusForbidden, adminAuthResponse{Success: false, Error: "csrf token required"})
 				return
 			}
@@ -223,7 +224,7 @@ func (a *AdminAuth) Session(r *http.Request) (adminSessionPayload, bool) {
 	if err != nil {
 		return adminSessionPayload{}, false
 	}
-	if session.Version != 1 || session.Expires <= a.now().Unix() {
+	if session.Version != 1 || session.Expires <= a.now().Unix() || session.CSRF == "" {
 		return adminSessionPayload{}, false
 	}
 	return session, true

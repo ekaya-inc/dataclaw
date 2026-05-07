@@ -18,7 +18,7 @@ func BuildAdminMux(api *httpapi.API, auth *AdminAuth, uiFS fs.FS) http.Handler {
 	mux.Handle("HEAD /ping", apiMux)
 	mux.Handle("GET /bundles/", apiMux)
 	mux.HandleFunc("POST /api/auth/signin", auth.HandleSignIn)
-	mux.HandleFunc("POST /api/auth/logout", auth.HandleLogout)
+	mux.Handle("POST /api/auth/logout", auth.RequireAdmin(http.HandlerFunc(auth.HandleLogout)))
 	mux.HandleFunc("GET /api/auth/session", auth.HandleSession)
 	mux.Handle("/api/", auth.RequireAdmin(apiMux))
 	mux.Handle("GET /signin", auth.RedirectIfAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
