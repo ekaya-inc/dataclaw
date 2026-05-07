@@ -369,6 +369,49 @@ func TestDownloadMCPEventsReturnsAllFieldsOldestFirstCSV(t *testing.T) {
 	assertJSONCell(t, recent[index["result_summary"]], "status", "blocked")
 }
 
+func TestDownloadMCPEventsNeutralizesSpreadsheetFormulaTextCells(t *testing.T) {
+	api := newTestAPI(t)
+	seedMCPEvent(t, api, &storepkg.MCPToolEvent{
+		ID:            "evt_formula",
+		AgentName:     "@agent",
+		ToolName:      "+tool",
+		EventType:     storepkg.MCPToolEventTypeError,
+		WasSuccessful: false,
+		DurationMs:    7,
+		RequestParams: map[string]any{"query": "=SELECT 1"},
+		ResultSummary: map[string]any{"status": "-not-a-formula-cell"},
+		ErrorMessage:  "-failed",
+		QueryName:     "=HYPERLINK(\"https://example.test\")",
+		SQLText:       "@SUM(1,1)",
+		CreatedAt:     time.Date(2026, 4, 17, 17, 0, 0, 0, time.UTC),
+	})
+
+	rec := performJSONRequest(t, api, http.MethodGet, "/api/mcp-events.csv", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected download status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rows := readCSVRows(t, rec.Body.Bytes())
+	if len(rows) != 2 {
+		t.Fatalf("expected one exported event, got rows=%#v", rows)
+	}
+
+	index := csvHeaderIndex(t, rows[0])
+	row := rows[1]
+	for field, want := range map[string]string{
+		"agent_name":    "'@agent",
+		"tool_name":     "'+tool",
+		"error_message": "'-failed",
+		"query_name":    "'=HYPERLINK(\"https://example.test\")",
+		"sql_text":      "'@SUM(1,1)",
+	} {
+		if got := row[index[field]]; got != want {
+			t.Fatalf("expected %s cell %q, got %q", field, want, got)
+		}
+	}
+	assertJSONCell(t, row[index["request_params"]], "query", "=SELECT 1")
+	assertJSONCell(t, row[index["result_summary"]], "status", "-not-a-formula-cell")
+}
+
 func TestDownloadMCPEventsNamespaceDoesNotStealDetailIDs(t *testing.T) {
 	api := newTestAPI(t)
 	seedMCPEvent(t, api, &storepkg.MCPToolEvent{

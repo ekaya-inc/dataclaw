@@ -133,18 +133,30 @@ func mcpEventCSVRecord(event *storepkg.MCPToolEvent) ([]string, error) {
 	return []string{
 		event.ID,
 		agentID,
-		event.AgentName,
-		event.ToolName,
+		spreadsheetSafeTextCell(event.AgentName),
+		spreadsheetSafeTextCell(event.ToolName),
 		string(event.EventType),
 		strconv.FormatBool(event.WasSuccessful),
 		strconv.Itoa(event.DurationMs),
 		requestParams,
 		resultSummary,
-		event.ErrorMessage,
-		event.QueryName,
-		event.SQLText,
+		spreadsheetSafeTextCell(event.ErrorMessage),
+		spreadsheetSafeTextCell(event.QueryName),
+		spreadsheetSafeTextCell(event.SQLText),
 		event.CreatedAt.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func spreadsheetSafeTextCell(value string) string {
+	if value == "" {
+		return ""
+	}
+	switch value[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
 }
 
 func mcpEventJSONCell(value map[string]any) (string, error) {
