@@ -82,7 +82,7 @@ export function ParameterEditor({ parameters, onChange, dialect, templateSyntaxH
       ) : (
         <div className="space-y-3">
           {parameters.map((parameter, index) => (
-            <div key={`${parameter.name}-${index}`} className="grid gap-3 rounded-xl border border-border-light p-4 md:grid-cols-12">
+            <div key={index} className="grid gap-3 rounded-xl border border-border-light p-4 md:grid-cols-12">
               <div className="md:col-span-3">
                 <Label htmlFor={`parameter-name-${index}`}>Name</Label>
                 <Input

@@ -15,7 +15,6 @@ import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { useToast } from '../components/ui/Toast';
 import { QUERY_TEMPLATE } from '../constants';
-import { useSqlValidation } from '../hooks/useSqlValidation';
 import { useStoredParameterValues } from '../hooks/useStoredParameterValues';
 import { createQuery, getDatasource, getQuery, testQuery, updateQuery } from '../services/api';
 import type { DatasourceRecord } from '../types/datasource';
@@ -73,12 +72,6 @@ export default function QueryEditorPage(): JSX.Element {
   const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
   const storageKey = `dataclaw.queryParams.editor.${id ?? 'new'}`;
   const [storedValues, setStoredValues] = useStoredParameterValues(storageKey);
-
-  const validation = useSqlValidation({
-    sql: draft.sql,
-    parameters: draft.parameters,
-    allowsModification: draft.allowsModification,
-  });
 
   useEffect(() => {
     let cancelled = false;
@@ -290,8 +283,6 @@ export default function QueryEditorPage(): JSX.Element {
                   value={draft.sql}
                   onChange={(value) => updateDraft('sql', value)}
                   dialect={dialect}
-                  validationStatus={validation.status}
-                  validationError={validation.error}
                 />
               </div>
 
