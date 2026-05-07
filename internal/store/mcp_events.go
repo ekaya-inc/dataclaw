@@ -179,6 +179,31 @@ func (s *Store) ListMCPToolEvents(ctx context.Context, options ListMCPToolEventO
 	return &MCPToolEventPage{Items: items, Total: total, Limit: options.Limit, Offset: options.Offset}, nil
 }
 
+func (s *Store) ExportMCPToolEvents(ctx context.Context) ([]*MCPToolEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+mcpToolEventDetailColumns+`
+		FROM mcp_tool_events
+		ORDER BY created_at ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]*MCPToolEvent, 0)
+	for rows.Next() {
+		event, err := scanMCPToolEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 func (s *Store) GetMCPToolEvent(ctx context.Context, id string) (*MCPToolEvent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {

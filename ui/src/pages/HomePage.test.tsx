@@ -250,4 +250,33 @@ describe('HomePage', () => {
       expect(url.searchParams.get('offset')).toBe('0');
     });
   });
+
+  it('shows a filter-independent Download Logs link', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+      jsonResponse({ success: true, data: { items: [], total: 0, limit: 50, offset: 0 } }),
+    );
+
+    renderHomePage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole('button', { name: /last 24h/i }));
+    await userEvent.selectOptions(screen.getByLabelText(/event type/i), 'tool_error');
+    await userEvent.type(screen.getByLabelText(/filter by tool/i), 'execute');
+    await userEvent.type(screen.getByLabelText(/filter by agent/i), 'Marketing');
+
+    await waitFor(() => {
+      const rawUrl = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[0];
+      const url = new URL(String(rawUrl), 'http://localhost');
+      expect(url.pathname).toBe('/api/mcp-events');
+      expect(url.searchParams.get('range')).toBe('24h');
+      expect(url.searchParams.get('event_type')).toBe('tool_error');
+      expect(url.searchParams.get('tool_name')).toBe('execute');
+      expect(url.searchParams.get('agent_name')).toBe('Marketing');
+    });
+
+    const downloadLink = screen.getByRole('link', { name: /download logs/i });
+    const downloadURL = new URL(downloadLink.getAttribute('href') ?? '', 'http://localhost');
+    expect(downloadURL.pathname).toBe('/api/mcp-events.csv');
+    expect(downloadURL.search).toBe('');
+  });
 });

@@ -12,6 +12,7 @@ import {
   getQuery,
   listMCPEvents,
   logout,
+  mcpEventsDownloadURL,
   signin,
   testQuery,
   validateQuery,
@@ -152,6 +153,13 @@ describe('api service contracts', () => {
       credentials: 'same-origin',
       method: 'DELETE',
     });
+  });
+
+  it('returns a parameterless mcp-events CSV download URL', () => {
+    const url = new URL(mcpEventsDownloadURL(), 'http://localhost');
+
+    expect(url.pathname).toBe('/api/mcp-events.csv');
+    expect(url.search).toBe('');
   });
 
   it('creates agents with the selected approved-query scope payload', async () => {

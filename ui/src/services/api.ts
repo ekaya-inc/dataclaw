@@ -424,6 +424,10 @@ export async function listMCPEvents(filters: MCPToolEventFilters = {}): Promise<
   };
 }
 
+export function mcpEventsDownloadURL(): string {
+  return '/api/mcp-events.csv';
+}
+
 export async function getMCPEvent(id: string): Promise<MCPToolEventDetails> {
   const data = await parseResponse<unknown>(await apiFetch(`/api/mcp-events/${encodeURIComponent(id)}`));
   const record = asRecord(data);

@@ -232,6 +232,117 @@ func TestClearMCPToolEventsDeletesAllEventsAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestExportMCPToolEventsReturnsAllDetailsOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	agent := &Agent{Name: "Marketing bot", APIKeyEncrypted: "encrypted-key", ApprovedQueryScope: ApprovedQueryScopeNone}
+	if err := store.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	base := time.Date(2026, 4, 17, 17, 0, 0, 0, time.UTC)
+	for _, event := range []*MCPToolEvent{
+		{
+			ID:            "evt_recent",
+			AgentName:     "Operations bot",
+			ToolName:      "execute_query",
+			EventType:     MCPToolEventTypeCall,
+			WasSuccessful: true,
+			DurationMs:    33,
+			RequestParams: map[string]any{"query_id": "query_recent"},
+			ResultSummary: map[string]any{"row_count": "2"},
+			CreatedAt:     base.Add(3 * time.Minute),
+		},
+		{
+			ID:            "evt_tie_b",
+			AgentID:       stringPtr(agent.ID),
+			AgentName:     "Marketing bot",
+			ToolName:      "query",
+			EventType:     MCPToolEventTypeCall,
+			WasSuccessful: true,
+			DurationMs:    12,
+			RequestParams: map[string]any{"sql": "SELECT * FROM campaigns"},
+			ResultSummary: map[string]any{"row_count": "3"},
+			QueryName:     "Campaigns",
+			SQLText:       "SELECT * FROM campaigns",
+			CreatedAt:     base,
+		},
+		{
+			ID:            "evt_tie_a",
+			AgentID:       stringPtr(agent.ID),
+			AgentName:     "Marketing bot",
+			ToolName:      "execute_query",
+			EventType:     MCPToolEventTypeError,
+			WasSuccessful: false,
+			DurationMs:    44,
+			RequestParams: map[string]any{"query_id": "query_1"},
+			ResultSummary: map[string]any{"status": "blocked"},
+			ErrorMessage:  "permission denied",
+			QueryName:     "Top campaigns",
+			SQLText:       "SELECT id FROM campaigns",
+			CreatedAt:     base,
+		},
+	} {
+		if err := store.RecordMCPToolEvent(ctx, event, nil); err != nil {
+			t.Fatalf("RecordMCPToolEvent(%s): %v", event.ID, err)
+		}
+	}
+
+	events, err := store.ExportMCPToolEvents(ctx)
+	if err != nil {
+		t.Fatalf("ExportMCPToolEvents: %v", err)
+	}
+	if got, want := len(events), 3; got != want {
+		t.Fatalf("expected %d exported events, got %d", want, got)
+	}
+	gotOrder := []string{events[0].ID, events[1].ID, events[2].ID}
+	wantOrder := []string{"evt_tie_a", "evt_tie_b", "evt_recent"}
+	for index, want := range wantOrder {
+		if gotOrder[index] != want {
+			t.Fatalf("unexpected export order: got %#v want %#v", gotOrder, wantOrder)
+		}
+	}
+
+	first := events[0]
+	if first.AgentID == nil || *first.AgentID != agent.ID {
+		t.Fatalf("expected agent_id round-trip, got %#v", first.AgentID)
+	}
+	if first.AgentName != "Marketing bot" || first.ToolName != "execute_query" || first.EventType != MCPToolEventTypeError {
+		t.Fatalf("unexpected event identity fields: %#v", first)
+	}
+	if first.WasSuccessful || first.DurationMs != 44 {
+		t.Fatalf("unexpected status/duration fields: success=%t duration=%d", first.WasSuccessful, first.DurationMs)
+	}
+	if first.RequestParams["query_id"] != "query_1" || first.ResultSummary["status"] != "blocked" {
+		t.Fatalf("expected JSON details to round-trip, got params=%#v summary=%#v", first.RequestParams, first.ResultSummary)
+	}
+	if first.ErrorMessage != "permission denied" || first.QueryName != "Top campaigns" || first.SQLText != "SELECT id FROM campaigns" {
+		t.Fatalf("expected text details to round-trip, got error=%q query=%q sql=%q", first.ErrorMessage, first.QueryName, first.SQLText)
+	}
+	if !first.CreatedAt.Equal(base) {
+		t.Fatalf("expected created_at=%s, got %s", base.Format(time.RFC3339), first.CreatedAt.Format(time.RFC3339))
+	}
+	if events[2].AgentID != nil {
+		t.Fatalf("expected nil agent_id for evt_recent, got %#v", events[2].AgentID)
+	}
+}
+
+func TestExportMCPToolEventsEmpty(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	events, err := store.ExportMCPToolEvents(ctx)
+	if err != nil {
+		t.Fatalf("ExportMCPToolEvents(empty): %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no exported events, got %#v", events)
+	}
+}
+
 func findSummaryByID(t *testing.T, items []*MCPToolEventSummary, id string) *MCPToolEventSummary {
 	t.Helper()
 	for _, item := range items {

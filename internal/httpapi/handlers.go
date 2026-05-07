@@ -28,6 +28,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/mcp-events", a.handleListMCPEvents)
 	mux.HandleFunc("DELETE /api/mcp-events", a.handleClearMCPEvents)
+	mux.HandleFunc("GET /api/mcp-events.csv", a.handleDownloadMCPEvents)
 	mux.HandleFunc("GET /api/mcp-events/", a.handleGetMCPEvent)
 	mux.HandleFunc("GET /api/datasource", a.handleGetDatasource)
 	mux.HandleFunc("GET /api/datasource/types", a.handleGetDatasourceTypes)

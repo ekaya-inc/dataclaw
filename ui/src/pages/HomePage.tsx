@@ -1,10 +1,10 @@
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Download, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
-import { Button } from '../components/ui/Button';
+import { Button, buttonVariants } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import {
   Dialog,
@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
-import { deleteMCPEvents, getMCPEvent, listMCPEvents } from '../services/api';
+import { deleteMCPEvents, getMCPEvent, listMCPEvents, mcpEventsDownloadURL } from '../services/api';
 import type { MCPToolEventDetails, MCPToolEventPage, MCPToolEventRange, MCPToolEventType } from '../types/mcpEvent';
 import { cn } from '../utils/cn';
 
@@ -212,6 +212,10 @@ export default function HomePage({ datasourceConfigured, statusLoaded }: HomePag
               <RefreshCw className={cn('h-4 w-4', loading ? 'animate-spin' : undefined)} />
               Refresh
             </Button>
+            <a href={mcpEventsDownloadURL()} className={buttonVariants({ variant: 'outline' })}>
+              <Download className="h-4 w-4" />
+              Download Logs
+            </a>
             <Button type="button" variant="destructive" onClick={openDeleteDialog} disabled={deletePending}>
               <Trash2 className="h-4 w-4" />
               Delete Log
