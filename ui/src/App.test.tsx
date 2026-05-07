@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, vi } from 'vitest';
 
@@ -55,6 +55,15 @@ describe('App shell', () => {
 
     expect(screen.getByText(/start by adding a datasource/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /configure datasource/i })).toBeInTheDocument();
+
+    const navLinks = within(screen.getByRole('navigation')).getAllByRole('link');
+    expect(navLinks.map((link) => link.textContent?.trim())).toEqual([
+      'Dashboard',
+      'Datasource',
+      'Approved Queries',
+      'Agent Access',
+    ]);
+    expect(navLinks[0]).toHaveAttribute('href', '/');
 
     const agentsLink = screen.getByRole('link', { name: /^agent access$/i });
     expect(agentsLink.querySelector('[aria-label="Completed"]')).toBeNull();
